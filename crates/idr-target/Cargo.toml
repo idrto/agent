@@ -1,0 +1,75 @@
+[package]
+name = "idr-target"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IDR Target Agent library — Presence, Relay QUIC, tunnels, ACME, WebRTC answerer"
+repository.workspace = true
+
+[features]
+default = []
+webrtc = ["dep:datachannel"]
+
+[dependencies]
+idr-protocol = { workspace = true }
+idr-core = { workspace = true }
+anyhow = { workspace = true }
+async-trait = "0.1"
+base64 = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+ed25519-dalek = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+parking_lot = { workspace = true }
+postcard = { workspace = true }
+prometheus = { workspace = true }
+quinn = { workspace = true }
+rand = { workspace = true }
+rcgen = { workspace = true }
+rusqlite = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+toml = { workspace = true }
+reqwest = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+instant-acme = { workspace = true }
+rustls-pemfile = { workspace = true }
+webpki-roots = { workspace = true }
+
+[dependencies.datachannel]
+git = "https://github.com/idrto/datachannel-rs"
+rev = "519a790"
+features = ["tracing", "vendored"]
+optional = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio-test = { workspace = true }
+
+[[bench]]
+name = "relay_table"
+harness = false
+path = "../../benches/relay_table.rs"
+
+[[bench]]
+name = "signaling_dedup"
+harness = false
+path = "../../benches/signaling_dedup.rs"
+
+[[bench]]
+name = "idle_scheduler"
+harness = false
+path = "../../benches/idle_scheduler.rs"

@@ -1,0 +1,23 @@
+[package]
+name = "target-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IDR Target Agent service binary"
+repository.workspace = true
+
+[[bin]]
+name = "target-agent"
+path = "src/main.rs"
+
+[features]
+default = []
+webrtc = ["idr-target/webrtc"]
+
+[dependencies]
+idr-target = { workspace = true }
+anyhow = { workspace = true }
+prometheus = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

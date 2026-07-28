@@ -1,0 +1,24 @@
+[package]
+name = "idr-source"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Minimal mobile-first IDR Source Agent (WebRTC-only, no Relay)"
+repository.workspace = true
+
+[dependencies]
+idr-core = { workspace = true }
+idr-protocol = { workspace = true }
+idr-signaling = { workspace = true }
+idr-webrtc = { workspace = true }
+async-trait = "0.1"
+bytes = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+idr-signaling = { workspace = true }
+idr-webrtc = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

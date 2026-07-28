@@ -1,0 +1,14 @@
+name: idr_core_ffi
+description: Low-level Dart FFI bindings for the IDR Source C ABI.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0

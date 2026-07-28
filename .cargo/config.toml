@@ -1,0 +1,4 @@
+# Optional tool configuration. Do not force a Windows Clang path here —
+# that breaks Linux/WSL when the tree is shared across OS mounts.
+#
+# For Windows ARM64 aws-lc-sys builds, see config.windows-arm64.toml.example

@@ -1,0 +1,19 @@
+name: agent
+repository: https://github.com/idrto/agent
+
+packages:
+  - packages/**
+
+command:
+  bootstrap:
+    runPubGetInParallel: true
+
+scripts:
+  analyze:
+    run: dart analyze .
+    exec:
+      concurrency: 3
+  test:
+    run: dart test
+    packageFilters:
+      dirExists: test

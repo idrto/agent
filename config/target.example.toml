@@ -1,0 +1,77 @@
+[target]
+fqhn = "host-identity.idr.to"
+agent_region = "eu-central"
+# identity_key_path = "target.key"
+
+# Billing party pair sent on every Presence registration.
+[billing_party]
+using_party = "alice@acme.com"
+# paying_party = "billing@acme.com"  # optional; defaults to using_party
+
+[presence]
+discovery_url = "https://public.idr.to/.well-known/idr-presence.json"
+discovery_key = "lQuEz1V7pbbyCT-li64zM0Wee6dC42L3zKaeJ8UKg6w"
+reconnect_initial_ms = 250
+reconnect_max_seconds = 30
+prefer_quic = true
+transport_fallback_delay_ms = 150
+connect_timeout_seconds = 10
+
+[relay_connections]
+initial_table_capacity = 1024
+max_table_capacity = 4096
+max_active = 64
+idle_timeout_seconds = 120
+connect_timeout_seconds = 5
+prefer_ipv6 = true
+ipv4_fallback_delay_ms = 150
+failed_retry_initial_ms = 250
+failed_retry_max_seconds = 30
+
+# Bridge opaque TLS/HTTP tunnels from Relay to local nginx (E2E TLS terminates at nginx).
+[nginx]
+tls_upstream = "127.0.0.1:443"
+http_upstream = "127.0.0.1:80"
+tunnel_enabled = true
+
+# Let's Encrypt HTTP-01 for **custom domains only** (not *.idr.to).
+# Native FQHNs use the Relay wildcard certificate. Challenges land on Relay :80
+# with Host = custom domain, forwarded to nginx webroot after Presence alias resolve.
+# Keep enabled=false until CNAME + Presence alias + nginx webroot are verified; use staging first.
+[acme]
+enabled = false
+email = "ops@example.com"
+webroot = "/var/www/acme"
+cert_dir = "/etc/idr/certs"
+staging = true
+renew_before_days = 30
+nginx_reload_command = "nginx -s reload"
+# domains = ["cam.example.com"]
+# Or: IDR_ACME_DOMAINS=cam.example.com,api.example.com
+
+[sqlite]
+path = "target-agent.db"
+cache_kib = 1024
+wal_autocheckpoint_pages = 256
+journal_size_limit_bytes = 8388608
+
+[telemetry]
+metrics_listen = "127.0.0.1:9091"
+log_level = "info"
+log_json = false
+
+[shutdown]
+grace_period_seconds = 10
+
+[webrtc]
+enabled = false
+relay_mode = "platform"
+stun_policy = "google_and_idr"
+max_sessions = 64
+turn_probe_enabled = true
+negotiation_timeout_seconds = 45
+idle_timeout_seconds = 300
+
+[webrtc.policy]
+deny_private_ips = true
+allowed_tcp_connect_suffixes = []

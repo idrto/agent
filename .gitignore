@@ -1,0 +1,15 @@
+/target/
+**/*.rs.bk
+.idea/
+.vscode/
+*.db
+*.db-*
+config/*.local.toml
+.DS_Store
+.dart_tool/
+**/.dart_tool/
+**/pubspec.lock
+.packages
+melos_agent.iml
+
+Cargo.lock.bak

@@ -1,0 +1,83 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/idr-protocol",
+    "crates/idr-core",
+    "crates/idr-webrtc",
+    "crates/idr-signaling",
+    "crates/idr-source",
+    "crates/idr-c-api",
+    "crates/idr-target",
+    "services/target-agent",
+    "services/mock-presence",
+]
+default-members = [
+    "crates/idr-protocol",
+    "crates/idr-core",
+    "crates/idr-webrtc",
+    "crates/idr-signaling",
+    "crates/idr-source",
+    "crates/idr-c-api",
+    "crates/idr-target",
+    "services/target-agent",
+    "services/mock-presence",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.76"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/idrto/agent"
+
+[workspace.dependencies]
+anyhow = "1"
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "serde"] }
+futures = "0.3"
+hex = "0.4"
+http = "1"
+parking_lot = "0.12"
+postcard = { version = "1", features = ["alloc"] }
+prometheus = "0.13"
+quinn = "0.11"
+rand = "0.8"
+rcgen = "0.13"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-util = { version = "0.7", features = ["time"] }
+toml = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+instant-acme = "0.7"
+rustls-pemfile = "2"
+webpki-roots = "0.26"
+criterion = { version = "0.5", features = ["async_tokio"] }
+proptest = "1"
+tempfile = "3"
+tokio-test = "0.4"
+
+idr-protocol = { path = "crates/idr-protocol" }
+idr-core = { path = "crates/idr-core" }
+idr-webrtc = { path = "crates/idr-webrtc" }
+idr-signaling = { path = "crates/idr-signaling" }
+idr-source = { path = "crates/idr-source" }
+idr-c-api = { path = "crates/idr-c-api" }
+idr-target = { path = "crates/idr-target" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+inherits = "release"

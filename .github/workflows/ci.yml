@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Tighten to -Dwarnings after remaining donor unused-code warnings are cleaned up.
+  # RUSTFLAGS: -Dwarnings
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: default
+      - name: source no-relay invariant
+        run: bash scripts/check-source-no-relay.sh
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -W clippy::all
+      - name: test
+        run: cargo test --workspace --all-targets
+      - name: doc
+        run: cargo doc --workspace --no-deps
+      - name: release build
+        run: cargo build --workspace --release
+      - name: record binary sizes
+        run: |
+          ls -la target/release/target-agent target/release/mock-presence | tee sizes.txt
+          stat -c '%n %s' target/release/target-agent target/release/mock-presence | tee -a sizes.txt
+          ls -la target/release/libidr_c_api.so target/release/libidr_c_api.a 2>/dev/null | tee -a sizes.txt || true
+      - name: dart analyze (if dart available)
+        run: |
+          if command -v dart >/dev/null 2>&1; then
+            dart pub get --directory packages/idr_core_ffi
+            dart pub get --directory packages/idr_client
+            dart pub get --directory packages/idr_http
+            dart analyze packages/idr_core_ffi packages/idr_client packages/idr_http
+          else
+            echo "dart not installed; skipping"
+          fi
+
+  # Native WebRTC (libdatachannel via datachannel-rs) — cmake required.
+  # Swatinem/rust-cache retains compiled C++ artifacts under target/ between runs.
+  webrtc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install native build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ pkg-config libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: webrtc
+          prefix-key: v0-libdatachannel
+      - name: release build with webrtc
+        run: cargo build -p target-agent --release --features webrtc
+      - name: record webrtc binary size
+        run: |
+          ls -la target/release/target-agent | tee webrtc-size.txt
+          stat -c '%n %s' target/release/target-agent | tee -a webrtc-size.txt
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check

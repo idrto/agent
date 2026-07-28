@@ -1,0 +1,5 @@
+# Copy or merge into `.cargo/config.toml` on Windows ARM64 hosts that need
+# LLVM Clang for aws-lc-sys (and have Visual Studio libs on LIB/INCLUDE).
+[env]
+CC = "C:\\Program Files\\LLVM\\bin\\clang.exe"
+CXX = "C:\\Program Files\\LLVM\\bin\\clang++.exe"
