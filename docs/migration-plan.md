@@ -151,7 +151,7 @@
 
 - [x] Presence + Relay docs/README/CONTRIBUTING point at `agent/crates/idr-protocol`
 - [x] `target-quic` marked deprecated (`README.md`, `DEPRECATED.md`); deprecation commit on `main`
-- [ ] GitHub **archive** of `idrto/target-quic` — blocked for this token (`ArchiveRepository`); org admin should run `gh repo archive idrto/target-quic --yes`
+- [x] GitHub **archive** of `idrto/target-quic` confirmed (`isArchived: true`, 2026-07-28)
 - [x] `agent` tagged + GitHub Release `v0.1.0`
 - [x] CI `webrtc` job installs cmake and uses `Swatinem/rust-cache` (caches libdatachannel native build outputs under `target/`)
 - [x] Agent README is sole-monorepo banner; donor called out as deprecated/archived
