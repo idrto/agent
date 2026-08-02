@@ -112,11 +112,18 @@ Windows ARM64: if `aws-lc-sys` needs Clang, see [`.cargo/config.windows-arm64.to
 - ADRs under [docs/adr/](docs/adr/)
 - Donor Target docs under [docs/donor/](docs/donor/)
 
+## Billing packages
+
+Personal / Enterprise / Service Provider / Data Transfer — see
+[docs/IDR_BILLING_PACKAGES.md](docs/IDR_BILLING_PACKAGES.md).
+
 ## Sibling repos
 
 - [`presence`](https://github.com/idrto/presence) — control plane / PEP
 - [`relay`](https://github.com/idrto/relay) — edge + Target QUIC hub
+- [`turn`](https://github.com/idrto/turn) — coturn Docker TURN nodes
 - [`dp-sdk`](https://github.com/2keyapp/dp-sdk) — Delegate Permissions SDKs
+- [`billing`](https://github.com/2keyapp/billing) — seats + usage ledger
 - [`target-quic`](https://github.com/idrto/target-quic) — **deprecated / archived** (historical donor)
 
 ## License
