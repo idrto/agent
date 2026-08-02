@@ -8,6 +8,11 @@ agent_region = "eu-central"
 using_party = "alice@acme.com"
 # paying_party = "billing@acme.com"  # optional; defaults to using_party
 
+# Optional DP DeviceIdentity for Presence PEP mTLS (QUIC / WSS AuthN).
+# Prefer host secret stores; Dart embeds use flutter_secure_storage (fl-start).
+[dp]
+# identity_path = "identity.dp.json"
+
 [presence]
 discovery_url = "https://public.idr.to/.well-known/idr-presence.json"
 discovery_key = "lQuEz1V7pbbyCT-li64zM0Wee6dC42L3zKaeJ8UKg6w"

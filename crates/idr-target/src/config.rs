@@ -24,6 +24,15 @@ pub struct Config {
     pub webrtc: WebRtcConfig,
     #[serde(default)]
     pub billing_party: BillingPartyConfig,
+    /// Optional DP DeviceIdentity for Presence PEP mTLS (QUIC / WSS).
+    #[serde(default)]
+    pub dp: DpConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct DpConfig {
+    /// Path to DeviceIdentity JSON (ski, private_jwk, credential).
+    pub identity_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

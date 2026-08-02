@@ -20,5 +20,6 @@ check_crate idr-c-api
 check_crate idr-signaling
 check_crate idr-webrtc
 check_crate idr-core
+check_crate idr-dp
 
 echo "OK: Source path crates have no Target/Relay dependency"

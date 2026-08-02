@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use idr_dp::{load_client_auth, MtlsClientMaterial};
 use quinn::{ClientConfig, Connection, Endpoint};
 use rustls::pki_types::ServerName;
 use rustls::RootCertStore;
@@ -20,18 +21,41 @@ pub struct PresenceQuicClient {
 
 impl PresenceQuicClient {
     pub fn new(bind: SocketAddr, insecure_dev: bool) -> Result<Self> {
+        Self::with_mtls(bind, insecure_dev, None)
+    }
+
+    /// Build Presence QUIC client; when `mtls` is set, presents a DP client certificate (AuthN).
+    pub fn with_mtls(
+        bind: SocketAddr,
+        insecure_dev: bool,
+        mtls: Option<&MtlsClientMaterial>,
+    ) -> Result<Self> {
         let mut crypto = if insecure_dev {
-            let crypto = rustls::ClientConfig::builder()
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
-                .with_no_client_auth();
-            crypto
+            if let Some(material) = mtls {
+                let auth = load_client_auth(material).context("load DP client auth")?;
+                rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
+                    .with_client_auth_cert(auth.certs, auth.key)
+                    .context("install DP client cert (insecure)")?
+            } else {
+                rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
+                    .with_no_client_auth()
+            }
         } else {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            rustls::ClientConfig::builder()
-                .with_root_certificates(roots)
-                .with_no_client_auth()
+            let builder = rustls::ClientConfig::builder().with_root_certificates(roots);
+            if let Some(material) = mtls {
+                let auth = load_client_auth(material).context("load DP client auth")?;
+                builder
+                    .with_client_auth_cert(auth.certs, auth.key)
+                    .context("install DP client cert")?
+            } else {
+                builder.with_no_client_auth()
+            }
         };
         crypto.alpn_protocols = vec![ALPN_IDR_PRESENCE_V1.to_vec()];
 

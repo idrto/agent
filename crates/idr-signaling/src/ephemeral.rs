@@ -15,13 +15,17 @@ pub enum SignalingMessage {
     Pending(SessionPending),
     Answer(WebRtcAnswer),
     IceCandidate(WebRtcIceCandidate),
-    IceComplete { session_id: Uuid },
+    IceComplete {
+        session_id: Uuid,
+    },
     SessionAck {
         session_id: Uuid,
         result: WebRtcSessionResultCode,
         detail: Option<String>,
     },
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

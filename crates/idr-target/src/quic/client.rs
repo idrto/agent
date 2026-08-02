@@ -8,11 +8,11 @@ use rustls::{ClientConfig as RustlsClientConfig, RootCertStore};
 use tracing::debug;
 
 use crate::network::quic_bind_addr;
-use idr_protocol::quic_control::QuicControlMessage;
 use crate::quic::authentication::build_client_hello;
 use crate::quic::limits::apply_relay_client_transport_limits;
 use crate::quic::RelayQuicConnection;
 use crate::relay::descriptor::{ConnectionAuthorization, StableRelayDescriptor};
+use idr_protocol::quic_control::QuicControlMessage;
 
 pub struct QuicClient {
     endpoint: Endpoint,
@@ -66,7 +66,11 @@ impl QuicClient {
         let frame = hello.encode().context("encode client hello")?;
         let mut stream = connection.open_bi().await.context("open control stream")?;
         use tokio::io::AsyncWriteExt;
-        stream.0.write_all(&frame).await.context("write client hello")?;
+        stream
+            .0
+            .write_all(&frame)
+            .await
+            .context("write client hello")?;
         stream.0.finish().context("finish client hello stream")?;
 
         Ok(Arc::new(RelayQuicConnection::new(connection)))

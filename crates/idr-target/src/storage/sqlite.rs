@@ -215,9 +215,7 @@ fn apply_pragmas(conn: &Connection, cfg: &SqliteConfig) -> Result<()> {
          PRAGMA busy_timeout = 5000;
          PRAGMA foreign_keys = ON;
          PRAGMA trusted_schema = OFF;",
-        cfg.cache_kib,
-        cfg.wal_autocheckpoint_pages,
-        cfg.journal_size_limit_bytes,
+        cfg.cache_kib, cfg.wal_autocheckpoint_pages, cfg.journal_size_limit_bytes,
     ))
     .context("apply sqlite pragmas")?;
     Ok(())

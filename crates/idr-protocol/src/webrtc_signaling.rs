@@ -461,8 +461,8 @@ pub struct TurnProbeReportUnsigned {
 impl TurnProbeRequest {
     pub fn sign(mut req: TurnProbeRequestUnsigned, key: &SigningKey) -> Result<Self> {
         req.signature = String::new();
-        let value = serde_json::to_value(&req)
-            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_value(&req).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, key)?;
         Ok(Self {
             version: req.version,

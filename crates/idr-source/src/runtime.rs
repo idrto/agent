@@ -6,10 +6,11 @@ use async_trait::async_trait;
 use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_core::session::{OpenStreamRequest, PeerSession};
 use idr_core::stream::LogicalStream;
+use idr_dp::DeviceIdentity;
 use idr_protocol::signaling::SignalingMessageType;
 use idr_protocol::stream_mux::{StreamFrame, StreamOpenMeta};
 use idr_protocol::webrtc_signaling::{
-    SourceAgentIdentity, SourceAuthMode, SessionDescription, WebRtcSessionRequest,
+    SessionDescription, SourceAgentIdentity, SourceAuthMode, WebRtcSessionRequest,
 };
 use idr_protocol::PROTOCOL_VERSION;
 use idr_signaling::ephemeral::{SignalingMessage, WebRtcSignalingClient};
@@ -20,13 +21,15 @@ use uuid::Uuid;
 use crate::mux_session::{MuxLogicalStream, StreamDemux, StreamIdAllocator};
 use crate::service_map::default_service_kind;
 
-/// Entry point for embedded / mobile Source usage.
+/// Entry point for embedded / mobile / desktop Source usage.
 pub struct SourceRuntime {
     signaling: Box<dyn WebRtcSignalingClient>,
     /// Factory invoked per connect to build a fresh PeerTransport (mock or native).
     peer_factory: Box<dyn Fn() -> Box<dyn PeerTransport> + Send + Sync>,
     source_id: String,
     source_region: String,
+    /// Optional DP machine identity (mTLS AuthN + in-band AuthZ via PepClient).
+    identity: Option<DeviceIdentity>,
 }
 
 impl SourceRuntime {
@@ -41,6 +44,45 @@ impl SourceRuntime {
             peer_factory: Box::new(peer_factory),
             source_id: source_id.into(),
             source_region: source_region.into(),
+            identity: None,
+        }
+    }
+
+    pub fn with_identity(mut self, identity: DeviceIdentity) -> Self {
+        if self.source_id.is_empty()
+            || self.source_id == "dart"
+            || self.source_id == "dart-embedded"
+        {
+            self.source_id = identity.ski.clone();
+        }
+        self.identity = Some(identity);
+        self
+    }
+
+    pub fn set_identity(&mut self, identity: DeviceIdentity) {
+        if self.source_id.is_empty()
+            || self.source_id == "dart"
+            || self.source_id == "dart-embedded"
+        {
+            self.source_id = identity.ski.clone();
+        }
+        self.identity = Some(identity);
+    }
+
+    pub fn identity(&self) -> Option<&DeviceIdentity> {
+        self.identity.as_ref()
+    }
+
+    fn source_agent_identity(&self) -> SourceAgentIdentity {
+        let auth_mode = if self.identity.is_some() {
+            SourceAuthMode::Mtls
+        } else {
+            SourceAuthMode::Anonymous
+        };
+        SourceAgentIdentity {
+            auth_mode,
+            source_id: Some(self.source_id.clone()),
+            sdk_version: Some(env!("CARGO_PKG_VERSION").into()),
         }
     }
 
@@ -84,11 +126,7 @@ impl SourceRuntime {
             message_id: Uuid::new_v4(),
             session_id,
             target_fqhn: target_fqhn.to_string(),
-            source: SourceAgentIdentity {
-                auth_mode: SourceAuthMode::Anonymous,
-                source_id: Some(self.source_id.clone()),
-                sdk_version: Some(env!("CARGO_PKG_VERSION").into()),
-            },
+            source: self.source_agent_identity(),
             source_region: self.source_region.clone(),
             sdp: SessionDescription {
                 sdp_type: "offer".into(),
@@ -134,9 +172,8 @@ impl SourceRuntime {
             }
         }
 
-        let answer = answer_sdp.ok_or_else(|| {
-            IdrError::new(IdrErrorKind::SignalingFailed, "missing WebRTC answer")
-        })?;
+        let answer = answer_sdp
+            .ok_or_else(|| IdrError::new(IdrErrorKind::SignalingFailed, "missing WebRTC answer"))?;
         peer.set_remote_description("answer", &answer).await?;
 
         // Wait for DataChannel

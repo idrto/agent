@@ -2,9 +2,9 @@
 
 use std::collections::VecDeque;
 
+use crate::transport::{PeerConnectRequest, PeerEvent, PeerRole, PeerTransport};
 use async_trait::async_trait;
 use idr_core::error::{IdrError, IdrErrorKind, Result};
-use crate::transport::{PeerConnectRequest, PeerEvent, PeerRole, PeerTransport};
 
 pub struct RecordingPeer {
     role: PeerRole,
@@ -64,19 +64,16 @@ impl PeerTransport for RecordingPeer {
 
     fn send_binary(&mut self, message: &[u8]) -> Result<()> {
         if !self.dc_open {
-            return Err(IdrError::new(
-                IdrErrorKind::TransportClosed,
-                "dc closed",
-            ));
+            return Err(IdrError::new(IdrErrorKind::TransportClosed, "dc closed"));
         }
         self.sent.push(message.to_vec());
         Ok(())
     }
 
     async fn next_event(&mut self) -> Result<PeerEvent> {
-        self.events.pop_front().ok_or_else(|| {
-            IdrError::new(IdrErrorKind::TransportClosed, "no more peer events")
-        })
+        self.events
+            .pop_front()
+            .ok_or_else(|| IdrError::new(IdrErrorKind::TransportClosed, "no more peer events"))
     }
 
     fn close(&mut self) {

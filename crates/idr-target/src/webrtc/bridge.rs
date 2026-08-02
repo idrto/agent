@@ -12,7 +12,12 @@ pub async fn handle_stream_open(
     expected_fqhn: &str,
     policy: &WebRtcPolicyConfig,
 ) -> anyhow::Result<TcpStream> {
-    let StreamFrame::Open { kind, meta, stream_id } = frame else {
+    let StreamFrame::Open {
+        kind,
+        meta,
+        stream_id,
+    } = frame
+    else {
         anyhow::bail!("expected StreamFrame::Open");
     };
     let tcp = open_upstream(kind, meta, nginx, policy, expected_fqhn).await?;
@@ -40,18 +45,20 @@ async fn connect_upstream(
     policy: &WebRtcPolicyConfig,
 ) -> anyhow::Result<TcpStream> {
     match kind {
-        StreamKind::TlsPassthrough => {
-            TcpStream::connect(nginx.tls_upstream).await.map_err(Into::into)
-        }
-        StreamKind::HttpPassthrough => {
-            TcpStream::connect(nginx.http_upstream).await.map_err(Into::into)
-        }
+        StreamKind::TlsPassthrough => TcpStream::connect(nginx.tls_upstream)
+            .await
+            .map_err(Into::into),
+        StreamKind::HttpPassthrough => TcpStream::connect(nginx.http_upstream)
+            .await
+            .map_err(Into::into),
         StreamKind::TcpConnect => {
             let host = meta
                 .host
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("TcpConnect missing host"))?;
-            let port = meta.port.ok_or_else(|| anyhow::anyhow!("TcpConnect missing port"))?;
+            let port = meta
+                .port
+                .ok_or_else(|| anyhow::anyhow!("TcpConnect missing port"))?;
             if policy.deny_private_ips && is_private_host(host) {
                 anyhow::bail!("TcpConnect to private host denied");
             }
@@ -69,7 +76,9 @@ async fn connect_upstream(
 }
 
 fn is_private_host(host: &str) -> bool {
-    let host = host.trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
+    let host = host
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_ascii_lowercase();
     if host == "localhost" || host.ends_with(".localhost") || host == "::1" {
         return true;
     }

@@ -19,21 +19,21 @@ use crate::presence::dedup::{CachedCommandResult, CommandDedup, DedupAction};
 use crate::presence::endpoint::{
     build_transport_attempts, transport_label, PresenceNetworkCaps, PresenceTransportChoice,
 };
+use crate::presence::outbox::PresenceSignalingOutbox;
 use crate::presence::quic_client::PresenceQuicClient;
 use crate::presence::registration::build_registration;
+use crate::relay::descriptor::{ConnectionAuthorization, StableRelayDescriptor};
+use crate::relay::RelayConnectionManager;
+use crate::shutdown::ShutdownCoordinator;
+use crate::telemetry::Metrics;
+use crate::webrtc::probe::{send_probe_request, spawn_probe_on_push, ProbeScheduler};
+use crate::webrtc::{WebRtcSessionManager, WebRtcSignalingHandler};
 use idr_protocol::discovery::PresenceServer;
 use idr_protocol::signaling::{
     CommandResultCode, EnsureRelayConnectionCommand, SignalingMessageType,
 };
 use idr_protocol::signaling_json;
-use crate::relay::descriptor::{ConnectionAuthorization, StableRelayDescriptor};
-use crate::relay::RelayConnectionManager;
-use crate::shutdown::ShutdownCoordinator;
-use crate::telemetry::Metrics;
-use crate::presence::outbox::PresenceSignalingOutbox;
 use idr_protocol::webrtc_signaling::{TurnProbeCandidates, WebRtcIceCandidate, WebRtcSessionOffer};
-use crate::webrtc::probe::{spawn_probe_on_push, ProbeScheduler, send_probe_request};
-use crate::webrtc::{WebRtcSessionManager, WebRtcSignalingHandler};
 use tokio::sync::Mutex;
 
 pub struct PresenceWebSocketClient {
@@ -111,22 +111,14 @@ impl PresenceWebSocketClient {
                 last_caps = caps;
             }
             self.relay_manager.refresh_network_caps(caps);
-            if caps_changed
-                && self.reg_cfg.webrtc.enabled
-                && self.reg_cfg.webrtc.turn_probe_enabled
+            if caps_changed && self.reg_cfg.webrtc.enabled && self.reg_cfg.webrtc.turn_probe_enabled
             {
                 if let Some(outbox) = self.signaling_outbox.lock().await.clone() {
                     let identity = self.identity.clone();
                     let fqhn = self.fqhn.clone();
                     let role = self.role;
-                    if let Err(e) = send_probe_request(
-                        &outbox,
-                        &identity,
-                        &fqhn,
-                        role,
-                        "network_change",
-                    )
-                    .await
+                    if let Err(e) =
+                        send_probe_request(&outbox, &identity, &fqhn, role, "network_change").await
                     {
                         warn!(error = %e, "network-change TURN reprobe request failed");
                     }
@@ -179,12 +171,19 @@ impl PresenceWebSocketClient {
                 sleep(self.cfg.transport_fallback_delay()).await;
             }
             let label = transport_label(choice);
-            debug!(transport = label, role = role_label, "attempting presence connect");
+            debug!(
+                transport = label,
+                role = role_label,
+                "attempting presence connect"
+            );
             let result = match choice {
                 PresenceTransportChoice::Quic(addr) => {
-                    self.connect_quic_and_serve(role_label, addr, &reg_json).await
+                    self.connect_quic_and_serve(role_label, addr, &reg_json)
+                        .await
                 }
-                PresenceTransportChoice::Wss => self.connect_wss_and_serve(role_label, &reg_json).await,
+                PresenceTransportChoice::Wss => {
+                    self.connect_wss_and_serve(role_label, &reg_json).await
+                }
             };
             match result {
                 Ok(()) => return Ok(()),
@@ -205,12 +204,7 @@ impl PresenceWebSocketClient {
     ) -> Result<()> {
         let connection = self
             .quic_client
-            .connect_persistent(
-                &self.server,
-                addr,
-                reg_json,
-                self.cfg.connect_timeout(),
-            )
+            .connect_persistent(&self.server, addr, reg_json, self.cfg.connect_timeout())
             .await?;
         self.metrics
             .presence_connected
@@ -267,7 +261,10 @@ impl PresenceWebSocketClient {
             .context("build websocket request")?;
         request.headers_mut().insert(
             "Host",
-            self.server.server_name.parse().context("parse Host header")?,
+            self.server
+                .server_name
+                .parse()
+                .context("parse Host header")?,
         );
 
         let (ws, _) = connect_async(request).await.context("websocket connect")?;
@@ -416,8 +413,7 @@ impl PresenceClientTask {
             .map_err(|e| anyhow::anyhow!("command verify failed: {e}"))?;
 
         let command_id = cmd.command_id;
-        let digest =
-            idr_protocol::crypto::content_digest(&serde_json::to_value(&cmd)?);
+        let digest = idr_protocol::crypto::content_digest(&serde_json::to_value(&cmd)?);
 
         match self
             .dedup

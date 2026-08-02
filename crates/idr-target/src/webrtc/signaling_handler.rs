@@ -8,13 +8,15 @@ use uuid::Uuid;
 use crate::config::{NginxConfig, WebRtcConfig, WebRtcPolicyConfig};
 use crate::identity::TargetIdentity;
 use crate::presence::outbox::PresenceSignalingOutbox;
+use crate::webrtc::session_manager::{SessionError, WebRtcSessionManager};
 use idr_protocol::signaling::SignalingMessageType;
 use idr_protocol::webrtc_ice::{build_rtc_ice_servers, validate_session_ice};
 use idr_protocol::webrtc_signaling::{
     WebRtcIceCandidate, WebRtcSessionOffer, WebRtcSessionOfferAck, WebRtcSessionResultCode,
 };
-use idr_protocol::{MAX_ICE_CANDIDATE_BYTES, MAX_SDP_BYTES, MAX_WEBRTC_SIGNALING_BYTES, PROTOCOL_VERSION};
-use crate::webrtc::session_manager::{SessionError, WebRtcSessionManager};
+use idr_protocol::{
+    MAX_ICE_CANDIDATE_BYTES, MAX_SDP_BYTES, MAX_WEBRTC_SIGNALING_BYTES, PROTOCOL_VERSION,
+};
 
 #[derive(Clone)]
 pub struct WebRtcSignalingHandler {
@@ -55,13 +57,15 @@ impl WebRtcSignalingHandler {
     ) -> anyhow::Result<()> {
         let fail = |code: WebRtcSessionResultCode, detail: Option<String>| {
             let session_id = offer.session_id;
-            async move {
-                self.send_offer_ack(outbox, session_id, code, detail).await
-            }
+            async move { self.send_offer_ack(outbox, session_id, code, detail).await }
         };
 
         if offer.target_fqhn != self.fqhn {
-            fail(WebRtcSessionResultCode::Failed, Some("fqhn mismatch".into())).await?;
+            fail(
+                WebRtcSessionResultCode::Failed,
+                Some("fqhn mismatch".into()),
+            )
+            .await?;
             return Ok(());
         }
         if Utc::now() > offer.expires_at {
@@ -223,9 +227,7 @@ impl WebRtcSignalingHandler {
         }
         self.sessions.touch(msg.session_id);
         if let Some(inbox) = self.sessions.ice_inbox(msg.session_id) {
-            inbox
-                .add_candidate(msg.candidate, msg.mid)
-                .await?;
+            inbox.add_candidate(msg.candidate, msg.mid).await?;
         }
         Ok(())
     }

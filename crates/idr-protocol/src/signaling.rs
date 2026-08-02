@@ -122,7 +122,9 @@ impl TargetRegistration {
     pub fn verify(&self) -> Result<()> {
         validate_signaling_size(self)?;
         if self.message_type != SignalingMessageType::RegisterTarget {
-            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+            return Err(ProtocolError::MalformedDocument(
+                "wrong message type".into(),
+            ));
         }
         let _ = self.billing_parties()?;
         let target_key = crypto::KeyPair::from_base64url_public(&self.target_identity)?;
@@ -137,7 +139,8 @@ impl TargetRegistration {
 impl EnsureRelayConnectionCommand {
     pub fn sign(mut cmd: EnsureRelayConnectionUnsigned, key: &SigningKey) -> Result<Self> {
         cmd.signature = String::new();
-        let value = serde_json::to_value(&cmd).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_value(&cmd).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, key)?;
         Ok(Self {
             version: cmd.version,
@@ -161,7 +164,9 @@ impl EnsureRelayConnectionCommand {
     pub fn verify(&self, relay_key: &VerifyingKey) -> Result<()> {
         validate_signaling_size(self)?;
         if self.message_type != SignalingMessageType::EnsureRelayConnection {
-            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+            return Err(ProtocolError::MalformedDocument(
+                "wrong message type".into(),
+            ));
         }
         if Utc::now() > self.expires_at {
             return Err(ProtocolError::CommandExpired);

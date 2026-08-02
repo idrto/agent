@@ -8,7 +8,9 @@ pub const MAX_CONCURRENT_UNI_STREAMS: u32 = 64;
 pub fn apply_transport_limits(config: &mut TransportConfig) {
     config.max_concurrent_bidi_streams(VarInt::from_u32(MAX_CONCURRENT_BIDI_STREAMS));
     config.max_concurrent_uni_streams(VarInt::from_u32(MAX_CONCURRENT_UNI_STREAMS));
-    config.max_idle_timeout(Some(IdleTimeout::try_from(Duration::from_secs(120)).unwrap()));
+    config.max_idle_timeout(Some(
+        IdleTimeout::try_from(Duration::from_secs(120)).unwrap(),
+    ));
 }
 
 /// Relay data-path client only — periodic PINGs keep NAT bindings alive on idle tunnels.

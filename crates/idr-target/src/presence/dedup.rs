@@ -8,12 +8,12 @@ use tokio::sync::{Notify, RwLock};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use crate::storage::models::ProcessedCommandRow;
+use crate::storage::writer::{StorageCommand, StorageWriter};
+use crate::storage::Storage;
 use idr_protocol::crypto::content_digest;
 use idr_protocol::errors::ProtocolError;
 use idr_protocol::signaling::{CommandResultCode, EnsureRelayConnectionCommand};
-use crate::storage::models::ProcessedCommandRow;
-use crate::storage::Storage;
-use crate::storage::writer::{StorageCommand, StorageWriter};
 
 #[derive(Debug, Clone)]
 pub struct CachedCommandResult {
@@ -87,7 +87,9 @@ impl CommandDedup {
                         result: CommandResultCode::Received,
                         detail: None,
                     },
-                    expires_at: now + chrono::Duration::from_std(self.ttl).unwrap_or(chrono::Duration::minutes(5)),
+                    expires_at: now
+                        + chrono::Duration::from_std(self.ttl)
+                            .unwrap_or(chrono::Duration::minutes(5)),
                     in_flight: Some(in_flight.clone()),
                 },
             );
@@ -95,13 +97,9 @@ impl CommandDedup {
         }
     }
 
-    pub async fn complete(
-        &self,
-        command_id: Uuid,
-        digest: [u8; 32],
-        result: CachedCommandResult,
-    ) {
-        let expires_at = Utc::now() + chrono::Duration::from_std(self.ttl).unwrap_or(chrono::Duration::minutes(5));
+    pub async fn complete(&self, command_id: Uuid, digest: [u8; 32], result: CachedCommandResult) {
+        let expires_at = Utc::now()
+            + chrono::Duration::from_std(self.ttl).unwrap_or(chrono::Duration::minutes(5));
         {
             let mut map = self.entries.write().await;
             if let Some(entry) = map.get_mut(&command_id) {
@@ -115,12 +113,14 @@ impl CommandDedup {
         }
         let _ = self
             .writer
-            .send(StorageCommand::UpsertProcessedCommand(ProcessedCommandRow {
-                command_id,
-                content_digest: digest,
-                result_code: result.result as i32,
-                expires_at,
-            }))
+            .send(StorageCommand::UpsertProcessedCommand(
+                ProcessedCommandRow {
+                    command_id,
+                    content_digest: digest,
+                    result_code: result.result as i32,
+                    expires_at,
+                },
+            ))
             .await;
     }
 

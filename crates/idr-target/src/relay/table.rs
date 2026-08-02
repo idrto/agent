@@ -1,4 +1,4 @@
-use crate::relay::descriptor::{GenerationalHandle, RelayId, hash_relay_id};
+use crate::relay::descriptor::{hash_relay_id, GenerationalHandle, RelayId};
 
 pub const LOAD_FACTOR_MAX: f64 = 0.60;
 pub const TOMBSTONE_REBUILD_RATIO: f64 = 0.15;
@@ -166,7 +166,10 @@ impl RelayConnectionTable {
 
     fn rebuild(&mut self) {
         let old_capacity = self.capacity;
-        let old_slots = std::mem::replace(&mut self.slots, vec![GenerationalHandle::EMPTY; old_capacity]);
+        let old_slots = std::mem::replace(
+            &mut self.slots,
+            vec![GenerationalHandle::EMPTY; old_capacity],
+        );
         let old_ids = std::mem::replace(&mut self.relay_ids, vec![None; old_capacity]);
         self.tombstones = 0;
         self.occupied = 0;
@@ -199,9 +202,7 @@ impl RelayConnectionTable {
     }
 
     pub fn iter_active_relay_ids(&self) -> impl Iterator<Item = &str> {
-        self.relay_ids
-            .iter()
-            .filter_map(|id| id.as_deref())
+        self.relay_ids.iter().filter_map(|id| id.as_deref())
     }
 }
 

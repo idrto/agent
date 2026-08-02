@@ -23,10 +23,7 @@ fn host_header_case_and_port() {
 
 #[test]
 fn ipv6_host_header() {
-    assert_eq!(
-        host_header_hostname("[::1]:80").as_deref(),
-        Some("::1")
-    );
+    assert_eq!(host_header_hostname("[::1]:80").as_deref(), Some("::1"));
 }
 
 #[test]

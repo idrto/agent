@@ -1,0 +1,16 @@
+[source]
+source_id = "desktop-1"
+source_region = "eu-central"
+
+[presence]
+discovery_url = "https://public.idr.to/.well-known/idr-presence.json"
+discovery_key = "lQuEz1V7pbbyCT-li64zM0Wee6dC42L3zKaeJ8UKg6w"
+prefer_quic = true
+transport_fallback_delay_ms = 150
+connect_timeout_seconds = 10
+
+# DP DeviceIdentity JSON (ski, private_jwk, credential).
+# Prefer Dart flutter_secure_storage (fl-start) when embedding; this path is for
+# headless Windows/macOS/Linux service hosts that inject identity at start.
+[dp]
+# identity_path = "identity.dp.json"

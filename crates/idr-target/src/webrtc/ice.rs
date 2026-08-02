@@ -8,7 +8,11 @@ pub fn ice_servers_to_urls(servers: &[IceServer]) -> Vec<String> {
     let mut out = Vec::new();
     for server in servers {
         for url in &server.urls {
-            out.push(embed_credentials(url, server.username.as_deref(), server.credential.as_deref()));
+            out.push(embed_credentials(
+                url,
+                server.username.as_deref(),
+                server.credential.as_deref(),
+            ));
         }
     }
     out

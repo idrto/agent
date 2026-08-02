@@ -31,11 +31,7 @@ pub async fn measure_stun_binding_rtt(
     Some(rtts[rtts.len() / 2])
 }
 
-async fn single_sample(
-    socket: &UdpSocket,
-    target: SocketAddr,
-    timeout: Duration,
-) -> Option<u32> {
+async fn single_sample(socket: &UdpSocket, target: SocketAddr, timeout: Duration) -> Option<u32> {
     let mut txn = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut txn);
     let mut req = [0u8; 20];
@@ -52,11 +48,7 @@ async fn single_sample(
     match tokio::time::timeout(timeout, socket.recv_from(&mut buf)).await {
         Ok(Ok((n, from))) if n >= 20 && from == target => {
             // Binding Success Response = 0x0101, matching magic + transaction id
-            if buf[0] == 0x01
-                && buf[1] == 0x01
-                && buf[4..8] == MAGIC_COOKIE
-                && buf[8..20] == txn
-            {
+            if buf[0] == 0x01 && buf[1] == 0x01 && buf[4..8] == MAGIC_COOKIE && buf[8..20] == txn {
                 Some(start.elapsed().as_millis() as u32)
             } else {
                 None

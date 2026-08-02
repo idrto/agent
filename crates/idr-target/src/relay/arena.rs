@@ -8,7 +8,9 @@ use tokio::sync::Notify;
 use tracing::warn;
 
 use crate::quic::RelayQuicConnection;
-use crate::relay::descriptor::{ConnectionAuthorization, GenerationalHandle, RelayId, StableRelayDescriptor};
+use crate::relay::descriptor::{
+    ConnectionAuthorization, GenerationalHandle, RelayId, StableRelayDescriptor,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelayConnectionStateKind {
@@ -66,7 +68,8 @@ pub struct RelayConnection {
 
 impl std::fmt::Debug for SharedConnectionAttempt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SharedConnectionAttempt").finish_non_exhaustive()
+        f.debug_struct("SharedConnectionAttempt")
+            .finish_non_exhaustive()
     }
 }
 

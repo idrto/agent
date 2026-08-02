@@ -135,9 +135,10 @@ pub fn canonical_json(value: &serde_json::Value) -> Result<String> {
                 out.push(']');
             }
             serde_json::Value::String(s) => {
-                out.push_str(&serde_json::to_string(s).map_err(|e| {
-                    ProtocolError::Serialization(e.to_string())
-                })?);
+                out.push_str(
+                    &serde_json::to_string(s)
+                        .map_err(|e| ProtocolError::Serialization(e.to_string()))?,
+                );
             }
             serde_json::Value::Number(n) => out.push_str(&n.to_string()),
             serde_json::Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),

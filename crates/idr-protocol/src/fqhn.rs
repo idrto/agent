@@ -17,20 +17,25 @@ pub fn canonicalize(fqhn: &str) -> Result<String> {
         canonical.pop();
     }
     if canonical.is_empty() {
-        return Err(ProtocolError::InvalidFqhn("empty after canonicalization".into()));
+        return Err(ProtocolError::InvalidFqhn(
+            "empty after canonicalization".into(),
+        ));
     }
     for label in canonical.split('.') {
         if label.is_empty() || label.len() > 63 {
-            return Err(ProtocolError::InvalidFqhn(format!("invalid label: {label}")));
+            return Err(ProtocolError::InvalidFqhn(format!(
+                "invalid label: {label}"
+            )));
         }
-        if !label
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
-        {
-            return Err(ProtocolError::InvalidFqhn(format!("invalid chars in {label}")));
+        if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err(ProtocolError::InvalidFqhn(format!(
+                "invalid chars in {label}"
+            )));
         }
         if label.starts_with('-') || label.ends_with('-') {
-            return Err(ProtocolError::InvalidFqhn(format!("invalid label edges: {label}")));
+            return Err(ProtocolError::InvalidFqhn(format!(
+                "invalid label edges: {label}"
+            )));
         }
     }
     Ok(canonical)

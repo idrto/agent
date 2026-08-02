@@ -16,8 +16,10 @@ impl TargetIdentity {
     pub fn load_or_generate(key_path: Option<&Path>) -> Result<Self> {
         if let Some(path) = key_path {
             if path.exists() {
-                let bytes = fs::read(path).with_context(|| format!("read identity key {}", path.display()))?;
-                let keypair: KeyPair = serde_json::from_slice(&bytes).context("parse identity key JSON")?;
+                let bytes = fs::read(path)
+                    .with_context(|| format!("read identity key {}", path.display()))?;
+                let keypair: KeyPair =
+                    serde_json::from_slice(&bytes).context("parse identity key JSON")?;
                 return Ok(Self {
                     keypair,
                     key_path: Some(path.to_path_buf()),
@@ -26,11 +28,13 @@ impl TargetIdentity {
             let keypair = KeyPair::generate();
             if let Some(parent) = path.parent() {
                 if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| format!("create identity dir {}", parent.display()))?;
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("create identity dir {}", parent.display()))?;
                 }
             }
             let json = serde_json::to_vec_pretty(&keypair).context("serialize identity key")?;
-            fs::write(path, json).with_context(|| format!("write identity key {}", path.display()))?;
+            fs::write(path, json)
+                .with_context(|| format!("write identity key {}", path.display()))?;
             return Ok(Self {
                 keypair,
                 key_path: Some(path.to_path_buf()),

@@ -3,7 +3,11 @@ use crate::fqhn;
 
 /// Placement strategy trait — v1 uses dual-mod; future: rendezvous, jump consistent.
 pub trait PresencePlacement {
-    fn primary_secondary(&self, fqhn: &str, servers: &[PresenceServer]) -> crate::errors::Result<(usize, Option<usize>)>;
+    fn primary_secondary(
+        &self,
+        fqhn: &str,
+        servers: &[PresenceServer],
+    ) -> crate::errors::Result<(usize, Option<usize>)>;
 }
 
 /// SHA-256 dual-mod placement (v1 default).
@@ -109,8 +113,12 @@ mod tests {
     #[test]
     fn requires_at_least_two_servers() {
         let p = ModuloPlacement;
-        assert!(p.primary_secondary("a.example.idr.to", &servers(0)).is_err());
-        assert!(p.primary_secondary("a.example.idr.to", &servers(1)).is_err());
+        assert!(p
+            .primary_secondary("a.example.idr.to", &servers(0))
+            .is_err());
+        assert!(p
+            .primary_secondary("a.example.idr.to", &servers(1))
+            .is_err());
     }
 
     #[test]

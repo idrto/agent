@@ -17,7 +17,9 @@ webrtc = ["idr-target/webrtc"]
 
 [dependencies]
 idr-target = { workspace = true }
+idr-dp = { workspace = true }
 anyhow = { workspace = true }
+clap = { workspace = true }
 prometheus = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

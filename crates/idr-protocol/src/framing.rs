@@ -5,8 +5,8 @@ use crate::MAX_FRAME_BYTES;
 
 /// Length-prefixed postcard frame: [u32 BE length][postcard payload]
 pub fn encode_frame<T: Serialize>(value: &T) -> Result<Vec<u8>> {
-    let payload = postcard::to_allocvec(value)
-        .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+    let payload =
+        postcard::to_allocvec(value).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
     if payload.len() > MAX_FRAME_BYTES {
         return Err(ProtocolError::FrameTooLarge(payload.len()));
     }
@@ -27,8 +27,7 @@ pub fn decode_frame<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     if bytes.len() != 4 + len {
         return Err(ProtocolError::InvalidFrame);
     }
-    postcard::from_bytes(&bytes[4..])
-        .map_err(|e| ProtocolError::Serialization(e.to_string()))
+    postcard::from_bytes(&bytes[4..]).map_err(|e| ProtocolError::Serialization(e.to_string()))
 }
 
 #[cfg(test)]

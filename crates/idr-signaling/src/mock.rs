@@ -74,9 +74,9 @@ struct MockEphemeral {
 #[async_trait]
 impl EphemeralSignaling for MockEphemeral {
     async fn next_message(&mut self) -> Result<SignalingMessage> {
-        self.inbox.pop_front().ok_or_else(|| {
-            IdrError::new(IdrErrorKind::SignalingFailed, "mock signaling exhausted")
-        })
+        self.inbox
+            .pop_front()
+            .ok_or_else(|| IdrError::new(IdrErrorKind::SignalingFailed, "mock signaling exhausted"))
     }
 
     async fn send_ice(&mut self, _candidate: WebRtcIceCandidate) -> Result<()> {

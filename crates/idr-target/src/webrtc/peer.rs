@@ -15,9 +15,11 @@ use datachannel::{
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use idr_protocol::webrtc_ice::{IceServer, IceTransportPolicy, WEBRTC_DC_LABEL, WEBRTC_DC_PROTOCOL};
-use idr_protocol::{MAX_FRAME_BYTES, MAX_ICE_CANDIDATE_BYTES, MAX_SDP_BYTES};
 use crate::webrtc::ice::ice_servers_to_urls;
+use idr_protocol::webrtc_ice::{
+    IceServer, IceTransportPolicy, WEBRTC_DC_LABEL, WEBRTC_DC_PROTOCOL,
+};
+use idr_protocol::{MAX_FRAME_BYTES, MAX_ICE_CANDIDATE_BYTES, MAX_SDP_BYTES};
 
 type NativeChannel = Box<RtcDataChannel<ChannelHandler>>;
 
@@ -149,10 +151,11 @@ impl PeerConnectionHandler for ConnectionHandler {
                 .public(PeerEvent::Error("local SDP exceeds limit".into()));
             return;
         }
-        self.sink.public(PeerEvent::LocalDescription(LocalDescription {
-            sdp_type: sdp_type.into(),
-            sdp,
-        }));
+        self.sink
+            .public(PeerEvent::LocalDescription(LocalDescription {
+                sdp_type: sdp_type.into(),
+                sdp,
+            }));
     }
 
     fn on_candidate(&mut self, candidate: datachannel::IceCandidate) {
@@ -342,9 +345,7 @@ impl NativePeerSession {
                 Some(CallbackEvent::Public(event)) => return Ok(event),
                 Some(CallbackEvent::IncomingChannel(mut channel)) => {
                     if self.channel.is_some() {
-                        return Ok(PeerEvent::Error(
-                            "rejected duplicate data channel".into(),
-                        ));
+                        return Ok(PeerEvent::Error("rejected duplicate data channel".into()));
                     }
                     channel
                         .set_buffered_amount_low_threshold(self.buffered_amount_low_threshold)

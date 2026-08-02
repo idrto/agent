@@ -1,6 +1,4 @@
-use idr_protocol::signaling::{
-    CommandResultCode, EnsureRelayConnectionAck, SignalingMessageType,
-};
+use idr_protocol::signaling::{CommandResultCode, EnsureRelayConnectionAck, SignalingMessageType};
 use uuid::Uuid;
 
 pub fn ensure_relay_ack(

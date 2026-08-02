@@ -12,6 +12,12 @@ use uuid::Uuid;
 use crate::config::{NginxConfig, WebRtcPolicyConfig};
 use crate::identity::TargetIdentity;
 use crate::presence::outbox::PresenceSignalingOutbox;
+use crate::webrtc::bridge;
+use crate::webrtc::mux::{decode_datachannel_message, encode_datachannel_message};
+use crate::webrtc::peer::{NativePeerSession, PeerConfig, PeerEvent};
+use crate::webrtc::session_manager::{
+    PeerIceInbox, RemoteIceMsg, SessionState, WebRtcSessionManager,
+};
 use idr_protocol::signaling::SignalingMessageType;
 use idr_protocol::stream_mux::StreamFrame;
 use idr_protocol::webrtc_ice::IceServer;
@@ -20,12 +26,6 @@ use idr_protocol::webrtc_signaling::{
     WebRtcSessionAck, WebRtcSessionOffer, WebRtcSessionResultCode,
 };
 use idr_protocol::PROTOCOL_VERSION;
-use crate::webrtc::bridge;
-use crate::webrtc::mux::{decode_datachannel_message, encode_datachannel_message};
-use crate::webrtc::peer::{NativePeerSession, PeerConfig, PeerEvent};
-use crate::webrtc::session_manager::{
-    PeerIceInbox, RemoteIceMsg, SessionState, WebRtcSessionManager,
-};
 
 enum Outbound {
     Frame(Vec<u8>),

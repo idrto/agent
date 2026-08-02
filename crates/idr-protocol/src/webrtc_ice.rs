@@ -82,7 +82,9 @@ impl std::fmt::Display for IceBuildError {
         match self {
             Self::MissingTurn => write!(f, "platform TURN missing from session ice config"),
             Self::MissingExplicitStun => write!(f, "explicit STUN policy requires stun_servers"),
-            Self::IncompleteTurnCredentials => write!(f, "TURN entry missing username or credential"),
+            Self::IncompleteTurnCredentials => {
+                write!(f, "TURN entry missing username or credential")
+            }
             Self::TurnEntryLooksLikeStun => write!(f, "TURN entry contains stun: URL"),
             Self::EmptyByorTurn => write!(f, "BYOR mode requires turn_servers"),
         }
@@ -93,10 +95,7 @@ impl std::error::Error for IceBuildError {}
 
 pub fn default_stun_for_policy(policy: StunPolicy) -> Vec<IceServer> {
     match policy {
-        StunPolicy::GoogleAndIdr => vec![
-            ice_server_stun(STUN_GOOGLE),
-            ice_server_stun(STUN_IDR),
-        ],
+        StunPolicy::GoogleAndIdr => vec![ice_server_stun(STUN_GOOGLE), ice_server_stun(STUN_IDR)],
         StunPolicy::IdrOnly => vec![ice_server_stun(STUN_IDR)],
         StunPolicy::GoogleOnly => vec![ice_server_stun(STUN_GOOGLE)],
         StunPolicy::Explicit => Vec::new(),
@@ -139,7 +138,11 @@ pub fn build_rtc_ice_servers(
             if let Some(byor) = &offer.byor {
                 out.extend(byor_turn_to_ice(byor));
             }
-            if offer.turn.is_none() && offer.byor.as_ref().is_none_or(|b| b.turn_servers.is_empty())
+            if offer.turn.is_none()
+                && offer
+                    .byor
+                    .as_ref()
+                    .is_none_or(|b| b.turn_servers.is_empty())
             {
                 return Err(IceBuildError::MissingTurn);
             }
@@ -153,7 +156,9 @@ pub fn build_rtc_ice_servers(
     Ok(dedupe_ice_servers(out))
 }
 
-fn resolve_byor_stun(offer: &SessionIceConfig) -> std::result::Result<Vec<IceServer>, IceBuildError> {
+fn resolve_byor_stun(
+    offer: &SessionIceConfig,
+) -> std::result::Result<Vec<IceServer>, IceBuildError> {
     if let Some(byor) = &offer.byor {
         if !byor.stun_servers.is_empty() {
             return Ok(byor_stun_to_ice(byor));
@@ -202,7 +207,9 @@ fn byor_turn_to_ice(byor: &BringYourOwnRelay) -> Vec<IceServer> {
         .collect()
 }
 
-fn validate_turn_servers(servers: &[IceServer]) -> std::result::Result<Vec<IceServer>, IceBuildError> {
+fn validate_turn_servers(
+    servers: &[IceServer],
+) -> std::result::Result<Vec<IceServer>, IceBuildError> {
     if servers.is_empty() {
         return Err(IceBuildError::MissingTurn);
     }

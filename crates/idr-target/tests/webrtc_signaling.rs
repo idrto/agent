@@ -2,14 +2,14 @@
 
 use chrono::{Duration, Utc};
 use idr_target::protocol::crypto::KeyPair;
-use idr_target::protocol::signaling::SignalingMessageType;
 use idr_target::protocol::signaling::PresenceRole;
+use idr_target::protocol::signaling::SignalingMessageType;
 use idr_target::protocol::webrtc_ice::{
     build_rtc_ice_servers, IceRelayMode, SessionIceConfig, StunPolicy,
 };
 use idr_target::protocol::webrtc_signaling::{
-    ProbeMethod, SourceAgentIdentity, TurnProbeCandidates, TurnProbeReport, TurnProbeReportUnsigned,
-    TurnProbeResult, WebRtcSessionOffer, WebRtcSessionRequest,
+    ProbeMethod, SourceAgentIdentity, TurnProbeCandidates, TurnProbeReport,
+    TurnProbeReportUnsigned, TurnProbeResult, WebRtcSessionOffer, WebRtcSessionRequest,
 };
 use idr_target::protocol::PROTOCOL_VERSION;
 use uuid::Uuid;
@@ -60,7 +60,9 @@ fn platform_ice_merge_includes_turn() {
         ice_transport_policy: idr_target::protocol::webrtc_ice::IceTransportPolicy::All,
     };
     let merged = build_rtc_ice_servers(&ice, &[]).unwrap();
-    assert!(merged.iter().any(|s| s.urls.iter().any(|u| u.starts_with("turn:"))));
+    assert!(merged
+        .iter()
+        .any(|s| s.urls.iter().any(|u| u.starts_with("turn:"))));
 }
 
 #[test]

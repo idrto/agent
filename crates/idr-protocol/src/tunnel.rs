@@ -59,12 +59,7 @@ pub fn host_header_hostname(value: &str) -> Option<String> {
         return Some(rest[..end].to_ascii_lowercase());
     }
     // hostname or hostname:port (first ':' separates port for non-IPv6)
-    Some(
-        v.split(':')
-            .next()
-            .unwrap_or(v)
-            .to_ascii_lowercase(),
-    )
+    Some(v.split(':').next().unwrap_or(v).to_ascii_lowercase())
 }
 
 /// Returns `(host, path)` when the buffer contains a complete HTTP/1.x request line + Host header.

@@ -15,7 +15,8 @@ use uuid::Uuid;
 
 use idr_protocol::crypto::KeyPair;
 use idr_protocol::signaling::{
-    EnsureRelayConnectionCommand, EnsureRelayConnectionUnsigned, RelayDescriptor, SignalingMessageType,
+    EnsureRelayConnectionCommand, EnsureRelayConnectionUnsigned, RelayDescriptor,
+    SignalingMessageType,
 };
 use idr_protocol::webrtc_signaling::{
     ProbeMethod, TurnProbeCandidate, TurnProbeCandidates, TurnProbeReport,
@@ -108,8 +109,7 @@ fn sample_probe_candidates(presence_key: &KeyPair) -> Result<String> {
         signature: String::new(),
     };
     let value = serde_json::to_value(&unsigned)?;
-    let signature =
-        idr_protocol::crypto::sign_json_canonical(&value, &presence_key.signing_key)?;
+    let signature = idr_protocol::crypto::sign_json_canonical(&value, &presence_key.signing_key)?;
     let msg = TurnProbeCandidates {
         version: unsigned.version,
         message_type: unsigned.message_type,
@@ -161,8 +161,7 @@ fn sample_command(relay_key: &KeyPair) -> Result<EnsureRelayConnectionCommand> {
         signature: String::new(),
     };
     let value = serde_json::to_value(&unsigned)?;
-    let signature =
-        idr_protocol::crypto::sign_json_canonical(&value, &relay_key.signing_key)?;
+    let signature = idr_protocol::crypto::sign_json_canonical(&value, &relay_key.signing_key)?;
     Ok(EnsureRelayConnectionCommand {
         version: unsigned.version,
         message_type: unsigned.message_type,

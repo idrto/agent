@@ -307,6 +307,30 @@ pub unsafe extern "C" fn idr_poll_events(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn idr_engine_set_dp_identity(
+    engine: *mut IdrEngine,
+    identity_json: *const c_char,
+) -> c_int {
+    clear_last_error();
+    if engine.is_null() || identity_json.is_null() {
+        set_last_error_kind(IdrErrorKind::InvalidArgument, "null argument");
+        return -(IdrErrorKind::InvalidArgument as c_int);
+    }
+    let eng = &*(engine as *mut Engine);
+    let json = match CStr::from_ptr(identity_json).to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            set_last_error_kind(IdrErrorKind::InvalidArgument, "invalid utf8 identity json");
+            return -(IdrErrorKind::InvalidArgument as c_int);
+        }
+    };
+    match eng.set_dp_identity_json(json) {
+        Ok(()) => 0,
+        Err(e) => map_err(e),
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn idr_last_error_code() -> u32 {
     last_error_code()
 }

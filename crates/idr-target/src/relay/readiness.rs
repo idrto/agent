@@ -25,12 +25,10 @@ impl RelayReadiness {
     pub fn on_disconnected(&self) {
         let mut cur = self.active.load(Ordering::SeqCst);
         while cur > 0 {
-            match self.active.compare_exchange(
-                cur,
-                cur - 1,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
+            match self
+                .active
+                .compare_exchange(cur, cur - 1, Ordering::SeqCst, Ordering::SeqCst)
+            {
                 Ok(_) => break,
                 Err(actual) => cur = actual,
             }

@@ -63,10 +63,7 @@ impl Metrics {
         register_metric!(registry, signaling_duplicates_total);
 
         let relay_connections = IntGaugeVec::new(
-            opts!(
-                "idr_target_relay_connections",
-                "Relay connections by state"
-            ),
+            opts!("idr_target_relay_connections", "Relay connections by state"),
             &["state"],
         )
         .expect("create idr_target_relay_connections");
@@ -117,11 +114,9 @@ impl Metrics {
         .expect("create idr_target_sqlite_batch_size");
         register_metric!(registry, sqlite_batch_size);
 
-        let webrtc_sessions_active = IntGauge::new(
-            "idr_webrtc_sessions_active",
-            "Active WebRTC sessions",
-        )
-        .expect("create idr_webrtc_sessions_active");
+        let webrtc_sessions_active =
+            IntGauge::new("idr_webrtc_sessions_active", "Active WebRTC sessions")
+                .expect("create idr_webrtc_sessions_active");
         register_metric!(registry, webrtc_sessions_active);
 
         let webrtc_turn_probe_duration_seconds = Histogram::with_opts(HistogramOpts::new(
@@ -139,10 +134,7 @@ impl Metrics {
         register_metric!(registry, webrtc_turn_probe_unreachable_total);
 
         let webrtc_ice_path_total = IntCounterVec::new(
-            opts!(
-                "idr_webrtc_ice_path_total",
-                "ICE path types observed"
-            ),
+            opts!("idr_webrtc_ice_path_total", "ICE path types observed"),
             &["path"],
         )
         .expect("create idr_webrtc_ice_path_total");
@@ -183,7 +175,9 @@ impl Metrics {
     }
 
     pub fn set_relay_state_count(&self, state: &str, count: i64) {
-        self.relay_connections.with_label_values(&[state]).set(count);
+        self.relay_connections
+            .with_label_values(&[state])
+            .set(count);
     }
 
     pub fn inc_signaling_result(&self, result: &str) {

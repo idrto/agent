@@ -1,4 +1,4 @@
-use idr_target::relay::descriptor::{GenerationalHandle, hash_relay_id};
+use idr_target::relay::descriptor::{hash_relay_id, GenerationalHandle};
 use idr_target::relay::table::RelayConnectionTable;
 
 #[test]

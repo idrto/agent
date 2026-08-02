@@ -62,7 +62,8 @@ pub fn select_endpoint(
             return Some(EndpointChoice::Ipv6(v6));
         }
     }
-    v4.map(EndpointChoice::Ipv4).or_else(|| v6.map(EndpointChoice::Ipv6))
+    v4.map(EndpointChoice::Ipv4)
+        .or_else(|| v6.map(EndpointChoice::Ipv6))
 }
 
 pub fn family_label(choice: EndpointChoice) -> &'static str {

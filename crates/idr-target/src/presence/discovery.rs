@@ -8,11 +8,11 @@ use reqwest::Client;
 use tracing::{info, warn};
 
 use crate::config::PresenceConfig;
+use crate::storage::models::PresenceDiscoveryCacheRow;
+use crate::storage::writer::{StorageCommand, StorageWriter};
+use crate::storage::Storage;
 use idr_protocol::crypto::KeyPair;
 use idr_protocol::discovery::PresenceDiscoveryDocument;
-use crate::storage::models::PresenceDiscoveryCacheRow;
-use crate::storage::Storage;
-use crate::storage::writer::{StorageCommand, StorageWriter};
 
 pub struct DiscoveryService {
     cfg: PresenceConfig,
@@ -58,7 +58,9 @@ impl DiscoveryService {
 
     fn load_cache(&self) {
         if let Ok(Some(row)) = self.storage.load_discovery_cache() {
-            if let Ok(doc) = serde_json::from_slice::<PresenceDiscoveryDocument>(&row.canonical_json) {
+            if let Ok(doc) =
+                serde_json::from_slice::<PresenceDiscoveryDocument>(&row.canonical_json)
+            {
                 if doc.verify(&self.discovery_key).is_ok() {
                     *self.cached.write() = Some(doc);
                 }
@@ -114,7 +116,11 @@ impl DiscoveryService {
             .send(StorageCommand::UpsertDiscoveryCache(row))
             .await;
 
-        info!(generation = doc.generation, servers = doc.presence_servers.len(), "discovery document fetched");
+        info!(
+            generation = doc.generation,
+            servers = doc.presence_servers.len(),
+            "discovery document fetched"
+        );
         Ok(doc)
     }
 

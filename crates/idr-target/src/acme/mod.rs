@@ -26,8 +26,8 @@ use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
 use crate::config::AcmeConfig;
-use idr_protocol::fqhn;
 use crate::relay::readiness::RelayReadiness;
+use idr_protocol::fqhn;
 
 /// Suffix reserved for IDR native Host-Identity FQHNs (Relay wildcard / edge terminate).
 const NATIVE_FQHN_SUFFIX: &str = ".idr.to";
@@ -49,7 +49,9 @@ impl AcmeManager {
                     "ACME enabled but [acme].domains is empty — Let's Encrypt is only allowed for custom domains (not *.idr.to)"
                 );
             }
-            if cfg.email.is_empty() || cfg.email.contains("example.com") || cfg.email == "admin@idr.to"
+            if cfg.email.is_empty()
+                || cfg.email.contains("example.com")
+                || cfg.email == "admin@idr.to"
             {
                 if !cfg.staging {
                     anyhow::bail!(
@@ -127,11 +129,7 @@ impl AcmeManager {
         }
 
         info!(%domain, "ACME: waiting for Relay QUIC before HTTP-01");
-        if !self
-            .readiness
-            .wait_ready(Duration::from_secs(120))
-            .await
-        {
+        if !self.readiness.wait_ready(Duration::from_secs(120)).await {
             anyhow::bail!("no active Relay QUIC within 120s — cannot serve HTTP-01 via edge");
         }
 
@@ -152,7 +150,10 @@ impl AcmeManager {
             .await
             .context("create ACME order")?;
 
-        let authorizations = order.authorizations().await.context("fetch authorizations")?;
+        let authorizations = order
+            .authorizations()
+            .await
+            .context("fetch authorizations")?;
         let mut challenge_tokens = Vec::new();
         for authz in &authorizations {
             if authz.status == AuthorizationStatus::Valid {
@@ -183,10 +184,7 @@ impl AcmeManager {
         loop {
             order.refresh().await?;
             let auths = order.authorizations().await?;
-            if auths
-                .iter()
-                .all(|a| a.status == AuthorizationStatus::Valid)
-            {
+            if auths.iter().all(|a| a.status == AuthorizationStatus::Valid) {
                 break;
             }
             if auths
@@ -222,9 +220,7 @@ impl AcmeManager {
         let key_pair = KeyPair::generate().context("generate certificate key")?;
         let mut params =
             CertificateParams::new([domain.to_string()]).context("certificate params")?;
-        params
-            .distinguished_name
-            .push(DnType::CommonName, domain);
+        params.distinguished_name.push(DnType::CommonName, domain);
         let csr = params
             .serialize_request(&key_pair)
             .context("serialize CSR")?
@@ -366,11 +362,7 @@ impl AcmeManager {
 
     async fn write_http01_token(&self, token: &str, body: &str) -> Result<()> {
         validate_acme_token(token)?;
-        let dir = self
-            .cfg
-            .webroot
-            .join(".well-known")
-            .join("acme-challenge");
+        let dir = self.cfg.webroot.join(".well-known").join("acme-challenge");
         fs::create_dir_all(&dir).await?;
         let path = dir.join(token);
         atomic_write(&path, body.as_bytes()).await?;

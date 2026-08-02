@@ -65,7 +65,10 @@ impl GenerationalHandle {
     pub const TOMBSTONE: u64 = 1;
 
     pub fn encode(index: u32, generation: u32) -> Self {
-        debug_assert!(generation >= 2, "generation 0/1 reserved for table sentinels");
+        debug_assert!(
+            generation >= 2,
+            "generation 0/1 reserved for table sentinels"
+        );
         Self((u64::from(generation) << 32) | u64::from(index))
     }
 
@@ -97,9 +100,12 @@ impl fmt::Display for GenerationalHandle {
 
 /// SplitMix64 finalizer over a stable string hash of relay_id.
 pub fn hash_relay_id(relay_id: &str) -> u64 {
-    let mut h = relay_id.as_bytes().iter().fold(0xcbf29ce484222325u64, |acc, &b| {
-        (acc ^ u64::from(b)).wrapping_mul(0x100000001b3)
-    });
+    let mut h = relay_id
+        .as_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325u64, |acc, &b| {
+            (acc ^ u64::from(b)).wrapping_mul(0x100000001b3)
+        });
     splitmix64(h)
 }
 

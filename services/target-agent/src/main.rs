@@ -3,34 +3,96 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use idr_dp::{materialize_mtls_client, FileSecretStore, SecretStore};
 use prometheus::{Encoder, TextEncoder};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use idr_target::acme::AcmeManager;
 use idr_target::config::Config;
 use idr_target::identity::TargetIdentity;
 use idr_target::network::{quic_bind_addr, NetworkCapabilities};
-use idr_target::presence::{CommandDedup, DiscoveryService, PresenceQuicClient, PresenceWebSocketClient};
 use idr_target::presence::placement::select_primary_secondary;
+use idr_target::presence::{
+    CommandDedup, DiscoveryService, PresenceQuicClient, PresenceWebSocketClient,
+};
 use idr_target::protocol::fqhn;
 use idr_target::protocol::signaling::PresenceRole;
 use idr_target::quic::QuicClient;
-use idr_target::relay::{IdleScheduler, RelayConnectionManager, RelayReadiness};
 use idr_target::relay::connector::RelayConnector;
-use idr_target::webrtc::WebRtcSessionManager;
+use idr_target::relay::{IdleScheduler, RelayConnectionManager, RelayReadiness};
 use idr_target::shutdown::ShutdownCoordinator;
 use idr_target::storage::{Storage, StorageWriter};
 use idr_target::telemetry::{init_tracing, Metrics};
+use idr_target::webrtc::WebRtcSessionManager;
+
+#[derive(Parser, Debug)]
+#[command(name = "target-agent", version, about = "IDR Target Agent service")]
+struct Cli {
+    /// Path to target TOML config (or set IDR_CONFIG).
+    #[arg(
+        short,
+        long,
+        env = "IDR_CONFIG",
+        default_value = "config/target.example.toml"
+    )]
+    config: PathBuf,
+
+    /// Override DP identity JSON path for Presence PEP mTLS.
+    #[arg(long, env = "IDR_DP_IDENTITY")]
+    identity: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Run the Target Agent service (default when no subcommand).
+    Run,
+    /// Print version and transport summary.
+    Version,
+    /// Validate config + optional DP identity (no private key dump).
+    Doctor,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config_path = std::env::var("IDR_CONFIG")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("config/target.example.toml"));
+    let cli = Cli::parse();
+    match cli.command.unwrap_or(Commands::Run) {
+        Commands::Version => {
+            println!("target-agent {}", env!("CARGO_PKG_VERSION"));
+            println!("pep: quic (fallback wss)");
+            println!("dp-sdk: optional Presence mTLS via [dp].identity_path");
+            Ok(())
+        }
+        Commands::Doctor => {
+            let cfg = Config::load(&cli.config).context("load configuration")?;
+            println!("config_ok=true");
+            println!("fqhn={}", cfg.target.fqhn);
+            println!("discovery_url={}", cfg.presence.discovery_url);
+            println!("prefer_quic={}", cfg.presence.prefer_quic);
+            let path = cli.identity.or(cfg.dp.identity_path.clone());
+            match path {
+                Some(p) => match FileSecretStore::new(&p).load_identity()? {
+                    Some(id) => {
+                        println!("dp_identity_path={}", p.display());
+                        println!("dp_ski={}", id.ski);
+                    }
+                    None => println!("dp_identity_path={} (missing)", p.display()),
+                },
+                None => println!("dp_identity_path=(none)"),
+            }
+            Ok(())
+        }
+        Commands::Run => run_service(cli.config, cli.identity).await,
+    }
+}
 
+async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -> Result<()> {
     let cfg = Config::load(&config_path).context("load configuration")?;
     init_tracing(&cfg.telemetry.log_level, cfg.telemetry.log_json)?;
 
@@ -53,7 +115,10 @@ async fn main() -> Result<()> {
         storage.clone(),
         writer.clone(),
     )?;
-    let discovery_doc = discovery.fetch().await.context("fetch presence discovery")?;
+    let discovery_doc = discovery
+        .fetch()
+        .await
+        .context("fetch presence discovery")?;
     let discovery_generation = discovery_doc.generation;
 
     let (primary_idx, secondary_idx) =
@@ -61,6 +126,23 @@ async fn main() -> Result<()> {
 
     let bind: SocketAddr = quic_bind_addr(network_caps);
     let insecure_dev = cfg.presence.discovery_key.is_empty();
+
+    let dp_path = identity_override.or_else(|| cfg.dp.identity_path.clone());
+    let mtls_material = if let Some(path) = dp_path {
+        match FileSecretStore::new(&path).load_identity()? {
+            Some(id) => {
+                info!(ski = %id.ski, "loaded DP identity for Presence mTLS");
+                Some(materialize_mtls_client(&id).context("materialize DP mTLS")?)
+            }
+            None => {
+                warn!(path = %path.display(), "DP identity file missing");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let quic = Arc::new(QuicClient::new(
         bind,
         identity.public_key_base64url(),
@@ -110,7 +192,11 @@ async fn main() -> Result<()> {
     let shutdown_presence = shutdown.clone();
     let metrics_presence = metrics.clone();
 
-    let presence_quic = Arc::new(PresenceQuicClient::new(bind, insecure_dev)?);
+    let presence_quic = Arc::new(PresenceQuicClient::with_mtls(
+        bind,
+        insecure_dev,
+        mtls_material.as_ref(),
+    )?);
 
     let primary_server = discovery_doc.presence_servers[primary_idx].clone();
     let primary_client = PresenceWebSocketClient::new(
@@ -131,9 +217,7 @@ async fn main() -> Result<()> {
         webrtc_sessions.clone(),
     );
 
-    let mut tasks = vec![tokio::spawn(async move {
-        primary_client.run().await
-    })];
+    let mut tasks = vec![tokio::spawn(async move { primary_client.run().await })];
 
     if let Some(secondary_idx) = secondary_idx {
         let secondary_server = discovery_doc.presence_servers[secondary_idx].clone();
@@ -154,9 +238,7 @@ async fn main() -> Result<()> {
             presence_quic,
             webrtc_sessions,
         );
-        tasks.push(tokio::spawn(async move {
-            secondary_client.run().await
-        }));
+        tasks.push(tokio::spawn(async move { secondary_client.run().await }));
     }
 
     let metrics_listen = cfg.telemetry.metrics_listen.clone();
@@ -167,16 +249,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    tokio::spawn(async move {
-        if signal::ctrl_c().await.is_ok() {
-            info!("shutdown signal received");
-        }
-    });
-
-    // Wait for ctrl-c
     signal::ctrl_c().await?;
     shutdown.begin_drain();
-    shutdown.wait_grace_period(cfg.shutdown.grace_period()).await;
+    shutdown
+        .wait_grace_period(cfg.shutdown.grace_period())
+        .await;
     writer.shutdown().await?;
     for task in tasks {
         let _ = task.await;

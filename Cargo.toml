@@ -5,10 +5,12 @@ members = [
     "crates/idr-core",
     "crates/idr-webrtc",
     "crates/idr-signaling",
+    "crates/idr-dp",
     "crates/idr-source",
     "crates/idr-c-api",
     "crates/idr-target",
     "services/target-agent",
+    "services/source-agent",
     "services/mock-presence",
 ]
 default-members = [
@@ -16,10 +18,12 @@ default-members = [
     "crates/idr-core",
     "crates/idr-webrtc",
     "crates/idr-signaling",
+    "crates/idr-dp",
     "crates/idr-source",
     "crates/idr-c-api",
     "crates/idr-target",
     "services/target-agent",
+    "services/source-agent",
     "services/mock-presence",
 ]
 
@@ -67,10 +71,15 @@ proptest = "1"
 tempfile = "3"
 tokio-test = "0.4"
 
+clap = { version = "4", features = ["derive", "env"] }
+dp-rust = { git = "https://github.com/2keyapp/dp-sdk", package = "dp-rust" }
+dp-rust-mtls = { git = "https://github.com/2keyapp/dp-sdk", package = "dp-rust-mtls" }
+
 idr-protocol = { path = "crates/idr-protocol" }
 idr-core = { path = "crates/idr-core" }
 idr-webrtc = { path = "crates/idr-webrtc" }
 idr-signaling = { path = "crates/idr-signaling" }
+idr-dp = { path = "crates/idr-dp" }
 idr-source = { path = "crates/idr-source" }
 idr-c-api = { path = "crates/idr-c-api" }
 idr-target = { path = "crates/idr-target" }

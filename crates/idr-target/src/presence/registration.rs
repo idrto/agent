@@ -48,12 +48,9 @@ pub fn build_registration(
 fn build_webrtc_registration(cfg: &Config) -> anyhow::Result<TargetWebRtcRegistration> {
     let relay_mode = cfg.webrtc.relay_mode();
     let byor = match relay_mode {
-        IceRelayMode::Byor | IceRelayMode::Hybrid => cfg
-            .webrtc
-            .byor
-            .as_ref()
-            .map(build_byor)
-            .transpose()?,
+        IceRelayMode::Byor | IceRelayMode::Hybrid => {
+            cfg.webrtc.byor.as_ref().map(build_byor).transpose()?
+        }
         IceRelayMode::Platform => None,
     };
 
@@ -120,15 +117,8 @@ enabled = true
         .unwrap();
         let cfg = Config::load(&path).unwrap();
         let identity = TargetIdentity::load_or_generate(None).unwrap();
-        let reg = build_registration(
-            &identity,
-            "host.idr.to",
-            1,
-            1,
-            PresenceRole::Primary,
-            &cfg,
-        )
-        .unwrap();
+        let reg = build_registration(&identity, "host.idr.to", 1, 1, PresenceRole::Primary, &cfg)
+            .unwrap();
         assert!(!reg.supported_transports.contains(&"webrtc".into()) || cfg!(feature = "webrtc"));
         if cfg!(feature = "webrtc") {
             assert!(reg.webrtc.is_some());

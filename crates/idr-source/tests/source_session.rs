@@ -1,8 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use idr_protocol::stream_mux::{
-    StreamFrame, StreamKind, INITIAL_STREAM_WINDOW,
-};
+use idr_protocol::stream_mux::{StreamFrame, StreamKind, INITIAL_STREAM_WINDOW};
 use idr_signaling::mock::MockSignalingClient;
 use idr_source::SourceRuntime;
 use idr_webrtc::{PeerTransport, RecordingPeer};
@@ -17,17 +15,10 @@ struct SlotPeer {
 
 #[async_trait::async_trait]
 impl PeerTransport for SlotPeer {
-    async fn start(
-        &mut self,
-        request: idr_webrtc::PeerConnectRequest,
-    ) -> idr_core::Result<()> {
+    async fn start(&mut self, request: idr_webrtc::PeerConnectRequest) -> idr_core::Result<()> {
         self.inner.start(request).await
     }
-    async fn set_remote_description(
-        &mut self,
-        sdp_type: &str,
-        sdp: &str,
-    ) -> idr_core::Result<()> {
+    async fn set_remote_description(&mut self, sdp_type: &str, sdp: &str) -> idr_core::Result<()> {
         self.inner.set_remote_description(sdp_type, sdp).await
     }
     async fn create_local_description(&mut self) -> idr_core::Result<()> {

@@ -2,6 +2,7 @@
 
 pub use idr_protocol as protocol;
 
+pub mod acme;
 pub mod adapters;
 pub mod config;
 pub mod identity;
@@ -13,5 +14,4 @@ pub mod shutdown;
 pub mod storage;
 pub mod telemetry;
 pub mod tunnel;
-pub mod acme;
 pub mod webrtc;

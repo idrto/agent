@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -48,6 +49,20 @@ class IdrRuntime {
       );
     }
     return IdrRuntime._(bindings, engine);
+  }
+
+  /// Inject DP DeviceIdentity JSON (from [idr_secure_storage] / flutter_secure_storage).
+  void setDpIdentityJson(String identityJson) {
+    _ensureOpen();
+    final ptr = identityJson.toNativeUtf8();
+    final rc = _bindings.setDpIdentity(_engine, ptr);
+    malloc.free(ptr);
+    checkRc(rc);
+  }
+
+  /// Inject a DP identity map (`ski`, `private_jwk`, `credential`, …).
+  void setDpIdentityMap(Map<String, dynamic> identity) {
+    setDpIdentityJson(jsonEncode(identity));
   }
 
   Future<IdrSession> connect(String targetFqhn) async {

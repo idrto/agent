@@ -24,6 +24,7 @@ idr-protocol = { workspace = true }
 idr-signaling = { workspace = true }
 idr-source = { workspace = true }
 idr-webrtc = { workspace = true }
+idr-dp = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

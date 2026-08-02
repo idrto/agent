@@ -36,8 +36,8 @@ jobs:
         run: cargo build --workspace --release
       - name: record binary sizes
         run: |
-          ls -la target/release/target-agent target/release/mock-presence | tee sizes.txt
-          stat -c '%n %s' target/release/target-agent target/release/mock-presence | tee -a sizes.txt
+          ls -la target/release/target-agent target/release/source-agent target/release/mock-presence | tee sizes.txt
+          stat -c '%n %s' target/release/target-agent target/release/source-agent target/release/mock-presence | tee -a sizes.txt
           ls -la target/release/libidr_c_api.so target/release/libidr_c_api.a 2>/dev/null | tee -a sizes.txt || true
       - name: dart analyze (if dart available)
         run: |
@@ -48,6 +48,14 @@ jobs:
             dart analyze packages/idr_core_ffi packages/idr_client packages/idr_http
           else
             echo "dart not installed; skipping"
+          fi
+      - name: flutter packages (if flutter available)
+        run: |
+          if command -v flutter >/dev/null 2>&1; then
+            (cd packages/idr_secure_storage && flutter pub get && flutter test)
+            (cd packages/idr_cli && flutter pub get)
+          else
+            echo "flutter not installed; skipping secure_storage/cli"
           fi
 
   # Native WebRTC (libdatachannel via datachannel-rs) — cmake required.

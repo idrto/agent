@@ -1,13 +1,13 @@
-use idr_target::protocol::signaling::{
-    CommandResultCode, EnsureRelayConnectionCommand, EnsureRelayConnectionUnsigned, RelayDescriptor,
-    SignalingMessageType,
-};
-use idr_target::protocol::PROTOCOL_VERSION;
-use idr_target::presence::dedup::{CachedCommandResult, CommandDedup, DedupAction};
-use idr_target::storage::{Storage, StorageWriter};
-use idr_target::telemetry::Metrics;
 use chrono::{Duration, Utc};
 use ed25519_dalek::SigningKey;
+use idr_target::presence::dedup::{CachedCommandResult, CommandDedup, DedupAction};
+use idr_target::protocol::signaling::{
+    CommandResultCode, EnsureRelayConnectionCommand, EnsureRelayConnectionUnsigned,
+    RelayDescriptor, SignalingMessageType,
+};
+use idr_target::protocol::PROTOCOL_VERSION;
+use idr_target::storage::{Storage, StorageWriter};
+use idr_target::telemetry::Metrics;
 use uuid::Uuid;
 
 fn sample_command(signing: &SigningKey, command_id: Uuid) -> EnsureRelayConnectionCommand {
@@ -51,12 +51,7 @@ async fn duplicate_command_id_deduplicates() {
     })
     .unwrap();
     let writer = StorageWriter::spawn(storage.clone(), Metrics::new());
-    let dedup = CommandDedup::new(
-        std::time::Duration::from_secs(300),
-        1000,
-        storage,
-        writer,
-    );
+    let dedup = CommandDedup::new(std::time::Duration::from_secs(300), 1000, storage, writer);
 
     let signing = SigningKey::generate(&mut rand::rngs::OsRng);
     let cmd_id = Uuid::new_v4();
@@ -73,9 +68,7 @@ async fn duplicate_command_id_deduplicates() {
     dedup
         .complete(
             cmd_id,
-            idr_target::protocol::crypto::content_digest(
-                &serde_json::to_value(&cmd).unwrap(),
-            ),
+            idr_target::protocol::crypto::content_digest(&serde_json::to_value(&cmd).unwrap()),
             CachedCommandResult {
                 result: CommandResultCode::Active,
                 detail: None,

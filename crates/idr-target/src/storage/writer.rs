@@ -108,7 +108,9 @@ fn flush_batch(storage: &Storage, batch: &mut Vec<StorageCommand>) -> Result<()>
         match cmd {
             StorageCommand::UpsertRelayHistory(row) => storage.upsert_relay_history(&row)?,
             StorageCommand::UpsertDiscoveryCache(row) => storage.upsert_discovery_cache(&row)?,
-            StorageCommand::UpsertProcessedCommand(row) => storage.upsert_processed_command(&row)?,
+            StorageCommand::UpsertProcessedCommand(row) => {
+                storage.upsert_processed_command(&row)?
+            }
             StorageCommand::PruneExpiredCommands { not_after } => {
                 let n = storage.prune_expired_commands(not_after)?;
                 debug!(pruned = n, "pruned expired processed commands");

@@ -9,7 +9,7 @@ pub mod retry;
 pub mod table;
 
 pub use descriptor::{
-    ConnectionAuthorization, GenerationalHandle, RelayId, StableRelayDescriptor, hash_relay_id,
+    hash_relay_id, ConnectionAuthorization, GenerationalHandle, RelayId, StableRelayDescriptor,
 };
 pub use idle::IdleScheduler;
 pub use manager::RelayConnectionManager;

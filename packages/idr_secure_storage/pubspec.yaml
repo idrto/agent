@@ -1,0 +1,52 @@
+name: idr_secure_storage
+description: >
+  DP / IDR secret store backed by fl-start flutter_secure_storage.
+  Use for all agent secrets when embedding in Flutter or Flutter desktop CLI.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_secure_storage:
+    git:
+      url: https://github.com/fl-start/flutter_secure_storage.git
+      ref: v11.0.4-fl.1
+      path: flutter_secure_storage
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^4.0.0
+  test: ^1.25.0
+
+dependency_overrides:
+  flutter_secure_storage_platform_interface:
+    git:
+      url: https://github.com/fl-start/flutter_secure_storage.git
+      ref: v11.0.4-fl.1
+      path: flutter_secure_storage_platform_interface
+  flutter_secure_storage_darwin:
+    git:
+      url: https://github.com/fl-start/flutter_secure_storage.git
+      ref: v11.0.4-fl.1
+      path: flutter_secure_storage_darwin
+  flutter_secure_storage_linux:
+    git:
+      url: https://github.com/fl-start/flutter_secure_storage.git
+      ref: v11.0.4-fl.1
+      path: flutter_secure_storage_linux
+  flutter_secure_storage_windows:
+    git:
+      url: https://github.com/fl-start/flutter_secure_storage.git
+      ref: v11.0.4-fl.1
+      path: flutter_secure_storage_windows
+  flutter_secure_storage_web:
+    git:
+      url: https://github.com/fl-start/flutter_secure_storage.git
+      ref: v11.0.4-fl.1
+      path: flutter_secure_storage_web

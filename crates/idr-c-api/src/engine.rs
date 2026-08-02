@@ -224,6 +224,15 @@ impl Engine {
     pub fn poll_event(&self) -> Option<EngineEvent> {
         self.event_rx.lock().try_recv().ok()
     }
+
+    /// Inject DP DeviceIdentity JSON (from Dart flutter_secure_storage).
+    pub fn set_dp_identity_json(&self, json: &str) -> Result<()> {
+        let identity = idr_dp::device_identity_from_json(json).map_err(|e| {
+            IdrError::new(IdrErrorKind::InvalidArgument, format!("dp identity: {e}"))
+        })?;
+        self.runtime.lock().set_identity(identity);
+        Ok(())
+    }
 }
 
 fn cstr(ptr: *const std::os::raw::c_char) -> Option<String> {

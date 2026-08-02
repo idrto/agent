@@ -60,7 +60,10 @@ pub async fn probe_reachability(cap: NetworkCapabilities) -> NetworkCapabilities
         caps.ipv4 = udp_send_probe(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))).await;
     }
     if caps.ipv6 {
-        caps.ipv6 = udp_send_probe(IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888))).await;
+        caps.ipv6 = udp_send_probe(IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888,
+        )))
+        .await;
     }
     caps
 }
@@ -74,7 +77,9 @@ async fn udp_send_probe(remote: IpAddr) -> bool {
             Ok(s) => s,
             Err(_) => return false,
         };
-        socket.set_read_timeout(Some(Duration::from_millis(200))).ok();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .ok();
         let dest = SocketAddr::new(remote, 53);
         socket.send_to(b"idr-probe", dest).is_ok()
     })

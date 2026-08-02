@@ -12,9 +12,9 @@ use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
 use crate::config::NginxConfig;
-use idr_protocol::MAX_FRAME_BYTES;
-use idr_protocol::tunnel::{TunnelOpen, TunnelStreamKind};
 use crate::relay::arena::RelayConnection;
+use idr_protocol::tunnel::{TunnelOpen, TunnelStreamKind};
+use idr_protocol::MAX_FRAME_BYTES;
 
 /// Accept opaque tunnel streams from Relay and bridge to local nginx.
 pub fn spawn_acceptor(
@@ -32,8 +32,7 @@ pub fn spawn_acceptor(
                     let relay_conn = relay_conn.clone();
                     relay_conn.stream_opened();
                     tokio::spawn(async move {
-                        let result =
-                            handle_tunnel_stream(send, recv, &nginx, &expected_fqhn).await;
+                        let result = handle_tunnel_stream(send, recv, &nginx, &expected_fqhn).await;
                         relay_conn.stream_closed();
                         if let Err(e) = result {
                             debug!(error = %e, "tunnel stream ended");
@@ -62,9 +61,7 @@ async fn handle_tunnel_stream(
     let claimed = idr_protocol::fqhn::canonicalize(&open.target_fqhn)
         .unwrap_or_else(|_| open.target_fqhn.to_ascii_lowercase());
     if claimed != expected_fqhn {
-        anyhow::bail!(
-            "TunnelOpen FQHN mismatch: claimed={claimed} expected={expected_fqhn}"
-        );
+        anyhow::bail!("TunnelOpen FQHN mismatch: claimed={claimed} expected={expected_fqhn}");
     }
     let upstream = match open.kind {
         TunnelStreamKind::TlsPassthrough => nginx.tls_upstream,
@@ -92,11 +89,7 @@ async fn read_tunnel_open(recv: &mut RecvStream) -> Result<TunnelOpen> {
 }
 
 /// Full-duplex pipe: each direction runs to completion with half-close on EOF.
-async fn pipe_quic_tcp(
-    mut recv: RecvStream,
-    mut send: SendStream,
-    tcp: TcpStream,
-) -> Result<()> {
+async fn pipe_quic_tcp(mut recv: RecvStream, mut send: SendStream, tcp: TcpStream) -> Result<()> {
     let (mut tcp_read, mut tcp_write) = tcp.into_split();
     let quic_to_tcp = async {
         let mut buf = [0u8; 8192];
@@ -134,10 +127,5 @@ pub fn spawn_on_connection(
     expected_fqhn: String,
     relay_conn: Arc<RelayConnection>,
 ) {
-    spawn_acceptor(
-        quic.connection().clone(),
-        nginx,
-        expected_fqhn,
-        relay_conn,
-    );
+    spawn_acceptor(quic.connection().clone(), nginx, expected_fqhn, relay_conn);
 }

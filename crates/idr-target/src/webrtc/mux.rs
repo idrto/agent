@@ -7,7 +7,9 @@ pub fn decode_datachannel_message(bytes: &[u8]) -> anyhow::Result<StreamFrame> {
 }
 
 pub fn encode_datachannel_message(frame: &StreamFrame) -> anyhow::Result<Vec<u8>> {
-    frame.encode().map_err(|e| anyhow::anyhow!("mux encode: {e}"))
+    frame
+        .encode()
+        .map_err(|e| anyhow::anyhow!("mux encode: {e}"))
 }
 
 #[cfg(test)]

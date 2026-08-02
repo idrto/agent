@@ -12,7 +12,9 @@ use crate::relay::arena::{
     RelayConnectionStateKind, RelayConnectionStore, SharedConnectionAttempt,
 };
 use crate::relay::connector::RelayConnector;
-use crate::relay::descriptor::{ConnectionAuthorization, GenerationalHandle, StableRelayDescriptor};
+use crate::relay::descriptor::{
+    ConnectionAuthorization, GenerationalHandle, StableRelayDescriptor,
+};
 use crate::relay::idle::IdleScheduler;
 use crate::relay::readiness::RelayReadiness;
 use crate::relay::retry::retry_after_from_now;
@@ -91,9 +93,9 @@ impl RelayConnectionManager {
             .table
             .iter_active_relay_ids()
             .filter_map(|relay_id| {
-                store.lookup(relay_id).and_then(|(_, conn)| {
-                    conn.entry.read().quic.clone()
-                })
+                store
+                    .lookup(relay_id)
+                    .and_then(|(_, conn)| conn.entry.read().quic.clone())
             })
             .collect();
         drop(store);
@@ -102,7 +104,10 @@ impl RelayConnectionManager {
             quic.nudge_path_probe();
         }
         if count > 0 {
-            debug!(count, "nudged active relay QUIC connections for path migration");
+            debug!(
+                count,
+                "nudged active relay QUIC connections for path migration"
+            );
         }
     }
 
@@ -176,10 +181,7 @@ impl RelayConnectionManager {
                             _ => unreachable!(),
                         };
                         drop(store);
-                        return attempt
-                            .wait()
-                            .await
-                            .map_err(|e| anyhow::anyhow!(e.message));
+                        return attempt.wait().await.map_err(|e| anyhow::anyhow!(e.message));
                     }
                     RelayConnectionStateKind::Failed => {
                         let retry_after = match &conn.entry.read().state {
@@ -225,7 +227,9 @@ impl RelayConnectionManager {
 
             let mut store = self.store.lock().await;
             let Some((handle, conn)) = store.lookup(&relay_id) else {
-                return Err(anyhow::anyhow!("connection entry disappeared during connect"));
+                return Err(anyhow::anyhow!(
+                    "connection entry disappeared during connect"
+                ));
             };
 
             match connect_result {

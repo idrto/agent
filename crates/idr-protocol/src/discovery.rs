@@ -93,7 +93,8 @@ fn parse_socket(ip: &str, port: u16, v6: bool) -> Option<SocketAddr> {
 impl PresenceDiscoveryDocument {
     pub fn sign(mut doc: PresenceDiscoveryUnsigned, key: &KeyPair) -> Result<Self> {
         doc.signature = String::new();
-        let value = serde_json::to_value(&doc).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_value(&doc).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, &key.signing_key)?;
         Ok(PresenceDiscoveryDocument {
             version: doc.version,

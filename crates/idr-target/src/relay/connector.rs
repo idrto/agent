@@ -9,9 +9,11 @@ use tracing::{debug, warn};
 use crate::config::RelayConnectionsConfig;
 use crate::network::NetworkCapabilities;
 use crate::quic::QuicClient;
-use crate::relay::descriptor::{ConnectionAuthorization, StableRelayDescriptor};
-use crate::relay::endpoint_selection::{choice_family, family_label, parse_endpoints, select_endpoint, EndpointChoice};
 use crate::quic::RelayQuicConnection;
+use crate::relay::descriptor::{ConnectionAuthorization, StableRelayDescriptor};
+use crate::relay::endpoint_selection::{
+    choice_family, family_label, parse_endpoints, select_endpoint, EndpointChoice,
+};
 use crate::storage::Storage;
 use crate::telemetry::Metrics;
 

@@ -71,7 +71,10 @@ impl ProbeScheduler {
             .last_generation
             .load(std::sync::atomic::Ordering::SeqCst);
         if msg.probe_generation <= prev {
-            debug!(generation = msg.probe_generation, "skipping stale probe generation");
+            debug!(
+                generation = msg.probe_generation,
+                "skipping stale probe generation"
+            );
             return Ok(());
         }
         self.last_generation
@@ -164,9 +167,7 @@ pub async fn send_probe_request(
         signature: String::new(),
     };
     let req = TurnProbeRequest::sign(unsigned, identity.signing_key())?;
-    outbox
-        .send_json(&serde_json::to_string(&req)?)
-        .await?;
+    outbox.send_json(&serde_json::to_string(&req)?).await?;
     Ok(())
 }
 

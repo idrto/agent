@@ -60,6 +60,9 @@ int idr_stream_reset(idr_engine_t *engine, uint64_t session_id, uint64_t stream_
 int idr_poll_events(idr_engine_t *engine, idr_event_t *out_events, size_t max_events,
                     size_t *out_count);
 
+/* Inject DP DeviceIdentity JSON loaded from flutter_secure_storage (or tests). */
+int idr_engine_set_dp_identity(idr_engine_t *engine, const char *identity_json);
+
 uint32_t idr_last_error_code(void);
 int idr_last_error_message(char *buf, size_t capacity);
 

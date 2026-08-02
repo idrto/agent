@@ -15,7 +15,11 @@ pub struct OpenStreamRequest {
 }
 
 impl OpenStreamRequest {
-    pub fn named(service: impl Into<String>, target_fqhn: impl Into<String>, kind: StreamKind) -> Self {
+    pub fn named(
+        service: impl Into<String>,
+        target_fqhn: impl Into<String>,
+        kind: StreamKind,
+    ) -> Self {
         let service = service.into();
         Self {
             service,

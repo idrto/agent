@@ -1,7 +1,7 @@
-use idr_protocol::quic_control::{ClientHello, QuicControlMessage};
-use idr_protocol::PROTOCOL_VERSION;
 use crate::relay::descriptor::ConnectionAuthorization;
 use crate::relay::descriptor::StableRelayDescriptor;
+use idr_protocol::quic_control::{ClientHello, QuicControlMessage};
+use idr_protocol::PROTOCOL_VERSION;
 use uuid::Uuid;
 
 pub fn build_client_hello(

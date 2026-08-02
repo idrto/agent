@@ -125,6 +125,9 @@ typedef PollEventsDart = int Function(
   Pointer<IntPtr>,
 );
 
+typedef SetDpIdentityC = Int32 Function(Pointer<Void>, Pointer<Utf8>);
+typedef SetDpIdentityDart = int Function(Pointer<Void>, Pointer<Utf8>);
+
 typedef LastErrorCodeC = Uint32 Function();
 typedef LastErrorCodeDart = int Function();
 
@@ -148,6 +151,8 @@ class IdrBindings {
             lib.lookupFunction<StreamHalfCloseC, StreamHalfCloseDart>('idr_stream_half_close'),
         streamReset = lib.lookupFunction<StreamResetC, StreamResetDart>('idr_stream_reset'),
         pollEvents = lib.lookupFunction<PollEventsC, PollEventsDart>('idr_poll_events'),
+        setDpIdentity =
+            lib.lookupFunction<SetDpIdentityC, SetDpIdentityDart>('idr_engine_set_dp_identity'),
         lastErrorCode =
             lib.lookupFunction<LastErrorCodeC, LastErrorCodeDart>('idr_last_error_code'),
         lastErrorMessage =
@@ -164,6 +169,7 @@ class IdrBindings {
   final StreamHalfCloseDart streamHalfClose;
   final StreamResetDart streamReset;
   final PollEventsDart pollEvents;
+  final SetDpIdentityDart setDpIdentity;
   final LastErrorCodeDart lastErrorCode;
   final LastErrorMessageDart lastErrorMessage;
 

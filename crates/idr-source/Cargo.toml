@@ -12,6 +12,7 @@ idr-core = { workspace = true }
 idr-protocol = { workspace = true }
 idr-signaling = { workspace = true }
 idr-webrtc = { workspace = true }
+idr-dp = { workspace = true }
 async-trait = "0.1"
 bytes = { workspace = true }
 tokio = { workspace = true }

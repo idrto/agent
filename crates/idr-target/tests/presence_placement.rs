@@ -22,9 +22,7 @@ fn canonical_fqhn_and_placement() {
 
     let servers = vec![server(0), server(1)];
     let placement = ModuloPlacement;
-    let (primary, secondary) = placement
-        .primary_secondary(&canonical, &servers)
-        .unwrap();
+    let (primary, secondary) = placement.primary_secondary(&canonical, &servers).unwrap();
     assert!(primary < servers.len());
     let secondary = secondary.expect("secondary required for N>=2");
     assert_ne!(primary, secondary);

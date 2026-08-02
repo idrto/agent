@@ -8,6 +8,9 @@ Source Agent + Target Agent. **This is the sole agent monorepo** (Phase 6 cutove
 - **Relay:** Target / browser edge path only.
 - **TLS:** personal/enterprise → mTLS (entity CA-Root); service providers → custom domain + Let’s Encrypt; `*.idr.to` Leg 2 may use shared self-signed.
 - **Mobile Source:** direct streams via C ABI / Dart — **no localhost proxy** in the default SDK.
+- **PEP (Presence):** agents dial **QUIC first**, **WSS fallback**.
+- **Delegate Permissions:** agents use [`dp-sdk`](https://github.com/2keyapp/dp-sdk) (`dp-rust` / `dp-rust-mtls`) for CapabilityCredential + client cert materialization.
+- **Secrets:** Dart/Flutter hosts use [`fl-start/flutter_secure_storage`](https://github.com/fl-start/flutter_secure_storage) via `packages/idr_secure_storage`. Headless Rust services inject identity JSON at process start.
 
 ## Workspace layout
 
@@ -17,16 +20,20 @@ agent/
 │   ├── idr-protocol/     # canonical wire types (Presence/Relay sync here)
 │   ├── idr-core/
 │   ├── idr-webrtc/
-│   ├── idr-signaling/
+│   ├── idr-signaling/    # discovery + PepClient (QUIC→WSS)
+│   ├── idr-dp/           # dp-sdk integration + secret store ports
 │   ├── idr-source/       # minimal mobile-first Source (WebRTC only)
 │   ├── idr-c-api/        # stable C ABI (opaque handles + batched events)
 │   └── idr-target/
 ├── packages/
 │   ├── idr_core_ffi/
-│   ├── idr_client/
-│   └── idr_http/
+│   ├── idr_client/       # embeddable Dart Source API
+│   ├── idr_http/
+│   ├── idr_secure_storage/  # flutter_secure_storage (fl-start)
+│   └── idr_cli/          # Flutter desktop CLI
 ├── services/
-│   ├── target-agent/
+│   ├── target-agent/     # desktop Target service + CLI
+│   ├── source-agent/     # desktop Source service + CLI
 │   └── mock-presence/
 ├── config/
 ├── docs/
@@ -35,12 +42,50 @@ agent/
 
 ## Quick start
 
+### Target Agent (desktop service)
+
 ```bash
 cp config/target.example.toml config/target.local.toml
-IDR_CONFIG=config/target.local.toml cargo run -p target-agent
+cargo run -p target-agent -- --config config/target.local.toml run
+cargo run -p target-agent -- doctor
+cargo run -p target-agent -- version
 
 # WebRTC answerer (needs native libdatachannel + cmake)
-cargo run -p target-agent --features webrtc
+cargo run -p target-agent --features webrtc -- run
+```
+
+### Source Agent (desktop service / CLI)
+
+```bash
+cp config/source.example.toml config/source.local.toml
+# Optional: point [dp].identity_path at a DeviceIdentity JSON file
+cargo run -p source-agent -- --config config/source.local.toml doctor
+cargo run -p source-agent -- run
+cargo run -p source-agent -- connect cam1.acme.idr.to --service https
+```
+
+### Embed in a Dart / Flutter app
+
+```dart
+import 'package:idr_client/idr_client.dart';
+import 'package:idr_secure_storage/idr_secure_storage.dart';
+
+final secrets = DpSecretStore(store: FlutterSecureKvStore());
+final bundle = await secrets.loadIdentity();
+
+final runtime = IdrRuntime.create(useMock: false);
+if (bundle != null) {
+  runtime.setDpIdentityMap(bundle.toNativeJson());
+}
+final session = await runtime.connect('cam1.acme.idr.to');
+```
+
+### Flutter desktop CLI (secrets in secure storage)
+
+```bash
+cd packages/idr_cli
+flutter pub get
+flutter run -d windows --dart-define=... # or: dart run bin/idr_cli.dart doctor
 ```
 
 ## Develop
@@ -69,8 +114,9 @@ Windows ARM64: if `aws-lc-sys` needs Clang, see [`.cargo/config.windows-arm64.to
 
 ## Sibling repos
 
-- [`presence`](https://github.com/idrto/presence) — control plane
+- [`presence`](https://github.com/idrto/presence) — control plane / PEP
 - [`relay`](https://github.com/idrto/relay) — edge + Target QUIC hub
+- [`dp-sdk`](https://github.com/2keyapp/dp-sdk) — Delegate Permissions SDKs
 - [`target-quic`](https://github.com/idrto/target-quic) — **deprecated / archived** (historical donor)
 
 ## License

@@ -126,15 +126,39 @@ impl LogicalStream for MuxLogicalStream {
 /// Control / data events demuxed from the DataChannel.
 #[derive(Debug, Clone)]
 pub enum DemuxEvent {
-    Data { stream_id: u32, bytes: Vec<u8> },
-    OpenOk { stream_id: u32, initial_window: u32 },
-    OpenError { stream_id: u32, code: u16, message: String },
-    WindowUpdate { stream_id: u32, credit: u32 },
-    HalfClose { stream_id: u32 },
-    Reset { stream_id: u32 },
-    Pong { opaque: u64 },
-    GoAway { last_stream_id: u32 },
-    HelloAck { features: Vec<String>, conn_window: u32 },
+    Data {
+        stream_id: u32,
+        bytes: Vec<u8>,
+    },
+    OpenOk {
+        stream_id: u32,
+        initial_window: u32,
+    },
+    OpenError {
+        stream_id: u32,
+        code: u16,
+        message: String,
+    },
+    WindowUpdate {
+        stream_id: u32,
+        credit: u32,
+    },
+    HalfClose {
+        stream_id: u32,
+    },
+    Reset {
+        stream_id: u32,
+    },
+    Pong {
+        opaque: u64,
+    },
+    GoAway {
+        last_stream_id: u32,
+    },
+    HelloAck {
+        features: Vec<String>,
+        conn_window: u32,
+    },
 }
 
 /// Demux DataChannel binary frames into per-stream inboxes and control waiters.
