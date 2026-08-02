@@ -92,7 +92,7 @@ Protocol types reference Source agents (`SourceAgentIdentity`, `SourceAuthMode::
 Responsibilities today:
 
 1. Load TOML config (`IDR_CONFIG`), Ed25519 target identity, billing party pair.
-2. Fetch/verify signed Presence discovery; modulo placement → primary/secondary Presence.
+2. Fetch/verify signed Presence discovery; dual-mod placement → primary/secondary Presence (`N >= 2`).
 3. Register over Presence QUIC (`idr-presence-v1`) with WSS fallback; advertise WebRTC caps only if feature compiled + enabled.
 4. On `ensure_relay_connection`: dial Relay QUIC (`idr-relay-v1`), auth with short-lived token, maintain connection table.
 5. Accept Relay-opened tunnel bi-streams → bridge to local nginx (`tls_upstream` / `http_upstream`).

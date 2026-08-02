@@ -68,7 +68,7 @@ Assumes the dual-path architecture: **Source↔Target WebRTC (Presence signaling
 ## Residual risks (accepted for now)
 
 - TURN operators can observe metadata and timing of relayed ICE paths.
-- Modulo Presence placement remaps on list resize (control-plane availability risk).
+- Dual-mod Presence placement remaps on non-append list edits (control-plane availability risk); append-only growth keeps ≥1 overlapping Primary/Secondary node across epochs.
 - Anonymous Source auth mode in protocol types is weak — replace with mTLS/device identity for production personal/enterprise.
 - Baseline donor tree currently fails to compile on assessor hardware — fix before production claims.
 

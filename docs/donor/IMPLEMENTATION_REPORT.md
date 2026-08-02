@@ -3,7 +3,7 @@
 ## Completed features
 
 - Signed Presence discovery format with canonical JSON verification
-- SHA-256 modulo placement (primary + secondary) behind `PresencePlacement` trait
+- SHA-256 dual-mod placement (primary + secondary; bump secondary on collide; `N >= 2`; append-safe across discovery epochs) behind `PresencePlacement` trait
 - Dual Presence WebSocket clients with reconnection
 - Relay command deduplication by `command_id` with in-flight sharing
 - Open-addressing relay connection table (1024 default, SplitMix64 hash, generational handles)

@@ -14,8 +14,10 @@
 ## Target flow
 
 1. Fetch and verify signed discovery document; cache locally.
-2. Derive primary/secondary Presence indexes via SHA-256 modulo (v1).
-3. Register on both Presence connections (one if list length is 1).
+2. Derive primary/secondary Presence indexes via dual-mod placement (v1):
+   `primary = hash%N`, `secondary = hash%(N-1)`, bump secondary if equal; requires `N >= 2`.
+   Append-only list growth keeps ≥1 overlapping index across discovery epochs.
+3. Register on both Primary and Secondary Presence connections.
 4. On `ensure_relay_connection`:
    - Deduplicate by `command_id`
    - `get_or_connect(relay_id)` via open-addressing table + generational arena
@@ -38,6 +40,6 @@ See [TLS_PASSTHROUGH.md](TLS_PASSTHROUGH.md).
 
 Relay design target: ~1M almost-idle connections / 4 GB RAM. Requires measurement — see benchmarks and kernel tuning docs.
 
-## Placement weakness (v1)
+## Placement notes (v1)
 
-Modulo placement remaps many Targets when list length changes. Isolated behind `PresencePlacement` trait for future rendezvous/jump-consistent hashing.
+Dual-mod placement is append-safe across discovery epochs (old/new `{primary,secondary}` share ≥1 node), but still remaps under non-append edits (reorder/delete). Secondary load skews away from the last index as `N` grows. Isolated behind `PresencePlacement` for future rendezvous if needed.

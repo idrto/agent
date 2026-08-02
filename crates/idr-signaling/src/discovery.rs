@@ -100,7 +100,11 @@ impl DiscoveryClient {
         Ok(doc)
     }
 
-    /// Pick primary (+ optional secondary) Presence for a Target FQHN.
+    /// Pick primary + secondary Presence indexes for a Target FQHN.
+    ///
+    /// Dual-mod placement (`hash%N`, `hash%(N-1)`, bump secondary on collide).
+    /// Requires at least two servers in `doc`. Dial Primary first, then Secondary
+    /// on miss/unreachable so append-epoch skew still finds a registered Target.
     pub fn place(
         &self,
         doc: &PresenceDiscoveryDocument,
@@ -111,5 +115,19 @@ impl DiscoveryClient {
         ModuloPlacement
             .primary_secondary(&fqhn, &doc.presence_servers)
             .map_err(|e| IdrError::new(IdrErrorKind::SignalingFailed, e.to_string()))
+    }
+
+    /// Ordered dial list: Primary then Secondary Presence servers.
+    pub fn place_servers<'a>(
+        &self,
+        doc: &'a PresenceDiscoveryDocument,
+        target_fqhn: &str,
+    ) -> Result<Vec<&'a idr_protocol::discovery::PresenceServer>> {
+        let (primary, secondary) = self.place(doc, target_fqhn)?;
+        let mut out = vec![&doc.presence_servers[primary]];
+        if let Some(sec) = secondary {
+            out.push(&doc.presence_servers[sec]);
+        }
+        Ok(out)
     }
 }
