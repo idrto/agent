@@ -33,7 +33,9 @@ use idr_protocol::signaling::{
     CommandResultCode, EnsureRelayConnectionCommand, SignalingMessageType,
 };
 use idr_protocol::signaling_json;
-use idr_protocol::webrtc_signaling::{TurnProbeCandidates, WebRtcIceCandidate, WebRtcSessionOffer};
+use idr_protocol::webrtc_signaling::{
+    RegisterTargetAck, TurnProbeCandidates, WebRtcIceCandidate, WebRtcSessionOffer,
+};
 use tokio::sync::Mutex;
 
 pub struct PresenceWebSocketClient {
@@ -507,6 +509,33 @@ impl PresenceClientTask {
             }
             "turn_probe_ack" => {
                 debug!("received turn_probe_ack");
+            }
+            "register_target_ack" => {
+                match serde_json::from_str::<RegisterTargetAck>(text) {
+                    Ok(ack) => {
+                        if ack.turn_mint_allowed {
+                            info!(
+                                target_fqhn = %ack.target_fqhn,
+                                fallback = %ack.webrtc_fallback,
+                                "register_target_ack: platform TURN available"
+                            );
+                        } else if ack.target_allows_p2p {
+                            warn!(
+                                target_fqhn = %ack.target_fqhn,
+                                fallback = %ack.webrtc_fallback,
+                                reason = ack.reason.as_deref().unwrap_or("data_transfer_exhausted"),
+                                "register_target_ack: no TURN mint; WebRTC sessions will be P2P-only"
+                            );
+                        } else {
+                            warn!(
+                                target_fqhn = %ack.target_fqhn,
+                                reason = ack.reason.as_deref().unwrap_or("payment_required"),
+                                "register_target_ack: TURN unavailable and Target forbids P2P"
+                            );
+                        }
+                    }
+                    Err(e) => warn!(error = %e, "invalid register_target_ack"),
+                }
             }
             _ => {}
         }

@@ -45,6 +45,7 @@ impl WebRtcSignalingClient for MockSignalingClient {
                 turn: None,
                 byor: None,
                 ice_transport_policy: IceTransportPolicy::default(),
+                p2p_only: false,
             }),
         }));
         inbox.push_back(SignalingMessage::Answer(WebRtcAnswer {

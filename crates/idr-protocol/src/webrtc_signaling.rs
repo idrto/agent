@@ -9,7 +9,7 @@ use crate::crypto;
 use crate::errors::{ProtocolError, Result};
 use crate::signaling::{PresenceRole, SignalingMessageType};
 use crate::webrtc_ice::{SessionIceConfig, TurnProbeSnapshot};
-use crate::{MAX_SIGNALING_BYTES, MAX_WEBRTC_SIGNALING_BYTES};
+use crate::{MAX_SIGNALING_BYTES, MAX_WEBRTC_SIGNALING_BYTES, PROTOCOL_VERSION};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TargetWebRtcRegistration {
@@ -21,6 +21,27 @@ pub struct TargetWebRtcRegistration {
     pub byor: Option<BringYourOwnRelay>,
     #[serde(default = "default_true")]
     pub turn_probe_supported: bool,
+    /// Target's preferred ICE transport. `relay` means P2P is not allowed.
+    #[serde(default)]
+    pub ice_transport_policy: crate::webrtc_ice::IceTransportPolicy,
+}
+
+/// Presence → Target after successful `register_target`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegisterTargetAck {
+    pub version: u32,
+    pub message_type: SignalingMessageType,
+    pub message_id: Uuid,
+    pub target_fqhn: String,
+    pub role: PresenceRole,
+    /// Platform TURN mint currently allowed for this Target's paying party.
+    pub turn_mint_allowed: bool,
+    /// `full` when TURN available; `p2p_only` when Data Transfer exhausted.
+    pub webrtc_fallback: String,
+    /// Whether this Target's registration allows host/srflx (P2P) candidates.
+    pub target_allows_p2p: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -33,9 +54,6 @@ pub struct TargetWebRtcCapabilities {
     pub data_channel_protocol: String,
     pub max_concurrent_sessions: u32,
     pub supported_stream_kinds: Vec<String>,
-    /// Mux feature tokens (e.g. `flow_control_v1`). Empty = legacy mux only.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub mux_features: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -94,46 +112,6 @@ pub struct WebRtcSessionOffer {
     pub expires_at: DateTime<Utc>,
     pub presence_generation: u64,
     pub signature: String,
-}
-
-impl WebRtcSessionOffer {
-    pub fn verify_presence_signature(&self, key: &VerifyingKey) -> Result<()> {
-        #[derive(Serialize)]
-        struct WebRtcSessionOfferUnsigned<'a> {
-            version: u32,
-            message_type: SignalingMessageType,
-            message_id: Uuid,
-            session_id: Uuid,
-            target_fqhn: &'a str,
-            source: &'a SourceAgentIdentity,
-            sdp: &'a SessionDescription,
-            ice: &'a SessionIceConfig,
-            session_token: &'a str,
-            issued_at: DateTime<Utc>,
-            expires_at: DateTime<Utc>,
-            presence_generation: u64,
-            #[serde(default, skip_serializing_if = "str::is_empty")]
-            signature: &'a str,
-        }
-        let unsigned = WebRtcSessionOfferUnsigned {
-            version: self.version,
-            message_type: self.message_type,
-            message_id: self.message_id,
-            session_id: self.session_id,
-            target_fqhn: &self.target_fqhn,
-            source: &self.source,
-            sdp: &self.sdp,
-            ice: &self.ice,
-            session_token: &self.session_token,
-            issued_at: self.issued_at,
-            expires_at: self.expires_at,
-            presence_generation: self.presence_generation,
-            signature: "",
-        };
-        let value = serde_json::to_value(&unsigned)
-            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
-        crypto::verify_json_canonical(&value, &self.signature, key)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -219,6 +197,9 @@ pub struct WebRtcSessionRequest {
     pub source: SourceAgentIdentity,
     pub source_region: String,
     pub sdp: SessionDescription,
+    /// Source preferred ICE transport. `relay` means P2P is not acceptable.
+    #[serde(default)]
+    pub ice_transport_policy: crate::webrtc_ice::IceTransportPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 }
@@ -461,8 +442,8 @@ pub struct TurnProbeReportUnsigned {
 impl TurnProbeRequest {
     pub fn sign(mut req: TurnProbeRequestUnsigned, key: &SigningKey) -> Result<Self> {
         req.signature = String::new();
-        let value =
-            serde_json::to_value(&req).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value = serde_json::to_value(&req)
+            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, key)?;
         Ok(Self {
             version: req.version,
@@ -530,6 +511,5 @@ pub fn default_webrtc_capabilities(max_sessions: u32) -> TargetWebRtcCapabilitie
             "http_passthrough".into(),
             "tcp_connect".into(),
         ],
-        mux_features: crate::stream_mux::MuxProfile::FlowControlV1.advertised_features(),
     }
 }

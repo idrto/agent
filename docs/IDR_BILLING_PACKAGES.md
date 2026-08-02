@@ -14,3 +14,6 @@ Agent wiring:
 - Target: `[billing_party]` + optional DP identity for Presence mTLS; package from Billing seat.
 - Source: `SourceAuthMode::Mtls` when Personal/Enterprise; anonymous only for SP Targets.
 - TURN inventory points at [idrto/turn](https://github.com/idrto/turn) coturn nodes.
+- `register_target_ack`: logs when platform TURN mint is unavailable (`webrtc_fallback=p2p_only`).
+- Exhausted Data Transfer: Presence omits TURN; relay-only Targets/Sources get `payment_required`.
+- Relay/TURN interim usage: 1 GiB or 24h (configurable), idempotent reports to Billing.

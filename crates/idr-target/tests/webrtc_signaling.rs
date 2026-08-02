@@ -58,6 +58,7 @@ fn platform_ice_merge_includes_turn() {
         }),
         byor: None,
         ice_transport_policy: idr_target::protocol::webrtc_ice::IceTransportPolicy::All,
+        p2p_only: false,
     };
     let merged = build_rtc_ice_servers(&ice, &[]).unwrap();
     assert!(merged
@@ -83,6 +84,7 @@ fn session_request_and_offer_types_parse() {
             sdp_type: "offer".into(),
             sdp: "v=0".into(),
         },
+        ice_transport_policy: Default::default(),
         signature: None,
     };
     let json = serde_json::to_string(&req).unwrap();
@@ -122,6 +124,7 @@ fn session_request_and_offer_types_parse() {
             turn: None,
             byor: None,
             ice_transport_policy: idr_target::protocol::webrtc_ice::IceTransportPolicy::All,
+            p2p_only: false,
         },
         session_token: "tok".into(),
         issued_at: Utc::now(),

@@ -65,6 +65,7 @@ fn build_webrtc_registration(cfg: &Config) -> anyhow::Result<TargetWebRtcRegistr
         capabilities: default_webrtc_capabilities(cfg.webrtc.max_sessions),
         byor,
         turn_probe_supported: cfg.webrtc.turn_probe_enabled,
+        ice_transport_policy: Default::default(),
     })
 }
 
