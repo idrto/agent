@@ -40,7 +40,7 @@ flowchart TB
 | Relay | Remains **Target/browser** option |
 | Personal / enterprise TLS | **mTLS** — endpoint certs from entity CA-Root |
 | Service provider TLS | **Custom domain + Let's Encrypt** on Target |
-| `*.idr.to` Leg 2 (Relay↔Target) | May use **shared self-signed** when not on Source path |
+| `*.idr.to` Leg 2 (Relay↔Target) | **QUIC TLS to Relay identity** + token; HTTP to nginx `:80` (no nested TLS) |
 | Source size | **Minimal, mobile-first**; proxies optional |
 
 ---
@@ -62,7 +62,7 @@ flowchart TB
 | C ABI + Dart | Absent | Mobile embedding gap | Phase 5 after Source core |
 | mTLS entity CA | Types / Presence roots reserved | Not end-to-end | `idr-auth` + Presence enforcement |
 | LE custom domains | ACME on Target | Aligns for service providers | Retain; document |
-| Leg 2 self-signed `*.idr.to` | Relay/Target TLS today is Relay cert + token | Policy clarification | Document + optional shared self-signed mode |
+| Leg 2 native `*.idr.to` | Implemented: Relay wildcard terminate → `HttpPassthrough` → nginx `:80` | Docs formerly mentioned self-signed | **Done** — ADR-0012 + security-model (QUIC only; no nested TLS) |
 | No HTTPS MITM on Source | N/A | Keep as constraint | CONNECT byte relay only |
 | Standalone Source service | Absent | Later | Thin host after embedded works |
 | Admin IPC | Absent | Later | Named pipe / UDS |

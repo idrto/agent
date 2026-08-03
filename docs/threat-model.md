@@ -42,7 +42,7 @@ Assumes the dual-path architecture: **Source↔Target WebRTC (Presence signaling
 | ABI misuse from Dart | Future FFI | Opaque handles; abi_version/struct_size; batched events |
 | Application lifecycle races | Mobile embed | Idempotent shutdown; cancel tasks; no detached work |
 | Relay used as Source shortcut | Misconfiguration | **Architecture rule:** Source has no Relay client; review deps |
-| Leg 2 self-signed abuse | Relay↔Target | Only for configured `*.idr.to` edge path; not a substitute for Source P2P auth |
+| Relay sees plaintext after `*.idr.to` terminate | Browser↔Relay edge | Accepted for native FQHNs; Leg 2 still QUIC-encrypted Relay↔Target; not a substitute for Source P2P auth |
 | SNI/Host wake amplification (edge) | Relay | Existing Relay caps / suffix gates (relay repo) |
 
 ---
@@ -76,4 +76,4 @@ Assumes the dual-path architecture: **Source↔Target WebRTC (Presence signaling
 
 ## Review triggers
 
-Update this document when adding: Source proxies, C ABI, entity CA validation, mux frame types, or Leg 2 self-signed configuration knobs.
+Update this document when adding: Source proxies, C ABI, entity CA validation, mux frame types, or changes to Relay edge terminate / Leg 2 QUIC policy.

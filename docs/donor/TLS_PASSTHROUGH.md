@@ -21,7 +21,15 @@ Browser ──TLS(SNI: host.idr.to)──► Relay terminate (wildcard) ──HT
 
 Port 80 HTTP (including ACME) remains cleartext passthrough by design.
 
-Separate path (unchanged): `target-quic` ↔ Relay QUIC uses **Relay's certificate** and ALPN `idr-relay-v1`.
+### Leg 2 (final)
+
+After Relay wildcard terminate, Leg 2 encryption is **only** the Target↔Relay QUIC session (Relay server identity, ALPN `idr-relay-v1`, connection token). The tunnel payload is cleartext HTTP (`HttpPassthrough`) bridged to nginx `http_upstream` (default `127.0.0.1:80`).
+
+- **Do not** nest TLS into Target nginx for native `*.idr.to`.
+- **Do not** put a Target machine / shared self-signed cert on that hop (rejected; see agent [ADR-0012](../adr/0012-tls-modes.md)).
+- Bind nginx `:80` to **loopback** in production so post-terminate HTTP is not exposed on LAN.
+
+Separate path (unchanged): Target Agent ↔ Relay QUIC uses the **Relay certificate** and ALPN `idr-relay-v1`.
 
 ## Security properties
 
@@ -65,10 +73,10 @@ Production: put **HAProxy** in front (see [relay docs](../../relay/docs/TLS_PASS
 
 ## Target nginx
 
-1. Listen `:443` with certs from `[acme].cert_dir/<custom-domain>/`.
-2. Listen `:80` and serve `[acme].webroot` for `/.well-known/acme-challenge/`.
+1. Listen `:443` with certs from `[acme].cert_dir/<custom-domain>/` (custom domains / opaque passthrough only).
+2. Listen `:80` on **loopback** and serve `[acme].webroot` for `/.well-known/acme-challenge/`; also receive native post-terminate HTTP from the Target Agent.
 3. `proxy_pass` to your apps.
-4. Native `*.idr.to` HTTPS is terminated at Relay (wildcard); Target receives HTTP over QUIC on `http_upstream`.
+4. Native `*.idr.to` HTTPS is terminated at Relay (wildcard); Target receives **cleartext HTTP** over QUIC on `http_upstream` — Leg 2 is already QUIC-encrypted.
 
 ### Bootstrap (no certs yet)
 

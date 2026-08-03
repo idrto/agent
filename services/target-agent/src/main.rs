@@ -187,7 +187,12 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     ));
     dedup.load_persisted();
 
-    let connection_epoch = 1u64;
+    // Per-process epoch so same-identity reconnects replace cleanly without
+    // colliding with other devices that share this FQHN (DNS multi-A model).
+    let connection_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().max(1))
+        .unwrap_or(1);
     let presence_cfg = cfg.presence.clone();
     let shutdown_presence = shutdown.clone();
     let metrics_presence = metrics.clone();

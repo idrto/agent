@@ -62,7 +62,7 @@
 
 1. `PeerTransport` + session/stream/connector traits.
 2. Adapters around existing WebRTC answerer and Relay tunnel bridges.
-3. ADRs under `docs/adr/` for monorepo, libdatachannel, persistent PC, mux, named services, Source-no-Relay, mTLS vs LE, Leg 2 self-signed, no Source MITM, flow control.
+3. ADRs under `docs/adr/` for monorepo, libdatachannel, persistent PC, mux, named services, Source-no-Relay, mTLS vs LE, Leg 2 QUIC (ADR-0012), no Source MITM, flow control.
 4. Error category enum shared by future C ABI.
 
 **Status (2026-07-28):** Complete.

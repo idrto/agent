@@ -6,7 +6,7 @@ Source Agent + Target Agent. **This is the sole agent monorepo** (Phase 6 cutove
 
 - **Source ↔ Target:** WebRTC only (Presence signaling; P2P/TURN data). No Source application traffic via Relay edge.
 - **Relay:** Target / browser edge path only.
-- **TLS:** personal/enterprise → mTLS (entity CA-Root); service providers → custom domain + Let’s Encrypt; `*.idr.to` Leg 2 may use shared self-signed.
+- **TLS:** personal/enterprise → mTLS (entity CA-Root); service providers → custom domain + Let’s Encrypt; `*.idr.to` Leg 2 = QUIC TLS to Relay identity (HTTP to nginx `:80`, no nested TLS).
 - **Mobile Source:** direct streams via C ABI / Dart — **no localhost proxy** in the default SDK.
 - **PEP (Presence):** agents dial **QUIC first**, **WSS fallback**.
 - **Delegate Permissions:** agents use [`dp-sdk`](https://github.com/2keyapp/dp-sdk) (`dp-rust` / `dp-rust-mtls`) for CapabilityCredential + client cert materialization.

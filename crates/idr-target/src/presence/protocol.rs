@@ -15,5 +15,6 @@ pub fn ensure_relay_ack(
         session_id,
         result,
         detail,
+        selected_target_identity: None,
     }
 }

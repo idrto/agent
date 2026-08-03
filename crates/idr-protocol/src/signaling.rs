@@ -76,6 +76,9 @@ pub struct EnsureRelayConnectionAck {
     pub session_id: Uuid,
     pub result: CommandResultCode,
     pub detail: Option<String>,
+    /// Device selected for this ensure (base64url Ed25519). Set on `Received`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_target_identity: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

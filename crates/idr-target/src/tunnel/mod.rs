@@ -1,5 +1,9 @@
 //! Accept opaque tunnel streams from Relay and bridge to local nginx.
 //!
+//! Native `*.idr.to` after Relay wildcard terminate uses `HttpPassthrough` →
+//! `http_upstream` (default loopback `:80`). Leg 2 encryption is the QUIC TLS
+//! session to the Relay identity only — do not nest TLS into nginx (ADR-0012).
+//!
 //! Design fix: full-duplex copy with half-close (not `select!`) so a client FIN
 //! does not truncate the nginx response. See docs/TLS_PASSTHROUGH.md § Design fixes.
 

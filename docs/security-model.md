@@ -13,7 +13,7 @@
 | Presence discovery | HTTPS + pinned Ed25519 discovery key | `idr-presence.json` |
 | Target registration | Target Ed25519 identity + billing entitlement | Persistent Presence session |
 | Relay wake (edge path) | Relay signature + short-lived connection token | Target dials Relay |
-| Relay data QUIC | TLS to Relay identity / configured Leg 2 policy | **Not used by Source Agent** |
+| Relay data QUIC | TLS to **Relay identity** (ALPN `idr-relay-v1`) + connection token | Leg 2 for edge tunnels; **not used by Source Agent** |
 | WebRTC signaling | Presence-signed offers; Target-signed answers | SDP/ICE size capped |
 | WebRTC data | DTLS/SCTP via libdatachannel | P2P preferred; TURN is ICE relay only |
 | Billing | Presence ↔ Auth+Billing mux | Entitlements gate sessions |
@@ -43,13 +43,16 @@
 
 ### 4. Native `*.idr.to` via Relay (non-Source clients)
 
-- Relay edge may terminate or route per Relay configuration.
-- **Leg 2 (Relay ↔ Target)** may use a **shared self-signed** certificate for that hop when traffic is not from the Source Agent WebRTC path.
+- With Relay wildcard configured: **Leg 1** = client TLS to Relay (wildcard); **Leg 2** = HTTP over Target↔Relay **QUIC TLS** to the Relay identity (plus connection token). Target bridges to nginx `:80`.
+- **No nested TLS** into Target nginx and **no** Target machine / shared self-signed cert on Leg 2 (see [ADR-0012](./adr/0012-tls-modes.md)).
+- Relay sees HTTP plaintext after edge terminate; confidentiality vs the Relay operator is not claimed on that path.
+- Without wildcard PEMs: legacy opaque TLS passthrough to nginx `:443` (not the preferred native design).
 
 ### 5. Explicit non-goals
 
 - Source Agent application traffic through Relay HTTP/TLS edge.
 - Transparent TLS interception / MITM on the Source Agent.
+- Nested TLS or shared self-signed from Relay into Target nginx for native `*.idr.to` Leg 2.
 - Unrestricted Target egress as default (named allowlisted services).
 
 ---
@@ -94,4 +97,4 @@ Prefer OS credential stores (Keychain / Credential Manager / Keystore) when Sour
 - [ ] DC CLIENT_HELLO / SERVER_HELLO with replay protection
 - [ ] Validate DTLS fingerprints against signaling
 - [ ] Named service ACL evaluation on every OPEN
-- [ ] Formalize Leg 2 shared self-signed mode in Relay + Target config
+- [x] Leg 2 for native `*.idr.to`: QUIC TLS to Relay identity only (ADR-0012); no nginx nested TLS

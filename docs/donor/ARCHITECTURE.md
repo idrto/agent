@@ -25,7 +25,9 @@
 5. Idle timeout closes unused connections; SQLite retains endpoint hints.
 6. On Active QUIC: spawn tunnel acceptor + death supervisor; signal `RelayReadiness` for ACME.
 7. **Mobility (rare):** on Presence reconnect, re-detect IPv4/IPv6 caps; rebind the Relay QUIC UDP socket and nudge path validation on active connections (RFC 9000 migration). Primary session may warm-reconnect if QUIC died. Enable nginx TLS session tickets for fast browser retry when migration cannot complete in time.
-8. Tunnel streams bridge to nginx (`tls_upstream` / `http_upstream`); TLS for `FQHN` terminates at nginx only.
+8. Tunnel streams bridge to nginx (`tls_upstream` / `http_upstream`):
+   - Native `*.idr.to` after Relay wildcard terminate → `HttpPassthrough` → nginx `:80` (Leg 2 = QUIC TLS only; no nested TLS).
+   - Custom domain / opaque passthrough → `TlsPassthrough` → nginx `:443` (app TLS terminates at Target).
 
 See [TLS_PASSTHROUGH.md](TLS_PASSTHROUGH.md).
 
@@ -33,8 +35,8 @@ See [TLS_PASSTHROUGH.md](TLS_PASSTHROUGH.md).
 
 1. Listen for Target-initiated QUIC only.
 2. Validate TLS + application `ClientHello` token.
-3. Register connection keyed by Target FQHN; replace stale epochs.
-4. `ensure_target_connection(fqhn)` → dual Presence dispatch → await QUIC.
+3. Register connection keyed by `(Target FQHN, target_identity)`; replace stale epochs only within the same identity (multi-device / DNS multi-A per FQHN).
+4. `ensure_target_connection(fqhn)` → RR among live Relay conns, else dual Presence dispatch (hash-pick one device) → await that identity's QUIC.
 
 ## Scale target
 

@@ -1,6 +1,9 @@
 [target]
 fqhn = "host-identity.idr.to"
 agent_region = "eu-central"
+# Durable Ed25519 key for this device. Required when multiple Targets share one
+# FQHN (DNS multi-A): each machine must use its own key file so Presence/Relay
+# can round-robin by target_identity.
 # identity_key_path = "target.key"
 
 # Billing party pair sent on every Presence registration.
@@ -33,7 +36,10 @@ ipv4_fallback_delay_ms = 150
 failed_retry_initial_ms = 250
 failed_retry_max_seconds = 30
 
-# Bridge opaque TLS/HTTP tunnels from Relay to local nginx (E2E TLS terminates at nginx).
+# Bridge tunnels from Relay to local nginx.
+# - tls_upstream: custom-domain / opaque passthrough (E2E TLS at nginx :443)
+# - http_upstream: native *.idr.to after Relay wildcard terminate (cleartext HTTP;
+#   Leg 2 = QUIC TLS only — keep on loopback)
 [nginx]
 tls_upstream = "127.0.0.1:443"
 http_upstream = "127.0.0.1:80"
