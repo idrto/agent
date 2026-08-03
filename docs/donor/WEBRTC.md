@@ -63,4 +63,4 @@ Native peer callbacks use a bounded `try_send` event queue (no awaits in callbac
 
 ## Billing party (Presence registration)
 
-Configure `[billing_party]` with `using_party` (required) and optional `paying_party`. Presence forwards this pair to Auth+Billing on every entitlement/session call. See Presence `docs/BILLING_API.md`.
+Configure `[billing_party]` with `using_party` (required) and optional `paying_party` as a local/dev hint. Production Targets mint a Presence entitlement JWT (`[auth].url` → `POST …/agent/token`) and send `entitlement_jwt` on `register_target`. See Presence [docs/AUTH.md](https://github.com/idrto/presence/blob/main/docs/AUTH.md).

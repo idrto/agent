@@ -4,6 +4,7 @@ pub use idr_protocol as protocol;
 
 pub mod acme;
 pub mod adapters;
+pub mod auth;
 pub mod config;
 pub mod identity;
 pub mod network;

@@ -18,7 +18,7 @@ pub use dp_rust_mtls::{
 };
 
 pub use credential::{
-    default_machine_capability, issue_credential, public_jwk_from_raw_ed25519,
+    default_machine_capability, issue_credential, public_jwk_from_raw_ed25519, sign_compact_eddsa,
     ski_from_public_jwk, CredentialError, IssueCredentialParams,
 };
 pub use frame::{

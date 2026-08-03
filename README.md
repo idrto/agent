@@ -104,6 +104,29 @@ mTLS-enrolled; `build_runtime`/`PepClient::with_identity` materialize it via
 `dp_rust_mtls::materialize_mtls_client` automatically when present, falling
 back to dev/self-signed behavior otherwise.
 
+### Auth / Presence entitlement JWT
+
+Runtime path (after DeviceIdentity enroll):
+
+1. Configure `[auth].url` (default `https://auth.idr.to/api/auth`) — Billing-hosted Better Auth, reverse-proxied as `auth.idr.to`.
+2. Before each Presence `register_target`, the Target Agent mints a JWT: `POST {url}/agent/token` with CapabilityCredential + EdDSA proof-of-possession.
+3. Include the token as `entitlement_jwt` on `register_target`. Presence verifies via JWKS and caches claims for accept_session / ensure_relay / mint_turn.
+
+```toml
+[auth]
+url = "https://auth.idr.to/api/auth"
+# token_path = "/agent/token"
+# Fail closed when mint/identity fails (the default).
+# required = true
+
+[dp]
+# identity_path = "identity.dp.json"
+```
+
+**Local/dev:** explicitly set `[auth].required = false` and run Presence with `[auth].enabled = false` so registration works without Billing. The default is `true`, matching Presence's fail-closed default.
+
+There is no Presence↔Billing WSS mux. See Presence [docs/AUTH.md](https://github.com/idrto/presence/blob/main/docs/AUTH.md) and the Billing [Agent token contract](https://github.com/2keyapp/billing/blob/delegate_permissions/api-docs/billing-api/auth/agent-token.md).
+
 The Dart `idr_cli` mirrors `identity init|enroll|pull` as thin wrappers that
 shell out to a `--agent-binary` (`source-agent`/`target-agent` executable)
 and then import the resulting JSON into secure storage:
@@ -133,12 +156,27 @@ if (bundle != null) {
 final session = await runtime.connect('cam1.acme.idr.to');
 ```
 
-### Flutter desktop CLI (secrets in secure storage)
+### Flutter desktop Target host (Windows)
+
+Builds a UI that shells out to native `target-agent` (doctor / identity / run)
+and keeps DP identity in `flutter_secure_storage`.
 
 ```bash
+# 1) Native CLI (from agent repo root; Windows ARM64 needs VS + LLVM Clang)
+cargo build -p target-agent
+# optional: copy config
+cp config/target.example.toml config/target.local.toml
+
+# 2) Flutter host
 cd packages/idr_cli
 flutter pub get
-flutter run -d windows --dart-define=... # or: dart run bin/idr_cli.dart doctor
+# On Windows ARM64 with both VS Community + BuildTools installed, use:
+scripts/flutter_windows.cmd run -d windows
+# (plain `flutter run -d windows` once CMake picks Community cleanly)
+
+# Console CLI (same package):
+dart run bin/idr_cli.dart doctor
+dart run bin/idr_cli.dart run   # starts target-agent
 ```
 
 ## Develop

@@ -6,12 +6,14 @@ agent_region = "eu-central"
 # can round-robin by target_identity.
 # identity_key_path = "target.key"
 
-# Billing party pair sent on every Presence registration.
+# Legacy party pair used only for local/dev when [auth].required = false.
+# Production parties are issuer-derived JWT claims; Billing currently sets
+# using_party = paying_party until trusted human machine-seat assignment exists.
 [billing_party]
 using_party = "alice@acme.com"
 # paying_party = "billing@acme.com"  # optional; defaults to using_party
 
-# Optional DP DeviceIdentity for Presence PEP mTLS (QUIC / WSS AuthN).
+# Optional DP DeviceIdentity for Presence PEP mTLS (QUIC) and agent JWT mint.
 # Prefer host secret stores; Dart embeds use flutter_secure_storage (fl-start).
 #
 # Populate this file with `target-agent identity init|enroll|pull` (see
@@ -19,6 +21,14 @@ using_party = "alice@acme.com"
 # the Dart CLI which shells out to the same subcommands.
 [dp]
 # identity_path = "identity.dp.json"
+
+# Agent entitlement JWT mint (auth.idr.to → Billing-hosted Better Auth).
+# When DeviceIdentity is loaded, the agent POSTs /agent/token before each
+# Presence register and includes entitlement_jwt on register_target.
+[auth]
+url = "https://auth.idr.to/api/auth"
+# token_path = "/agent/token"
+# required = true   # default; set false only with local auth-disabled Presence
 
 [presence]
 discovery_url = "https://public.idr.to/.well-known/idr-presence.json"

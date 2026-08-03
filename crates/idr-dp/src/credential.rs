@@ -110,14 +110,8 @@ fn canonical_payload(
     let perms =
         serde_json::to_value(permissions).map_err(|e| CredentialError::Json(e.to_string()))?;
     ordered.insert("permissions".into(), perms);
-    ordered.insert(
-        "zone".into(),
-        zone.map(Value::from).unwrap_or(Value::Null),
-    );
-    ordered.insert(
-        "host".into(),
-        host.map(Value::from).unwrap_or(Value::Null),
-    );
+    ordered.insert("zone".into(), zone.map(Value::from).unwrap_or(Value::Null));
+    ordered.insert("host".into(), host.map(Value::from).unwrap_or(Value::Null));
     ordered.insert("issuerSki".into(), Value::from(issuer_ski));
     ordered.insert("notBefore".into(), Value::from(not_before));
     ordered.insert("notAfter".into(), Value::from(not_after));
@@ -184,6 +178,17 @@ pub fn issue_credential(
     })
 }
 
+/// Sign an arbitrary payload as a compact JWS with header `{"alg":"EdDSA"}`.
+pub fn sign_compact_eddsa(private_jwk: &Value, payload: &[u8]) -> Result<String, CredentialError> {
+    let signing_key = signing_key_from_jwk(private_jwk)?;
+    let header_b64 = URL_SAFE_NO_PAD.encode(br#"{"alg":"EdDSA"}"#);
+    let payload_b64 = URL_SAFE_NO_PAD.encode(payload);
+    let signing_input = format!("{header_b64}.{payload_b64}");
+    let signature = signing_key.sign(signing_input.as_bytes());
+    let sig_b64 = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+    Ok(format!("{signing_input}.{sig_b64}"))
+}
+
 /// RFC 7638 JWK thumbprint for an OKP/Ed25519 public JWK, matching
 /// `dp_rust_mtls`'s internal `ski_from_public_jwk_parts` (and thus any SKI a
 /// sibling `generate_key_and_csr` call already embedded in a CSR's SAN).
@@ -204,7 +209,11 @@ pub fn ski_from_public_jwk(public_jwk: &Value) -> String {
         serde_json::to_string(x).unwrap_or_default(),
     );
     let digest = Sha256::digest(material.as_bytes());
-    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..32].to_string()
+    digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()[..32]
+        .to_string()
 }
 
 /// Build a public JWK from a raw 32-byte Ed25519 public key (e.g. extracted
@@ -309,5 +318,34 @@ mod tests {
         )
         .unwrap();
         assert_eq!(B64.decode(payload_b64).unwrap(), expected_payload);
+    }
+
+    #[test]
+    fn compact_eddsa_signs_the_exact_payload() {
+        let (private_jwk, signing) = issuer_jwk();
+        let payload = br#"{"ski":"device-1","ts":1735689600}"#;
+        let compact = sign_compact_eddsa(&private_jwk, payload).unwrap();
+        let parts: Vec<_> = compact.split('.').collect();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(B64.decode(parts[0]).unwrap(), br#"{"alg":"EdDSA"}"#);
+        assert_eq!(B64.decode(parts[1]).unwrap(), payload);
+
+        let signature =
+            ed25519_dalek::Signature::from_slice(&B64.decode(parts[2]).unwrap()).unwrap();
+        signing
+            .verifying_key()
+            .verify_strict(format!("{}.{}", parts[0], parts[1]).as_bytes(), &signature)
+            .unwrap();
+    }
+
+    #[test]
+    fn compact_eddsa_rejects_non_seed_private_keys() {
+        let bad = serde_json::json!({
+            "d": B64.encode([7_u8; 31])
+        });
+        assert!(matches!(
+            sign_compact_eddsa(&bad, b"payload"),
+            Err(CredentialError::BadKeyLength)
+        ));
     }
 }

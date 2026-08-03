@@ -1,5 +1,7 @@
 name: idr_cli
-description: Desktop CLI for IDR Source Agent (Flutter desktop + flutter_secure_storage).
+description: >
+  IDR Target Agent desktop host (Flutter Windows) + console CLI.
+  Shells out to native target-agent; secrets via flutter_secure_storage.
 version: 0.1.0
 publish_to: none
 
@@ -11,6 +13,7 @@ dependencies:
   flutter:
     sdk: flutter
   args: ^2.5.0
+  path: ^1.9.0
   idr_client:
     path: ../idr_client
   idr_secure_storage:
@@ -19,7 +22,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  lints: ^4.0.0
+  flutter_lints: ^4.0.0
 
 dependency_overrides:
   flutter_secure_storage_platform_interface:
@@ -47,3 +50,6 @@ dependency_overrides:
       url: https://github.com/fl-start/flutter_secure_storage.git
       ref: v11.0.4-fl.1
       path: flutter_secure_storage_web
+
+flutter:
+  uses-material-design: true

@@ -158,11 +158,14 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     let insecure_dev = cfg.presence.discovery_key.is_empty();
 
     let dp_path = identity_override.or_else(|| cfg.dp.identity_path.clone());
+    let mut device_identity: Option<Arc<idr_dp::DeviceIdentity>> = None;
     let mtls_material = if let Some(path) = dp_path {
         match FileSecretStore::new(&path).load_identity()? {
             Some(id) => {
-                info!(ski = %id.ski, "loaded DP identity for Presence mTLS");
-                Some(materialize_mtls_client(&id).context("materialize DP mTLS")?)
+                info!(ski = %id.ski, "loaded DP identity for Presence mTLS + agent JWT");
+                let material = materialize_mtls_client(&id).context("materialize DP mTLS")?;
+                device_identity = Some(Arc::new(id));
+                Some(material)
             }
             None => {
                 warn!(path = %path.display(), "DP identity file missing");
@@ -172,6 +175,11 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     } else {
         None
     };
+    if cfg.auth.required && device_identity.is_none() {
+        anyhow::bail!(
+            "auth.required=true but no DP DeviceIdentity was loaded; configure [dp].identity_path, pass --identity, or explicitly set auth.required=false for local development"
+        );
+    }
 
     let quic = Arc::new(QuicClient::new(
         bind,
@@ -250,6 +258,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
         discovery_generation,
         presence_quic.clone(),
         webrtc_sessions.clone(),
+        device_identity.clone(),
     );
 
     let mut tasks = vec![tokio::spawn(async move { primary_client.run().await })];
@@ -272,6 +281,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
             discovery_generation,
             presence_quic,
             webrtc_sessions,
+            device_identity,
         );
         tasks.push(tokio::spawn(async move { secondary_client.run().await }));
     }

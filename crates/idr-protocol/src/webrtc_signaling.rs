@@ -114,6 +114,54 @@ pub struct WebRtcSessionOffer {
     pub signature: String,
 }
 
+impl WebRtcSessionOffer {
+    /// Verify the Presence Ed25519 signature over the canonical unsigned payload.
+    pub fn verify(&self, presence_key: &VerifyingKey) -> Result<()> {
+        validate_webrtc_signaling_size(self)?;
+        let unsigned = WebRtcSessionOfferUnsigned {
+            version: self.version,
+            message_type: self.message_type,
+            message_id: self.message_id,
+            session_id: self.session_id,
+            target_fqhn: self.target_fqhn.clone(),
+            source: self.source.clone(),
+            sdp: self.sdp.clone(),
+            ice: self.ice.clone(),
+            session_token: self.session_token.clone(),
+            issued_at: self.issued_at,
+            expires_at: self.expires_at,
+            presence_generation: self.presence_generation,
+            signature: String::new(),
+        };
+        let value = serde_json::to_value(&unsigned)
+            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        crypto::verify_json_canonical(&value, &self.signature, presence_key)
+    }
+
+    /// Alias retained for Target call sites / migration-plan naming.
+    pub fn verify_presence_signature(&self, presence_key: &VerifyingKey) -> Result<()> {
+        self.verify(presence_key)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct WebRtcSessionOfferUnsigned {
+    version: u32,
+    message_type: SignalingMessageType,
+    message_id: Uuid,
+    session_id: Uuid,
+    target_fqhn: String,
+    source: SourceAgentIdentity,
+    sdp: SessionDescription,
+    ice: SessionIceConfig,
+    session_token: String,
+    issued_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+    presence_generation: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    signature: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WebRtcSessionOfferAck {
     pub version: u32,
@@ -442,8 +490,8 @@ pub struct TurnProbeReportUnsigned {
 impl TurnProbeRequest {
     pub fn sign(mut req: TurnProbeRequestUnsigned, key: &SigningKey) -> Result<Self> {
         req.signature = String::new();
-        let value = serde_json::to_value(&req)
-            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_value(&req).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, key)?;
         Ok(Self {
             version: req.version,

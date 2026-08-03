@@ -103,11 +103,15 @@ pub struct TargetRegistration {
     pub discovery_generation: u64,
     pub role: PresenceRole,
     pub supported_transports: Vec<String>,
-    /// SSO / login of the party using this Target (required).
+    /// SSO / login of the party using this Target (required when no JWT).
+    /// When `entitlement_jwt` is present, Presence prefers JWT claims.
     pub using_party: String,
     /// Optional payer login; when omitted, equals `using_party`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paying_party: Option<String>,
+    /// Presence entitlement JWT minted at auth.idr.to (`/api/auth/agent/token`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entitlement_jwt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webrtc: Option<crate::webrtc_signaling::TargetWebRtcRegistration>,
     pub signature: String,
@@ -128,7 +132,9 @@ impl TargetRegistration {
     pub fn verify(&self) -> Result<()> {
         validate_signaling_size(self)?;
         if self.message_type != SignalingMessageType::RegisterTarget {
-            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+            return Err(ProtocolError::MalformedDocument(
+                "wrong message type".into(),
+            ));
         }
         let _ = self.billing_parties()?;
         let target_key = crypto::KeyPair::from_base64url_public(&self.target_identity)?;
@@ -143,7 +149,8 @@ impl TargetRegistration {
 impl EnsureRelayConnectionCommand {
     pub fn sign(mut cmd: EnsureRelayConnectionUnsigned, key: &SigningKey) -> Result<Self> {
         cmd.signature = String::new();
-        let value = serde_json::to_value(&cmd).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_value(&cmd).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, key)?;
         Ok(Self {
             version: cmd.version,
@@ -167,7 +174,9 @@ impl EnsureRelayConnectionCommand {
     pub fn verify(&self, relay_key: &VerifyingKey) -> Result<()> {
         validate_signaling_size(self)?;
         if self.message_type != SignalingMessageType::EnsureRelayConnection {
-            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+            return Err(ProtocolError::MalformedDocument(
+                "wrong message type".into(),
+            ));
         }
         if Utc::now() > self.expires_at {
             return Err(ProtocolError::CommandExpired);

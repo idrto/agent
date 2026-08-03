@@ -16,7 +16,7 @@
 | Relay data QUIC | TLS to **Relay identity** (ALPN `idr-relay-v1`) + connection token | Leg 2 for edge tunnels; **not used by Source Agent** |
 | WebRTC signaling | Presence-signed offers; Target-signed answers | SDP/ICE size capped |
 | WebRTC data | DTLS/SCTP via libdatachannel | P2P preferred; TURN is ICE relay only |
-| Billing | Presence ↔ Auth+Billing mux | Entitlements gate sessions |
+| Billing / entitlement | Agent-minted Presence JWT (`aud=presence`); JWKS verify at Presence | Gates register / accept_session / ensure_relay / mint_turn; mux removed |
 
 ---
 
@@ -93,8 +93,9 @@ Prefer OS credential stores (Keychain / Credential Manager / Keystore) when Sour
 
 ## Open implementation items
 
-- [ ] Enforce entity CA-Root mTLS end-to-end for personal/enterprise
+- [ ] Enforce entity CA-Root mTLS end-to-end for personal/enterprise (Presence dynamic CA-root push **not yet** re-implemented after mux removal)
 - [ ] DC CLIENT_HELLO / SERVER_HELLO with replay protection
 - [ ] Validate DTLS fingerprints against signaling
 - [ ] Named service ACL evaluation on every OPEN
 - [x] Leg 2 for native `*.idr.to`: QUIC TLS to Relay identity only (ADR-0012); no nginx nested TLS
+- [x] Presence entitlement via Agent JWT + JWKS (mux removed)

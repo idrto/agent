@@ -27,6 +27,9 @@ pub struct Config {
     /// Optional DP DeviceIdentity for Presence PEP mTLS (QUIC / WSS).
     #[serde(default)]
     pub dp: DpConfig,
+    /// auth.idr.to agent entitlement JWT mint.
+    #[serde(default)]
+    pub auth: crate::auth::AuthConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

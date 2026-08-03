@@ -1,12 +1,13 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:flutter/widgets.dart';
+import 'package:idr_cli/agent_host.dart';
 import 'package:idr_client/idr_client.dart';
 import 'package:idr_secure_storage/idr_secure_storage.dart';
 
-/// Desktop CLI entry — secrets always go through [FlutterSecureKvStore].
+/// Console entry: `dart run bin/idr_cli.dart <command>`.
+/// Prefer `flutter run -d windows` for the Target Agent desktop host.
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -18,39 +19,75 @@ Future<void> main(List<String> args) async {
       ArgParser()
         ..addCommand('show')
         ..addCommand('clear')
-        ..addOption('import', help: 'Import DeviceIdentity JSON file into secure storage')
-        ..addCommand('init', _nativeAgentParser()
-          ..addOption('role', allowed: ['target', 'source'], help: 'Defaults to --agent-binary\'s own role')
-          ..addOption('host', mandatory: true, help: 'Fully-qualified machine host, e.g. db1.us-east--acme')
-          ..addOption('entity')
-          ..addOption('common-name')
-          ..addOption('pending', help: 'Override pending-state file path'))
-        ..addCommand('enroll', _nativeAgentParser()
-          ..addFlag('local', defaultsTo: false, help: 'Localhost instant path (sign locally + enroll-instant)')
-          ..addOption('auth-url', help: 'Better Auth base URL mounting delegate-permissions')
-          ..addOption('entity')
-          ..addOption('host')
-          ..addOption('role', allowed: ['target', 'source'])
-          ..addOption('common-name')
-          ..addOption('cookie')
-          ..addOption('bearer')
-          ..addOption('pending')
-          ..addOption('ca-key', help: '--local: Entity CA key JSON (see cert init-ca)')
-          ..addOption('ca-cert', help: '--local: Entity CA self-signed cert PEM')
-          ..addOption('issuer-ski', help: '--local: SKI of the credential issuer')
-          ..addOption('issuer-key', help: '--local: issuer private_jwk JSON file')
-          ..addOption('permissions', help: '--local: CapabilitySet JSON file')
-          ..addOption('paying-party-id')
-          ..addOption('not-after-days'))
-        ..addCommand('pull', _nativeAgentParser()
-          ..addOption('auth-url', mandatory: true)
-          ..addOption('pending')),
+        ..addOption('import',
+            help: 'Import DeviceIdentity JSON file into secure storage')
+        ..addCommand(
+            'init',
+            _nativeAgentParser()
+              ..addOption('role',
+                  allowed: ['target', 'source'],
+                  defaultsTo: 'target',
+                  help: 'Defaults to target for this desktop host')
+              ..addOption('host',
+                  mandatory: true,
+                  help:
+                      'Fully-qualified machine host, e.g. db1.us-east--acme')
+              ..addOption('entity')
+              ..addOption('common-name')
+              ..addOption('pending',
+                  help: 'Override pending-state file path'))
+        ..addCommand(
+            'enroll',
+            _nativeAgentParser()
+              ..addFlag('local',
+                  defaultsTo: false,
+                  help:
+                      'Localhost instant path (sign locally + enroll-instant)')
+              ..addOption('auth-url',
+                  help:
+                      'Better Auth base URL mounting delegate-permissions')
+              ..addOption('entity')
+              ..addOption('host')
+              ..addOption('role', allowed: ['target', 'source'])
+              ..addOption('common-name')
+              ..addOption('cookie')
+              ..addOption('bearer')
+              ..addOption('pending')
+              ..addOption('ca-key',
+                  help: '--local: Entity CA key JSON (see cert init-ca)')
+              ..addOption('ca-cert',
+                  help: '--local: Entity CA self-signed cert PEM')
+              ..addOption('issuer-ski',
+                  help: '--local: SKI of the credential issuer')
+              ..addOption('issuer-key',
+                  help: '--local: issuer private_jwk JSON file')
+              ..addOption('permissions',
+                  help: '--local: CapabilitySet JSON file')
+              ..addOption('paying-party-id')
+              ..addOption('not-after-days'))
+        ..addCommand(
+            'pull',
+            _nativeAgentParser()
+              ..addOption('auth-url', mandatory: true)
+              ..addOption('pending')),
     )
     ..addCommand(
       'run',
       ArgParser()
-        ..addOption('library', help: 'Path to libidr_c_api shared library')
-        ..addFlag('mock', defaultsTo: true, help: 'Use mock WebRTC backend'),
+        ..addOption('agent-binary',
+            defaultsTo: Platform.environment['IDR_AGENT_BINARY'],
+            help: 'Path to target-agent (spawns native service)')
+        ..addOption('config',
+            defaultsTo: Platform.environment['IDR_TARGET_CONFIG'],
+            help: 'target-agent TOML config')
+        ..addOption('identity', help: 'DeviceIdentity JSON path')
+        ..addFlag('target',
+            defaultsTo: true,
+            help: 'Run native target-agent (default)')
+        ..addOption('library',
+            help: 'Path to libidr_c_api (source mock path only)')
+        ..addFlag('mock',
+            defaultsTo: true, help: 'Source mock backend (if --no-target)'),
     )
     ..addCommand(
       'connect',
@@ -70,16 +107,24 @@ Future<void> main(List<String> args) async {
   final cmd = result.command;
   if (cmd == null) {
     stdout.writeln(parser.usage);
+    stdout.writeln(
+      '\nTip: flutter run -d windows  # Target Agent desktop host UI',
+    );
     exit(64);
   }
 
   switch (cmd.name) {
     case 'version':
-      stdout.writeln('idr_cli 0.1.0');
-      stdout.writeln('secrets: flutter_secure_storage (fl-start)');
-      stdout.writeln('pep: via native source-agent / idr_c_api (quic→wss)');
+      final host = AgentHost(store: store);
+      final code = await host.version();
+      if (code != 0) {
+        stdout.writeln('idr_cli 0.1.0 (native binary unavailable)');
+        stdout.writeln('secrets: flutter_secure_storage (fl-start)');
+      }
       break;
     case 'doctor':
+      final host = AgentHost(store: store);
+      host.logs.listen(stdout.writeln);
       final id = await store.loadIdentity();
       stdout.writeln('secure_storage=flutter_secure_storage');
       if (id == null) {
@@ -88,12 +133,26 @@ Future<void> main(List<String> args) async {
         stdout.writeln('identity_ski=${id.ski}');
         stdout.writeln('identity_fqhn=${id.fqhn ?? "(none)"}');
       }
+      await host.doctor();
       break;
     case 'identity':
       await _identity(cmd, store);
       break;
     case 'run':
-      await _run(cmd, store);
+      if (cmd['target'] as bool) {
+        final host = AgentHost(
+          store: store,
+          agentBinary: cmd['agent-binary'] as String?,
+          configPath: cmd['config'] as String?,
+          identityPath: cmd['identity'] as String?,
+        );
+        host.logs.listen(stdout.writeln);
+        await host.startTargetService();
+        await ProcessSignal.sigint.watch().first;
+        await host.stopTargetService();
+      } else {
+        await _runSourceMock(cmd, store);
+      }
       break;
     case 'connect':
       await _connect(cmd, store);
@@ -107,12 +166,15 @@ Future<void> main(List<String> args) async {
 Future<void> _identity(ArgResults cmd, DpSecretStore store) async {
   final importPath = cmd['import'] as String?;
   if (importPath != null) {
-    await _importIdentityFile(importPath, store);
+    final host = AgentHost(store: store, identityPath: importPath);
+    host.logs.listen(stdout.writeln);
+    await host.importIdentityFromFile(path: importPath);
     return;
   }
   final sub = cmd.command;
   if (sub == null) {
-    stdout.writeln('usage: identity show|clear|init|enroll|pull|--import <file>');
+    stdout.writeln(
+        'usage: identity show|clear|init|enroll|pull|--import <file>');
     exit(64);
   }
   switch (sub.name) {
@@ -123,7 +185,8 @@ Future<void> _identity(ArgResults cmd, DpSecretStore store) async {
       } else {
         stdout.writeln('ski=${id.ski}');
         stdout.writeln('fqhn=${id.fqhn}');
-        stdout.writeln('cert=${id.certPem == null ? "(none, dev/self-signed)" : "issued"}');
+        stdout.writeln(
+            'cert=${id.certPem == null ? "(none, dev/self-signed)" : "issued"}');
       }
       break;
     case 'clear':
@@ -159,10 +222,10 @@ Future<void> _identity(ArgResults cmd, DpSecretStore store) async {
         _Opt.value('paying-party-id'),
         _Opt.value('not-after-days'),
       ]);
-      // Only `--local` writes a final DeviceIdentity here; queued enroll
-      // only prints an enrollId/pullToken (see `identity pull`).
       if (sub['local'] as bool) {
-        await _importIdentityFile(identityFile, store);
+        final host = AgentHost(store: store, identityPath: identityFile);
+        host.logs.listen(stdout.writeln);
+        await host.importIdentityFromFile();
       }
       break;
     case 'pull':
@@ -171,13 +234,13 @@ Future<void> _identity(ArgResults cmd, DpSecretStore store) async {
         _Opt.value('auth-url'),
         _Opt.value('pending'),
       ]);
-      await _importIdentityFile(identityFile, store);
+      final host = AgentHost(store: store, identityPath: identityFile);
+      host.logs.listen(stdout.writeln);
+      await host.importIdentityFromFile();
       break;
   }
 }
 
-/// Shared flags for identity subcommands that shell out to the native
-/// `source-agent`/`target-agent` binary.
 ArgParser _nativeAgentParser() => ArgParser()
   ..addOption('agent-binary',
       defaultsTo: Platform.environment['IDR_AGENT_BINARY'],
@@ -187,8 +250,6 @@ ArgParser _nativeAgentParser() => ArgParser()
       help: 'DeviceIdentity JSON path used by the native binary '
           '(default identity.dp.json); also the file imported into secure storage');
 
-/// Declares how to forward one Dart CLI option to the native binary as
-/// either `--flag` (bool) or `--name value` (string).
 class _Opt {
   const _Opt.flag(this.name) : isFlag = true;
   const _Opt.value(this.name) : isFlag = false;
@@ -204,9 +265,14 @@ Future<void> _runNativeAgent(
   required List<String> subcommand,
   required List<_Opt> forward,
 }) async {
-  final binary = cmd['agent-binary'] as String?;
+  var binary = cmd['agent-binary'] as String?;
+  if (binary == null || binary.isEmpty) {
+    final host = AgentHost(store: DpSecretStore(store: MemoryKvStore()));
+    binary = await host.detectBinary();
+  }
   if (binary == null) {
-    stderr.writeln('error: --agent-binary <path> is required (or set IDR_AGENT_BINARY)');
+    stderr.writeln(
+        'error: --agent-binary <path> is required (or set IDR_AGENT_BINARY)');
     exit(64);
   }
   final args = <String>[];
@@ -236,26 +302,7 @@ Future<void> _runNativeAgent(
   }
 }
 
-Future<void> _importIdentityFile(String path, DpSecretStore store) async {
-  final file = File(path);
-  if (!file.existsSync()) {
-    stdout.writeln('note: $path not written (enrollment still pending?)');
-    return;
-  }
-  final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-  await store.saveIdentity(
-    ski: map['ski'] as String,
-    privateJwk: map['private_jwk'] as Map<String, dynamic>,
-    credential: map['credential'] as Map<String, dynamic>,
-    publicJwk: map['public_jwk'] as Map<String, dynamic>?,
-    fqhn: map['fqhn'] as String?,
-    certPem: map['cert_pem'] as String?,
-    chainPem: map['chain_pem'] as String?,
-  );
-  stdout.writeln('imported ski=${map['ski']} into secure storage from $path');
-}
-
-Future<void> _run(ArgResults cmd, DpSecretStore store) async {
+Future<void> _runSourceMock(ArgResults cmd, DpSecretStore store) async {
   final runtime = IdrRuntime.create(
     libraryPath: cmd['library'] as String?,
     useMock: cmd['mock'] as bool,
@@ -268,7 +315,7 @@ Future<void> _run(ArgResults cmd, DpSecretStore store) async {
     } else {
       stdout.writeln('warning: no DP identity in secure storage (anonymous)');
     }
-    stdout.writeln('idr_cli service running (ctrl-c to stop)');
+    stdout.writeln('idr_cli source mock running (ctrl-c to stop)');
     await ProcessSignal.sigint.watch().first;
   } finally {
     runtime.dispose();

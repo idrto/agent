@@ -5,13 +5,14 @@ use anyhow::{Context, Result};
 use ed25519_dalek::VerifyingKey;
 use futures::{SinkExt, StreamExt};
 use tokio::io::AsyncReadExt;
-use tokio::time::sleep;
+use tokio::time::{sleep, sleep_until, Instant};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, Message},
 };
 use tracing::{debug, error, info, warn};
 
+use crate::auth::mint_agent_token;
 use crate::config::{Config, PresenceConfig};
 use crate::identity::TargetIdentity;
 use crate::network::NetworkCapabilities;
@@ -28,6 +29,7 @@ use crate::shutdown::ShutdownCoordinator;
 use crate::telemetry::Metrics;
 use crate::webrtc::probe::{send_probe_request, spawn_probe_on_push, ProbeScheduler};
 use crate::webrtc::{WebRtcSessionManager, WebRtcSignalingHandler};
+use idr_dp::DeviceIdentity;
 use idr_protocol::discovery::PresenceServer;
 use idr_protocol::signaling::{
     CommandResultCode, EnsureRelayConnectionCommand, SignalingMessageType,
@@ -37,6 +39,19 @@ use idr_protocol::webrtc_signaling::{
     RegisterTargetAck, TurnProbeCandidates, WebRtcIceCandidate, WebRtcSessionOffer,
 };
 use tokio::sync::Mutex;
+
+struct PresentedEntitlement {
+    token: String,
+    refresh_at: Option<Instant>,
+}
+
+fn token_refresh_delay(ttl_seconds: u64) -> Duration {
+    if ttl_seconds <= 60 {
+        Duration::from_secs((ttl_seconds / 2).max(1))
+    } else {
+        Duration::from_secs(ttl_seconds - 30)
+    }
+}
 
 pub struct PresenceWebSocketClient {
     server: PresenceServer,
@@ -55,6 +70,8 @@ pub struct PresenceWebSocketClient {
     quic_client: Arc<PresenceQuicClient>,
     webrtc_sessions: Arc<WebRtcSessionManager>,
     signaling_outbox: Arc<Mutex<Option<PresenceSignalingOutbox>>>,
+    /// DP DeviceIdentity for agent entitlement JWT mint (and Presence mTLS).
+    device_identity: Option<Arc<DeviceIdentity>>,
 }
 
 impl PresenceWebSocketClient {
@@ -75,6 +92,7 @@ impl PresenceWebSocketClient {
         discovery_generation: u64,
         quic_client: Arc<PresenceQuicClient>,
         webrtc_sessions: Arc<WebRtcSessionManager>,
+        device_identity: Option<Arc<DeviceIdentity>>,
     ) -> Self {
         Self {
             server,
@@ -93,6 +111,51 @@ impl PresenceWebSocketClient {
             quic_client,
             webrtc_sessions,
             signaling_outbox: Arc::new(Mutex::new(None)),
+            device_identity,
+        }
+    }
+
+    /// Mint a Presence entitlement JWT when DP identity is available.
+    async fn mint_entitlement_jwt(&self) -> Result<Option<PresentedEntitlement>> {
+        let Some(identity) = self.device_identity.as_ref() else {
+            if self.reg_cfg.auth.required {
+                anyhow::bail!(
+                    "auth.required=true but no DP DeviceIdentity loaded; set [dp].identity_path or --identity"
+                );
+            }
+            return Ok(None);
+        };
+        let target_identity = self.identity.public_key_base64url();
+        let using_party = (!self.reg_cfg.billing_party.using_party.is_empty()
+            && self.reg_cfg.billing_party.using_party != "unconfigured@local")
+            .then_some(self.reg_cfg.billing_party.using_party.as_str());
+        match mint_agent_token(
+            &self.reg_cfg.auth,
+            identity.as_ref(),
+            Some(&target_identity),
+            using_party,
+        )
+        .await
+        {
+            Ok(tok) => {
+                info!(
+                    ski = %identity.ski,
+                    expires_in = ?tok.expires_in,
+                    "minted Presence entitlement JWT"
+                );
+                Ok(Some(PresentedEntitlement {
+                    token: tok.token,
+                    refresh_at: tok
+                        .expires_in
+                        .map(token_refresh_delay)
+                        .map(|delay| Instant::now() + delay),
+                }))
+            }
+            Err(e) if self.reg_cfg.auth.required => Err(e).context("mint agent entitlement JWT"),
+            Err(e) => {
+                warn!(error = %e, "agent JWT mint failed; registering without entitlement_jwt");
+                Ok(None)
+            }
         }
     }
 
@@ -129,20 +192,22 @@ impl PresenceWebSocketClient {
             let network = PresenceNetworkCaps::from_detect(&caps);
             match self.connect_with_fallback(role_label, &network).await {
                 Ok(()) => {
+                    backoff = self.cfg.reconnect_initial();
                     if self.shutdown.is_draining() {
                         break;
                     }
                 }
                 Err(err) => {
                     warn!(role = role_label, error = %err, "presence session error");
+                    backoff = (backoff * 2).min(self.cfg.reconnect_max());
                 }
             }
+            *self.signaling_outbox.lock().await = None;
             self.metrics
                 .presence_connected
                 .with_label_values(&[role_label])
                 .set(0);
             sleep(backoff).await;
-            backoff = (backoff * 2).min(self.cfg.reconnect_max());
         }
         Ok(())
     }
@@ -157,6 +222,8 @@ impl PresenceWebSocketClient {
             anyhow::bail!("no compatible presence transports");
         }
 
+        let entitlement = self.mint_entitlement_jwt().await?;
+        let refresh_at = entitlement.as_ref().and_then(|token| token.refresh_at);
         let reg = build_registration(
             &self.identity,
             &self.fqhn,
@@ -164,6 +231,7 @@ impl PresenceWebSocketClient {
             self.discovery_generation,
             self.role,
             &self.reg_cfg,
+            entitlement.map(|token| token.token),
         )?;
         let reg_json = serde_json::to_string(&reg)?;
 
@@ -180,11 +248,12 @@ impl PresenceWebSocketClient {
             );
             let result = match choice {
                 PresenceTransportChoice::Quic(addr) => {
-                    self.connect_quic_and_serve(role_label, addr, &reg_json)
+                    self.connect_quic_and_serve(role_label, addr, &reg_json, refresh_at)
                         .await
                 }
                 PresenceTransportChoice::Wss => {
-                    self.connect_wss_and_serve(role_label, &reg_json).await
+                    self.connect_wss_and_serve(role_label, &reg_json, refresh_at)
+                        .await
                 }
             };
             match result {
@@ -203,6 +272,7 @@ impl PresenceWebSocketClient {
         role_label: &'static str,
         addr: std::net::SocketAddr,
         reg_json: &str,
+        refresh_at: Option<Instant>,
     ) -> Result<()> {
         let connection = self
             .quic_client
@@ -248,13 +318,28 @@ impl PresenceWebSocketClient {
                     debug!(?reason, "presence QUIC closed");
                     break;
                 }
+                _ = async {
+                    match refresh_at {
+                        Some(deadline) => sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    info!("refreshing Presence entitlement JWT");
+                    connection.close(0u32.into(), b"entitlement refresh");
+                    break;
+                }
                 _ = shutdown.wait_for_drain() => break,
             }
         }
         Ok(())
     }
 
-    async fn connect_wss_and_serve(&self, role_label: &'static str, reg_json: &str) -> Result<()> {
+    async fn connect_wss_and_serve(
+        &self,
+        role_label: &'static str,
+        reg_json: &str,
+        refresh_at: Option<Instant>,
+    ) -> Result<()> {
         let mut request = self
             .server
             .wss_url
@@ -313,6 +398,15 @@ impl PresenceWebSocketClient {
                         Some(Err(e)) => return Err(e.into()),
                         _ => {}
                     }
+                }
+                _ = async {
+                    match refresh_at {
+                        Some(deadline) => sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    info!("refreshing Presence entitlement JWT");
+                    break;
                 }
                 _ = self.shutdown.wait_for_drain() => break,
             }
@@ -510,33 +604,31 @@ impl PresenceClientTask {
             "turn_probe_ack" => {
                 debug!("received turn_probe_ack");
             }
-            "register_target_ack" => {
-                match serde_json::from_str::<RegisterTargetAck>(text) {
-                    Ok(ack) => {
-                        if ack.turn_mint_allowed {
-                            info!(
-                                target_fqhn = %ack.target_fqhn,
-                                fallback = %ack.webrtc_fallback,
-                                "register_target_ack: platform TURN available"
-                            );
-                        } else if ack.target_allows_p2p {
-                            warn!(
-                                target_fqhn = %ack.target_fqhn,
-                                fallback = %ack.webrtc_fallback,
-                                reason = ack.reason.as_deref().unwrap_or("data_transfer_exhausted"),
-                                "register_target_ack: no TURN mint; WebRTC sessions will be P2P-only"
-                            );
-                        } else {
-                            warn!(
-                                target_fqhn = %ack.target_fqhn,
-                                reason = ack.reason.as_deref().unwrap_or("payment_required"),
-                                "register_target_ack: TURN unavailable and Target forbids P2P"
-                            );
-                        }
+            "register_target_ack" => match serde_json::from_str::<RegisterTargetAck>(text) {
+                Ok(ack) => {
+                    if ack.turn_mint_allowed {
+                        info!(
+                            target_fqhn = %ack.target_fqhn,
+                            fallback = %ack.webrtc_fallback,
+                            "register_target_ack: platform TURN available"
+                        );
+                    } else if ack.target_allows_p2p {
+                        warn!(
+                            target_fqhn = %ack.target_fqhn,
+                            fallback = %ack.webrtc_fallback,
+                            reason = ack.reason.as_deref().unwrap_or("data_transfer_exhausted"),
+                            "register_target_ack: no TURN mint; WebRTC sessions will be P2P-only"
+                        );
+                    } else {
+                        warn!(
+                            target_fqhn = %ack.target_fqhn,
+                            reason = ack.reason.as_deref().unwrap_or("payment_required"),
+                            "register_target_ack: TURN unavailable and Target forbids P2P"
+                        );
                     }
-                    Err(e) => warn!(error = %e, "invalid register_target_ack"),
                 }
-            }
+                Err(e) => warn!(error = %e, "invalid register_target_ack"),
+            },
             _ => {}
         }
         Ok(())
@@ -578,5 +670,21 @@ fn result_label(code: CommandResultCode) -> &'static str {
         CommandResultCode::Failed => "failed",
         CommandResultCode::Expired => "expired",
         CommandResultCode::Offline => "offline",
+    }
+}
+
+#[cfg(test)]
+mod auth_lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn refreshes_before_normal_token_expiry() {
+        assert_eq!(token_refresh_delay(3600), Duration::from_secs(3570));
+    }
+
+    #[test]
+    fn short_lived_tokens_refresh_halfway() {
+        assert_eq!(token_refresh_delay(60), Duration::from_secs(30));
+        assert_eq!(token_refresh_delay(1), Duration::from_secs(1));
     }
 }

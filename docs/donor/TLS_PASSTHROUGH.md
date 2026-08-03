@@ -103,7 +103,7 @@ Native `*.idr.to` FQHNs are **not** issued by Target ACME — the Relay wildcard
 
 **Requirements**
 
-- Custom domain CNAME → Target FQHN; Billing alias pushed to Presence.
+- Custom domain CNAME → Target FQHN; Presence alias map (**domain alias push from Billing not yet re-implemented** after mux removal).
 - Target registered and reachable over QUIC before validation.
 - Use `staging = true` until the path works; production rejects placeholder emails.
 - Do not put `*.idr.to` names in `[acme].domains` — startup will fail.
