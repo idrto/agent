@@ -18,8 +18,10 @@ webrtc = ["idr-target/webrtc"]
 [dependencies]
 idr-target = { workspace = true }
 idr-dp = { workspace = true }
+idr-enroll = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 prometheus = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

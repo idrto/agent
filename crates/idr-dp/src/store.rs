@@ -125,6 +125,8 @@ mod tests {
             },
             public_jwk: None,
             fqhn: None,
+            cert_pem: None,
+            chain_pem: None,
         };
         DeviceIdentity::try_from(json).unwrap()
     }

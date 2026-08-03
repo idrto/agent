@@ -64,6 +64,59 @@ cargo run -p source-agent -- run
 cargo run -p source-agent -- connect cam1.acme.idr.to --service https
 ```
 
+### Device identity / CSR enrollment
+
+`source-agent`/`target-agent` ship `identity`/`cert`/`entity` subcommands
+(via the shared `idr-enroll` crate) for `dp-sdk` mTLS enrollment against a
+`better-auth` server with the `delegate-permissions` plugin. All commands
+accept `--identity <path>` (else `[dp].identity_path`, else `identity.dp.json`).
+
+```bash
+# Device: generate an Ed25519 key + CSR offline, then queue for approval.
+cargo run -p target-agent -- identity init --role target --host db1.us-east--acme
+cargo run -p target-agent -- identity enroll --auth-url http://127.0.0.1:3000/api/auth \
+  --entity acme.example
+# ... an entity admin runs `cert approve <enrollId>` (below) ...
+cargo run -p target-agent -- identity pull --auth-url http://127.0.0.1:3000/api/auth
+
+# Localhost instant path: admin CA + issuer keys on the same machine skip the
+# approval queue entirely (generates the CSR if needed, signs the leaf
+# locally, calls enroll-instant, and saves the DeviceIdentity in one step).
+cargo run -p target-agent -- identity enroll --local \
+  --host db1.us-east--acme --entity acme.example \
+  --ca-key entity-ca.key.json --ca-cert entity-ca.cert.pem \
+  --issuer-ski <rootAdminSki> --issuer-key root-admin.key.json
+
+# Admin: bootstrap an Entity, a dev CA, and approve/reject queued CSRs.
+cargo run -p source-agent -- entity kickstart --entity acme.example --package personal
+cargo run -p source-agent -- cert init-ca --common-name "acme.example Entity CA" \
+  --out-key entity-ca.key.json --out-cert entity-ca.cert.pem
+cargo run -p source-agent -- cert list --entity acme.example --pending
+cargo run -p source-agent -- cert approve <enrollId> --entity acme.example --host db1.us-east--acme \
+  --csr device.csr.pem --subject-ski <deviceSki> \
+  --ca-key entity-ca.key.json --ca-cert entity-ca.cert.pem \
+  --issuer-ski <rootAdminSki> --issuer-key root-admin.key.json
+cargo run -p source-agent -- cert reject <enrollId>
+```
+
+The resulting `identity.dp.json` includes `cert_pem`/`chain_pem` when
+mTLS-enrolled; `build_runtime`/`PepClient::with_identity` materialize it via
+`dp_rust_mtls::materialize_mtls_client` automatically when present, falling
+back to dev/self-signed behavior otherwise.
+
+The Dart `idr_cli` mirrors `identity init|enroll|pull` as thin wrappers that
+shell out to a `--agent-binary` (`source-agent`/`target-agent` executable)
+and then import the resulting JSON into secure storage:
+
+```bash
+dart run bin/idr_cli.dart identity init --agent-binary ../../target/debug/target-agent \
+  --role target --host db1.us-east--acme
+dart run bin/idr_cli.dart identity enroll --agent-binary ../../target/debug/target-agent \
+  --local --host db1.us-east--acme --entity acme.example \
+  --ca-key entity-ca.key.json --ca-cert entity-ca.cert.pem \
+  --issuer-ski <rootAdminSki> --issuer-key root-admin.key.json
+```
+
 ### Embed in a Dart / Flutter app
 
 ```dart

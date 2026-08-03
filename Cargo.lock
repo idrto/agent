@@ -676,7 +676,6 @@ dependencies = [
 [[package]]
 name = "dp-rust"
 version = "0.1.0"
-source = "git+https://github.com/2keyapp/dp-sdk#3965594fadbdee5cae6f242aea1b88c7db85ac1b"
 dependencies = [
  "serde",
  "serde_json",
@@ -685,17 +684,19 @@ dependencies = [
 [[package]]
 name = "dp-rust-mtls"
 version = "0.1.0"
-source = "git+https://github.com/2keyapp/dp-sdk#3965594fadbdee5cae6f242aea1b88c7db85ac1b"
 dependencies = [
  "base64",
  "dp-rust",
  "ed25519-dalek",
  "pkcs8",
+ "rand 0.8.7",
  "rcgen",
  "rustls-pemfile",
  "rustls-pki-types",
  "serde_json",
+ "sha2",
  "thiserror 2.0.19",
+ "time",
 ]
 
 [[package]]
@@ -1331,12 +1332,32 @@ name = "idr-dp"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chrono",
  "dp-rust",
  "dp-rust-mtls",
  "ed25519-dalek",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.19",
+ "tracing",
+]
+
+[[package]]
+name = "idr-enroll"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "dp-rust",
+ "dp-rust-mtls",
+ "idr-dp",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
  "tracing",
 ]
 
@@ -2532,6 +2553,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -2674,6 +2696,7 @@ dependencies = [
  "clap",
  "idr-core",
  "idr-dp",
+ "idr-enroll",
  "idr-protocol",
  "idr-signaling",
  "idr-source",
@@ -2772,8 +2795,10 @@ dependencies = [
  "anyhow",
  "clap",
  "idr-dp",
+ "idr-enroll",
  "idr-target",
  "prometheus",
+ "serde_json",
  "tokio",
  "tracing",
 ]

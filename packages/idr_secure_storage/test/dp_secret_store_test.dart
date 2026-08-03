@@ -19,13 +19,18 @@ void main() {
         'ski': 'ski123',
       },
       fqhn: 'cam1.acme.idr.to',
+      certPem: '-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----',
+      chainPem: '-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----',
     );
 
     final loaded = await store.loadIdentity();
     expect(loaded, isNotNull);
     expect(loaded!.ski, 'ski123');
     expect(loaded.fqhn, 'cam1.acme.idr.to');
+    expect(loaded.certPem, contains('leaf'));
+    expect(loaded.chainPem, contains('chain'));
     expect(loaded.toNativeJson()['ski'], 'ski123');
+    expect(loaded.toNativeJson()['cert_pem'], loaded.certPem);
 
     await store.clearIdentity();
     expect(await store.loadIdentity(), isNull);

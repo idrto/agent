@@ -23,6 +23,8 @@ class DpSecretStore {
     required Map<String, dynamic> credential,
     Map<String, dynamic>? publicJwk,
     String? fqhn,
+    String? certPem,
+    String? chainPem,
   }) async {
     await _store.write(_key('ski'), ski);
     await _store.write(_key('private_jwk'), jsonEncode(privateJwk));
@@ -33,6 +35,12 @@ class DpSecretStore {
     if (fqhn != null) {
       await _store.write(_key('fqhn'), fqhn);
     }
+    if (certPem != null) {
+      await _store.write(_key('cert_pem'), certPem);
+    }
+    if (chainPem != null) {
+      await _store.write(_key('chain_pem'), chainPem);
+    }
   }
 
   Future<void> saveBundle(DpIdentityBundle bundle) => saveIdentity(
@@ -41,6 +49,8 @@ class DpSecretStore {
         credential: bundle.credential,
         publicJwk: bundle.publicJwk,
         fqhn: bundle.fqhn,
+        certPem: bundle.certPem,
+        chainPem: bundle.chainPem,
       );
 
   Future<DpIdentityBundle?> loadIdentity() async {
@@ -59,6 +69,8 @@ class DpSecretStore {
           ? null
           : jsonDecode(publicRaw) as Map<String, dynamic>,
       fqhn: await _store.read(_key('fqhn')),
+      certPem: await _store.read(_key('cert_pem')),
+      chainPem: await _store.read(_key('chain_pem')),
     );
   }
 
@@ -68,5 +80,7 @@ class DpSecretStore {
     await _store.delete(_key('public_jwk'));
     await _store.delete(_key('credential'));
     await _store.delete(_key('fqhn'));
+    await _store.delete(_key('cert_pem'));
+    await _store.delete(_key('chain_pem'));
   }
 }

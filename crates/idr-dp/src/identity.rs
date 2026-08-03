@@ -15,6 +15,10 @@ pub enum DpIdentityError {
 }
 
 /// On-disk / IPC shape for a DP machine identity (never log `private_jwk`).
+///
+/// `cert_pem`/`chain_pem` carry a CA-issued mTLS leaf certificate (+ chain)
+/// when this identity was enrolled via `identity enroll` / `identity enroll
+/// --local` instead of self-signed dev certs; see `dp_rust_mtls::DeviceIdentity`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceIdentityJson {
     pub ski: String,
@@ -24,6 +28,12 @@ pub struct DeviceIdentityJson {
     pub public_jwk: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fqhn: Option<String>,
+    /// PEM leaf certificate issued by a CA for this device's key, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_pem: Option<String>,
+    /// PEM chain (leaf + intermediates/CA) for `cert_pem`, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_pem: Option<String>,
 }
 
 impl From<&DeviceIdentity> for DeviceIdentityJson {
@@ -41,6 +51,8 @@ impl From<&DeviceIdentity> for DeviceIdentityJson {
                 })
             }),
             fqhn: id.credential.host.clone(),
+            cert_pem: id.cert_pem.clone(),
+            chain_pem: id.chain_pem.clone(),
         }
     }
 }
@@ -64,6 +76,8 @@ impl TryFrom<DeviceIdentityJson> for DeviceIdentity {
             ski: value.ski,
             private_jwk: value.private_jwk,
             credential: value.credential,
+            cert_pem: value.cert_pem,
+            chain_pem: value.chain_pem,
         })
     }
 }

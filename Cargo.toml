@@ -6,6 +6,7 @@ members = [
     "crates/idr-webrtc",
     "crates/idr-signaling",
     "crates/idr-dp",
+    "crates/idr-enroll",
     "crates/idr-source",
     "crates/idr-c-api",
     "crates/idr-target",
@@ -19,6 +20,7 @@ default-members = [
     "crates/idr-webrtc",
     "crates/idr-signaling",
     "crates/idr-dp",
+    "crates/idr-enroll",
     "crates/idr-source",
     "crates/idr-c-api",
     "crates/idr-target",
@@ -83,6 +85,17 @@ idr-dp = { path = "crates/idr-dp" }
 idr-source = { path = "crates/idr-source" }
 idr-c-api = { path = "crates/idr-c-api" }
 idr-target = { path = "crates/idr-target" }
+idr-enroll = { path = "crates/idr-enroll" }
+
+# `dp-rust-mtls`'s CSR/CA/enroll helpers (generate_key_and_csr,
+# create_self_signed_ca, sign_client_cert_from_csr, DeviceIdentity.cert_pem)
+# are ahead of the last commit pushed to github.com/2keyapp/dp-sdk. Local dev
+# patches the git dependency to a sibling dp-sdk checkout so `idr-dp` /
+# `idr-enroll` can use them; drop this patch once dp-sdk publishes the
+# corresponding commit and bump the pinned rev in `[workspace.dependencies]`.
+[patch."https://github.com/2keyapp/dp-sdk"]
+dp-rust = { path = "../../2keyapp/dp-sdk/packages/dp-rust" }
+dp-rust-mtls = { path = "../../2keyapp/dp-sdk/packages/dp-rust-mtls" }
 
 [profile.release]
 lto = "thin"

@@ -9,8 +9,13 @@ prefer_quic = true
 transport_fallback_delay_ms = 150
 connect_timeout_seconds = 10
 
-# DP DeviceIdentity JSON (ski, private_jwk, credential).
-# Prefer Dart flutter_secure_storage (fl-start) when embedding; this path is for
-# headless Windows/macOS/Linux service hosts that inject identity at start.
+# DP DeviceIdentity JSON (ski, private_jwk, credential, cert_pem/chain_pem
+# when mTLS-enrolled). Prefer Dart flutter_secure_storage (fl-start) when
+# embedding; this path is for headless Windows/macOS/Linux service hosts
+# that inject identity at start.
+#
+# Populate this file with `source-agent identity init|enroll|pull` (see
+# README "Device identity / CSR enrollment"), or `idr identity ...` from
+# the Dart CLI which shells out to the same subcommands.
 [dp]
 # identity_path = "identity.dp.json"

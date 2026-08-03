@@ -13,6 +13,10 @@ using_party = "alice@acme.com"
 
 # Optional DP DeviceIdentity for Presence PEP mTLS (QUIC / WSS AuthN).
 # Prefer host secret stores; Dart embeds use flutter_secure_storage (fl-start).
+#
+# Populate this file with `target-agent identity init|enroll|pull` (see
+# README "Device identity / CSR enrollment"), or `idr identity ...` from
+# the Dart CLI which shells out to the same subcommands.
 [dp]
 # identity_path = "identity.dp.json"
 

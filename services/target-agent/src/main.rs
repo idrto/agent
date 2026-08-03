@@ -57,6 +57,13 @@ enum Commands {
     Version,
     /// Validate config + optional DP identity (no private key dump).
     Doctor,
+    /// Generate keys / CSR, enroll (queued or --local instant), and pull
+    /// the issued DeviceIdentity. See `idr identity enroll --help`.
+    Identity(idr_enroll::cli::IdentityArgs),
+    /// Admin: list / approve / reject enrollments; bootstrap a dev CA.
+    Cert(idr_enroll::cli::CertArgs),
+    /// Admin: bootstrap an Entity (Root + Root Admin credentials).
+    Entity(idr_enroll::cli::EntityArgs),
 }
 
 #[tokio::main]
@@ -88,8 +95,31 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Commands::Identity(args) => {
+            let identity_path = resolve_identity_path(&cli.config, cli.identity.as_deref());
+            idr_enroll::cli::dispatch_identity(args.command, "target", &identity_path).await
+        }
+        Commands::Cert(args) => idr_enroll::cli::dispatch_cert(args.command).await,
+        Commands::Entity(args) => idr_enroll::cli::dispatch_entity(args.command).await,
         Commands::Run => run_service(cli.config, cli.identity).await,
     }
+}
+
+/// Resolve the DeviceIdentity JSON path for `identity`/`cert`/`entity`
+/// subcommands: `--identity` wins, else `[dp].identity_path` from a
+/// resolvable config, else `identity.dp.json` in cwd.
+fn resolve_identity_path(config: &PathBuf, identity: Option<&std::path::Path>) -> PathBuf {
+    if let Some(path) = identity {
+        return path.to_path_buf();
+    }
+    if config.exists() {
+        if let Ok(cfg) = Config::load(config) {
+            if let Some(path) = cfg.dp.identity_path {
+                return path;
+            }
+        }
+    }
+    PathBuf::from("identity.dp.json")
 }
 
 async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -> Result<()> {

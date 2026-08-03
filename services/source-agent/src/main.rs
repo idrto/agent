@@ -62,6 +62,13 @@ enum Commands {
     Doctor,
     /// Print version and feature summary.
     Version,
+    /// Generate keys / CSR, enroll (queued or --local instant), and pull
+    /// the issued DeviceIdentity. See `idr identity enroll --help`.
+    Identity(idr_enroll::cli::IdentityArgs),
+    /// Admin: list / approve / reject enrollments; bootstrap a dev CA.
+    Cert(idr_enroll::cli::CertArgs),
+    /// Admin: bootstrap an Entity (Root + Root Admin credentials).
+    Entity(idr_enroll::cli::EntityArgs),
 }
 
 #[tokio::main]
@@ -120,6 +127,12 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Commands::Identity(args) => {
+            let identity_path = resolve_identity_path(&cli.config, cli.identity.as_deref());
+            idr_enroll::cli::dispatch_identity(args.command, "source", &identity_path).await
+        }
+        Commands::Cert(args) => idr_enroll::cli::dispatch_cert(args.command).await,
+        Commands::Entity(args) => idr_enroll::cli::dispatch_entity(args.command).await,
         Commands::Connect { target, service } => {
             let cfg = load_config(cli.config.as_deref())?;
             let mut runtime = build_runtime(&cfg, cli.identity.as_deref()).await?;
@@ -153,6 +166,27 @@ fn load_config(path: Option<&std::path::Path>) -> Result<SourceConfig> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("config/source.example.toml"));
     SourceConfig::load(&path).with_context(|| format!("load {}", path.display()))
+}
+
+/// Resolve the DeviceIdentity JSON path for `identity`/`cert`/`entity`
+/// subcommands: `--identity` wins, else `[dp].identity_path` from a
+/// resolvable config (explicit `--config`/`IDR_SOURCE_CONFIG`, or the
+/// default example config if present), else `identity.dp.json` in cwd.
+fn resolve_identity_path(config: &Option<PathBuf>, identity: Option<&std::path::Path>) -> PathBuf {
+    if let Some(path) = identity {
+        return path.to_path_buf();
+    }
+    let config_path = config
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("config/source.example.toml"));
+    if config_path.exists() {
+        if let Ok(cfg) = SourceConfig::load(&config_path) {
+            if let Some(path) = cfg.dp.identity_path {
+                return path;
+            }
+        }
+    }
+    PathBuf::from("identity.dp.json")
 }
 
 async fn build_runtime(
