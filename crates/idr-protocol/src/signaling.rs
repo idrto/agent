@@ -86,6 +86,8 @@ pub enum CommandResultCode {
     Active = 2,
     Failed = 3,
     Expired = 4,
+    /// Target has no live Presence registration on this node.
+    Offline = 5,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

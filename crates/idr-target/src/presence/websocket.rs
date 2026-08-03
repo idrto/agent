@@ -577,5 +577,6 @@ fn result_label(code: CommandResultCode) -> &'static str {
         CommandResultCode::Active => "active",
         CommandResultCode::Failed => "failed",
         CommandResultCode::Expired => "expired",
+        CommandResultCode::Offline => "offline",
     }
 }
