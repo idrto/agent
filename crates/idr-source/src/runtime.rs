@@ -276,6 +276,9 @@ impl SourceRuntime {
         // ingest remote ICE until the DataChannel opens.
         let mut answer_applied = false;
         let mut remote_ice_before_answer: Vec<(String, String)> = Vec::new();
+        // Presence waits ~60s for Target; fail slightly sooner with a clear error.
+        let signaling_deadline =
+            crate::time::Instant::now() + std::time::Duration::from_secs(55);
         loop {
             tokio::select! {
                 msg = channel.next_message() => {
@@ -386,6 +389,16 @@ impl SourceRuntime {
                             ));
                         }
                     }
+                }
+                _ = crate::time::sleep_until(signaling_deadline) => {
+                    return Err(IdrError::new(
+                        IdrErrorKind::SignalingFailed,
+                        if answer_applied {
+                            "timed out waiting for WebRTC datachannel after answer"
+                        } else {
+                            "timed out waiting for Target WebRTC answer (is target-agent registered on Presence?)"
+                        },
+                    ));
                 }
             }
         }

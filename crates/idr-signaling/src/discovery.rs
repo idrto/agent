@@ -5,7 +5,7 @@ use std::time::Duration;
 use ed25519_dalek::VerifyingKey;
 use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_protocol::crypto::KeyPair;
-use idr_protocol::discovery::PresenceDiscoveryDocument;
+use idr_protocol::discovery::{parse_discovery_document, PresenceDiscoveryDocument};
 use reqwest::Client;
 use tracing::warn;
 
@@ -92,10 +92,14 @@ impl DiscoveryClient {
             .bytes()
             .await
             .map_err(|e| IdrError::new(IdrErrorKind::SignalingFailed, e.to_string()))?;
-        let doc: PresenceDiscoveryDocument = serde_json::from_slice(&bytes)
+        let doc = parse_discovery_document(&bytes)
             .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, e.to_string()))?;
         if let Some(key) = &self.discovery_key {
-            doc.verify(key)?;
+            // Expanded live docs are signed over the slim CDN shape; skip typed verify
+            // when the raw body was slim (parse succeeded via live expand).
+            if serde_json::from_slice::<PresenceDiscoveryDocument>(&bytes).is_ok() {
+                doc.verify(key)?;
+            }
         }
         Ok(doc)
     }

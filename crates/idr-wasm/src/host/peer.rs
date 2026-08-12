@@ -47,17 +47,16 @@ impl JsPeerTransport {
     }
 }
 
-async fn call0(f: &Function) -> Result<()> {
+async fn call0_value(f: &Function) -> Result<JsValue> {
     let p = f
         .call0(&JsValue::NULL)
         .map_err(|e| IdrError::new(IdrErrorKind::InternalError, format!("js call: {e:?}")))?;
     if p.is_undefined() || p.is_null() {
-        return Ok(());
+        return Ok(JsValue::UNDEFINED);
     }
     JsFuture::from(js_sys::Promise::from(p))
         .await
-        .map_err(|e| IdrError::new(IdrErrorKind::InternalError, format!("js promise: {e:?}")))?;
-    Ok(())
+        .map_err(|e| IdrError::new(IdrErrorKind::InternalError, format!("js promise: {e:?}")))
 }
 
 async fn call1(f: &Function, a0: &JsValue) -> Result<()> {
@@ -115,7 +114,28 @@ impl PeerTransport for JsPeerTransport {
     }
 
     async fn create_local_description(&mut self) -> Result<()> {
-        call0(&self.host.create_local_description).await
+        let value = call0_value(&self.host.create_local_description).await?;
+        if value.is_undefined() || value.is_null() {
+            return Ok(());
+        }
+        let sdp_type = js_sys::Reflect::get(&value, &JsValue::from_str("sdp_type"))
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_else(|| "offer".into());
+        let sdp = js_sys::Reflect::get(&value, &JsValue::from_str("sdp"))
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default();
+        if sdp.is_empty() {
+            return Err(IdrError::new(
+                IdrErrorKind::IceFailed,
+                "createLocalDescription returned empty SDP",
+            ));
+        }
+        // Inject directly — avoids a lost pushPeerEvent race that would block
+        // forever before Presence WSS is opened.
+        let _ = self.event_tx.send(PeerEvent::LocalDescription { sdp_type, sdp });
+        Ok(())
     }
 
     fn add_remote_candidate(&mut self, candidate: &str, mid: &str) -> Result<()> {

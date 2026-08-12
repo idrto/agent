@@ -10,6 +10,8 @@ use idr_dp::{
     encode_credential_frame, materialize_mtls_client, DeviceIdentity, MtlsClientMaterial,
 };
 use idr_protocol::discovery::PresenceServer;
+use idr_protocol::fqhn;
+use idr_protocol::placement::{ModuloPlacement, PresencePlacement};
 use idr_protocol::webrtc_signaling::{
     WebRtcAnswer, WebRtcIceCandidate, WebRtcSessionRequest, WebRtcSessionResultCode,
 };
@@ -82,8 +84,18 @@ impl PepClient {
     }
 
     pub async fn connect_session(&self) -> Result<PepSession> {
+        self.connect_session_ordered(0..self.servers.len()).await
+    }
+
+    async fn connect_session_ordered(
+        &self,
+        order: impl IntoIterator<Item = usize>,
+    ) -> Result<PepSession> {
         let mut last_err = None;
-        for server in &self.servers {
+        for idx in order {
+            let Some(server) = self.servers.get(idx) else {
+                continue;
+            };
             match self.connect_server(server).await {
                 Ok(session) => {
                     if let Some(id) = &self.identity {
@@ -107,6 +119,33 @@ impl PepClient {
                 "no Presence servers configured",
             )
         }))
+    }
+
+    /// Dial order: dual-mod primary/secondary for `target_fqhn`, then any remaining nodes.
+    fn dial_order_for_fqhn(&self, target_fqhn: &str) -> Vec<usize> {
+        let n = self.servers.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let mut ordered = Vec::with_capacity(n);
+        let logical = fqhn::canonicalize(target_fqhn).unwrap_or_else(|_| target_fqhn.to_string());
+        if let Ok((primary, secondary)) =
+            ModuloPlacement.primary_secondary(&logical, &self.servers)
+        {
+            ordered.push(primary);
+            if let Some(sec) = secondary {
+                ordered.push(sec);
+            }
+        }
+        for i in 0..n {
+            if !ordered.contains(&i) {
+                ordered.push(i);
+            }
+        }
+        if ordered.is_empty() {
+            ordered.extend(0..n);
+        }
+        ordered
     }
 
     async fn connect_server(&self, server: &PresenceServer) -> Result<PepSession> {
@@ -176,7 +215,8 @@ impl WebRtcSignalingClient for PepClient {
         &mut self,
         request: WebRtcSessionRequest,
     ) -> Result<Box<dyn EphemeralSignaling>> {
-        let session = Arc::new(self.connect_session().await?);
+        let order = self.dial_order_for_fqhn(&request.target_fqhn);
+        let session = Arc::new(self.connect_session_ordered(order).await?);
         let req_json = serde_json::to_string(&request)
             .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, e.to_string()))?;
         session.send_json(&req_json).await?;
@@ -239,7 +279,7 @@ fn parse_signaling_message(raw: &str, session_id: Uuid) -> Result<SignalingMessa
             Ok(SignalingMessage::IceCandidate(cand))
         }
         "webrtc_ice_complete" => Ok(SignalingMessage::IceComplete { session_id }),
-        "webrtc_session_ack" => {
+        "webrtc_session_ack" | "webrtc_session_offer_ack" => {
             let result = value
                 .get("result")
                 .cloned()
@@ -259,13 +299,22 @@ fn parse_signaling_message(raw: &str, session_id: Uuid) -> Result<SignalingMessa
                 detail,
             })
         }
-        "error" => Ok(SignalingMessage::Error {
-            message: value
+        "presence_error" | "error" => {
+            let code = value
+                .get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let detail = value
                 .get("message")
                 .and_then(|v| v.as_str())
-                .unwrap_or("presence error")
-                .to_string(),
-        }),
+                .unwrap_or("presence error");
+            let message = if code.is_empty() {
+                detail.to_string()
+            } else {
+                format!("{code}: {detail}")
+            };
+            Ok(SignalingMessage::Error { message })
+        }
         other => Ok(SignalingMessage::Error {
             message: format!("unhandled presence message_type: {other}"),
         }),

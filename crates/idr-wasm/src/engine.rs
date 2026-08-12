@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use idr_core::error::{IdrError, IdrErrorKind, Result as IdrResult};
 use idr_core::session::PeerSession;
 use idr_core::stream::LogicalStream;
-use idr_protocol::discovery::PresenceDiscoveryDocument;
+use idr_protocol::discovery::parse_discovery_document;
 use idr_protocol::webrtc_signaling::SourceAuthMode;
 use idr_signaling::place_wss_servers;
 use idr_signaling::SignalingMessage;
@@ -187,7 +187,7 @@ impl WasmEngine {
                 .ok_or_else(|| JsValue::from_str("fetchDiscovery must return a string"))?
         };
 
-        let doc: PresenceDiscoveryDocument = serde_json::from_str(&doc_json)
+        let doc = parse_discovery_document(doc_json.as_bytes())
             .map_err(|e| JsValue::from_str(&format!("discovery json: {e}")))?;
 
         let servers = place_wss_servers(&doc, &target_fqhn).map_err(js_err)?;
@@ -220,7 +220,24 @@ impl WasmEngine {
         signaling_host: JsSignalingHost,
     ) -> IdrResult<()> {
         if let Some(pre) = signaling_host.preconnect.as_ref() {
-            let _ = pre.call1(&JsValue::NULL, &JsValue::from_str(wss_url));
+            let p = pre
+                .call1(&JsValue::NULL, &JsValue::from_str(wss_url))
+                .map_err(|e| {
+                    IdrError::new(
+                        IdrErrorKind::SignalingFailed,
+                        format!("preconnect: {e:?}"),
+                    )
+                })?;
+            if !p.is_undefined() && !p.is_null() {
+                let _ = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(p))
+                    .await
+                    .map_err(|e| {
+                        IdrError::new(
+                            IdrErrorKind::SignalingFailed,
+                            format!("preconnect promise: {e:?}"),
+                        )
+                    })?;
+            }
         }
 
         let peer_tx_slot = self.peer_tx.clone();
@@ -448,7 +465,7 @@ impl WasmEngine {
         discovery_json: String,
         target_fqhn: String,
     ) -> Result<String, JsValue> {
-        let doc: PresenceDiscoveryDocument = serde_json::from_str(&discovery_json)
+        let doc = parse_discovery_document(discovery_json.as_bytes())
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         let servers = place_wss_servers(&doc, &target_fqhn).map_err(js_err)?;
         serde_json::to_string(&servers).map_err(|e| JsValue::from_str(&e.to_string()))

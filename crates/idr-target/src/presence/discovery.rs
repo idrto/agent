@@ -1,9 +1,10 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
 use ed25519_dalek::VerifyingKey;
+use idr_protocol::crypto::{self, KeyPair};
+use idr_protocol::discovery::{parse_discovery_document, PresenceDiscoveryDocument};
 use reqwest::Client;
 use tracing::{info, warn};
 
@@ -11,8 +12,6 @@ use crate::config::PresenceConfig;
 use crate::storage::models::PresenceDiscoveryCacheRow;
 use crate::storage::writer::{StorageCommand, StorageWriter};
 use crate::storage::Storage;
-use idr_protocol::crypto::KeyPair;
-use idr_protocol::discovery::PresenceDiscoveryDocument;
 
 pub struct DiscoveryService {
     cfg: PresenceConfig,
@@ -62,23 +61,15 @@ impl DiscoveryService {
         )?))
     }
 
-    fn verify_doc(&self, doc: &PresenceDiscoveryDocument) -> Result<()> {
-        match &self.discovery_key {
-            Some(key) => doc
-                .verify(key)
-                .map_err(|e| anyhow::anyhow!("discovery verify failed: {e}")),
-            None => Ok(()),
-        }
-    }
-
     fn load_cache(&self) {
         if let Ok(Some(row)) = self.storage.load_discovery_cache() {
-            if let Ok(doc) =
-                serde_json::from_slice::<PresenceDiscoveryDocument>(&row.canonical_json)
-            {
-                if self.verify_doc(&doc).is_ok() {
-                    *self.cached.write() = Some(doc);
+            match parse_discovery_document(&row.canonical_json) {
+                Ok(doc) => {
+                    if self.discovery_key.is_none() || Utc::now() <= doc.valid_until {
+                        *self.cached.write() = Some(doc);
+                    }
                 }
+                Err(err) => warn!(error = %err, "discovery cache unusable"),
             }
         }
     }
@@ -92,7 +83,7 @@ impl DiscoveryService {
             Err(err) => {
                 warn!(error = %err, "discovery fetch failed, using cache if valid");
                 if let Some(doc) = self.cached.read().clone() {
-                    if self.verify_doc(&doc).is_ok() && Utc::now() <= doc.valid_until {
+                    if Utc::now() <= doc.valid_until {
                         return Ok(doc);
                     }
                 }
@@ -114,14 +105,26 @@ impl DiscoveryService {
             .await
             .context("discovery HTTP body")?;
 
-        let doc: PresenceDiscoveryDocument =
-            serde_json::from_slice(&bytes).context("parse discovery document")?;
-        self.verify_doc(&doc)?;
+        if let Some(key) = &self.discovery_key {
+            if let Err(err) = verify_discovery_signature(&bytes, key) {
+                if self.cfg.insecure_dev {
+                    // Live CDN doc can diverge from the pinned example key while IPs stay valid.
+                    warn!(error = %err, "discovery signature verify failed; insecure_dev continuing");
+                } else {
+                    return Err(err).context("discovery verify failed");
+                }
+            }
+        }
 
+        let doc = parse_discovery_document(&bytes)
+            .map_err(|e| anyhow::anyhow!("parse discovery document: {e}"))?;
+
+        // Cache the runtime (possibly expanded) document so reloads stay schema-stable.
+        let cached_json = serde_json::to_vec(&doc).context("serialize discovery cache")?;
         let row = PresenceDiscoveryCacheRow {
             generation: doc.generation,
             valid_until: doc.valid_until,
-            canonical_json: bytes.to_vec(),
+            canonical_json: cached_json,
             signature: doc.signature.as_bytes().to_vec(),
             fetched_at: Utc::now(),
         };
@@ -141,4 +144,38 @@ impl DiscoveryService {
     pub fn cached(&self) -> Option<PresenceDiscoveryDocument> {
         self.cached.read().clone()
     }
+}
+
+fn verify_discovery_signature(bytes: &[u8], key: &VerifyingKey) -> Result<()> {
+    // Full schema: verify via typed document (includes valid_until expiry).
+    if let Ok(doc) = serde_json::from_slice::<PresenceDiscoveryDocument>(bytes) {
+        return doc
+            .verify(key)
+            .map_err(|e| anyhow::anyhow!("{e}"));
+    }
+
+    // Live slim schema: try empty-string signature field, then omitted field.
+    let mut value: serde_json::Value =
+        serde_json::from_slice(bytes).context("parse discovery JSON for verify")?;
+    let sig = value
+        .get("signature")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if sig.is_empty() {
+        anyhow::bail!("discovery signature missing");
+    }
+
+    let mut with_empty = value.clone();
+    if let Some(obj) = with_empty.as_object_mut() {
+        obj.insert("signature".into(), serde_json::Value::String(String::new()));
+    }
+    if crypto::verify_json_canonical(&with_empty, &sig, key).is_ok() {
+        return Ok(());
+    }
+
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("signature");
+    }
+    crypto::verify_json_canonical(&value, &sig, key).map_err(|e| anyhow::anyhow!("{e}"))
 }

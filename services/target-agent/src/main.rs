@@ -126,25 +126,49 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
         .context("fetch presence discovery")?;
     let discovery_generation = discovery_doc.generation;
 
-    // Presence-signed ensure/relay commands use the Presence identity key from discovery.
+    let insecure_dev = cfg.presence.insecure_dev || cfg.presence.discovery_key.is_empty();
+
+    // Presence-signed ensure/relay commands use the discovery verify key, or a
+    // per-server public_key from full discovery docs. Live slim CDN docs omit
+    // keys — under insecure_dev continue with an ephemeral key (verify soft-fails).
     let relay_verify_key = match discovery_key {
         Some(k) => k,
         None => {
             let pk = discovery_doc
                 .presence_servers
-                .first()
+                .iter()
                 .map(|s| s.public_key.as_str())
-                .ok_or_else(|| anyhow::anyhow!("discovery has no presence servers"))?;
-            idr_target::protocol::crypto::KeyPair::from_base64url_public(pk)
-                .map_err(|e| anyhow::anyhow!("presence public_key: {e}"))?
+                .find(|p| !p.is_empty());
+            match pk {
+                Some(pk) => idr_target::protocol::crypto::KeyPair::from_base64url_public(pk)
+                    .map_err(|e| anyhow::anyhow!("presence public_key: {e}"))?,
+                None if insecure_dev => {
+                    warn!(
+                        "discovery has no presence public keys; insecure_dev: ephemeral verify key"
+                    );
+                    idr_target::protocol::crypto::KeyPair::generate().verifying_key
+                }
+                None => anyhow::bail!(
+                    "discovery has no presence public_key; set presence.discovery_key \
+                     or presence.insecure_dev = true"
+                ),
+            }
         }
     };
 
     let (primary_idx, secondary_idx) =
         select_primary_secondary(&fqhn, &discovery_doc.presence_servers)?;
+    info!(
+        primary_idx,
+        secondary_idx = ?secondary_idx,
+        primary_ipv4 = ?discovery_doc.presence_servers[primary_idx].ipv4,
+        secondary_ipv4 = secondary_idx
+            .and_then(|i| discovery_doc.presence_servers[i].ipv4.clone()),
+        generation = discovery_generation,
+        "live presence placement"
+    );
 
     let bind: SocketAddr = quic_bind_addr(network_caps);
-    let insecure_dev = cfg.presence.insecure_dev || cfg.presence.discovery_key.is_empty();
 
     let dp_path = identity_override.or_else(|| cfg.dp.identity_path.clone());
     let mtls_material = if let Some(path) = dp_path {

@@ -166,12 +166,8 @@ async fn build_runtime(
     };
     let mut discovery = DiscoveryClient::new(discovery_cfg)?;
     let doc = discovery.fetch().await.context("presence discovery")?;
-
-    let servers = if doc.presence_servers.len() >= 2 {
-        doc.presence_servers.iter().take(2).cloned().collect()
-    } else {
-        doc.presence_servers.clone()
-    };
+    // PepClient dual-mod orders primary/secondary per Target FQHN on connect.
+    let servers = doc.presence_servers.clone();
 
     let pep_cfg = PepClientConfig {
         prefer_quic: cfg.presence.prefer_quic,

@@ -207,7 +207,7 @@ pub fn parse_signaling_message(raw: &str) -> Result<Option<SignalingMessage>> {
             let session_id = parse_uuid(value.get("session_id"))?;
             Ok(Some(SignalingMessage::IceComplete { session_id }))
         }
-        "webrtc_session_ack" => {
+        "webrtc_session_ack" | "webrtc_session_offer_ack" => {
             let session_id = parse_uuid(value.get("session_id"))?;
             let result_str = value
                 .get("result")
