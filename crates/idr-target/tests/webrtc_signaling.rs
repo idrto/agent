@@ -75,9 +75,10 @@ fn session_request_and_offer_types_parse() {
         session_id: Uuid::new_v4(),
         target_fqhn: "device.example.idr.to".into(),
         source: SourceAgentIdentity {
-            auth_mode: idr_target::protocol::webrtc_signaling::SourceAuthMode::Anonymous,
+            auth_mode: idr_target::protocol::webrtc_signaling::SourceAuthMode::Bearer,
             source_id: Some("src-1".into()),
             sdk_version: None,
+            auth_token: Some("test-token".into()),
         },
         source_region: "us".into(),
         sdp: idr_target::protocol::webrtc_signaling::SessionDescription {

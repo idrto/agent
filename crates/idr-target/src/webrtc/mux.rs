@@ -24,6 +24,7 @@ mod tests {
             kind: StreamKind::TlsPassthrough,
             meta: StreamOpenMeta {
                 target_fqhn: "device.example.idr.to".into(),
+                service_name: None,
                 host: None,
                 port: None,
             },

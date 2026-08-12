@@ -43,10 +43,12 @@ fn append_preserves_overlap() {
 }
 
 #[test]
-fn rejects_single_server_list() {
+fn single_server_list_is_primary_only() {
     let placement = ModuloPlacement;
     let servers = vec![server(0)];
-    assert!(placement
+    let (primary, secondary) = placement
         .primary_secondary("device-01.example.idr.to", &servers)
-        .is_err());
+        .unwrap();
+    assert_eq!(primary, 0);
+    assert!(secondary.is_none());
 }

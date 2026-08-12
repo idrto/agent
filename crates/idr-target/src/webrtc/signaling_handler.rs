@@ -9,6 +9,7 @@ use crate::config::{NginxConfig, WebRtcConfig, WebRtcPolicyConfig};
 use crate::identity::TargetIdentity;
 use crate::presence::outbox::PresenceSignalingOutbox;
 use crate::webrtc::session_manager::{SessionError, WebRtcSessionManager};
+use idr_core::ConnectorRegistry;
 use idr_protocol::signaling::SignalingMessageType;
 use idr_protocol::webrtc_ice::{build_rtc_ice_servers, validate_session_ice};
 use idr_protocol::webrtc_signaling::{
@@ -27,6 +28,8 @@ pub struct WebRtcSignalingHandler {
     sessions: Arc<WebRtcSessionManager>,
     nginx: NginxConfig,
     policy: WebRtcPolicyConfig,
+    connectors: Arc<ConnectorRegistry>,
+    insecure_dev: bool,
 }
 
 impl WebRtcSignalingHandler {
@@ -38,6 +41,8 @@ impl WebRtcSignalingHandler {
         sessions: Arc<WebRtcSessionManager>,
         nginx: NginxConfig,
         policy: WebRtcPolicyConfig,
+        connectors: Arc<ConnectorRegistry>,
+        insecure_dev: bool,
     ) -> Self {
         Self {
             cfg,
@@ -47,6 +52,8 @@ impl WebRtcSignalingHandler {
             sessions,
             nginx,
             policy,
+            connectors,
+            insecure_dev,
         }
     }
 
@@ -55,6 +62,12 @@ impl WebRtcSignalingHandler {
         offer: WebRtcSessionOffer,
         outbox: &PresenceSignalingOutbox,
     ) -> anyhow::Result<()> {
+        tracing::info!(
+            session_id = %offer.session_id,
+            fqhn = %offer.target_fqhn,
+            sdp_len = offer.sdp.sdp.len(),
+            "auto-accepting webrtc_session_offer"
+        );
         let fail = |code: WebRtcSessionResultCode, detail: Option<String>| {
             let session_id = offer.session_id;
             async move { self.send_offer_ack(outbox, session_id, code, detail).await }
@@ -98,12 +111,20 @@ impl WebRtcSignalingHandler {
         }
 
         if let Err(e) = offer.verify_presence_signature(&self.presence_key) {
-            fail(
-                WebRtcSessionResultCode::Failed,
-                Some(format!("offer signature: {e}")),
-            )
-            .await?;
-            return Ok(());
+            if self.insecure_dev {
+                warn!(
+                    error = %e,
+                    session_id = %offer.session_id,
+                    "insecure_dev: accepting offer despite presence signature failure"
+                );
+            } else {
+                fail(
+                    WebRtcSessionResultCode::Failed,
+                    Some(format!("offer signature: {e}")),
+                )
+                .await?;
+                return Ok(());
+            }
         }
         if let Err(e) = validate_session_ice(&offer.ice) {
             fail(
@@ -141,6 +162,10 @@ impl WebRtcSignalingHandler {
             None,
         )
         .await?;
+        tracing::info!(
+            session_id = %offer.session_id,
+            "offer_ack Received sent; starting WebRTC responder"
+        );
 
         let stun_override = self
             .cfg
@@ -184,6 +209,7 @@ impl WebRtcSignalingHandler {
                 nginx: self.nginx.clone(),
                 policy: self.policy.clone(),
                 fqhn: self.fqhn.clone(),
+                connectors: self.connectors.clone(),
             };
             guard.keep_alive();
             tokio::spawn(async move {

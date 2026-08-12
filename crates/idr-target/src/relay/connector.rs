@@ -124,11 +124,12 @@ impl RelayConnector {
                     return Ok((conn, addr, fam));
                 }
                 Ok(Err(e)) => {
-                    warn!(relay_id = %descriptor.relay_id, error = %e, family, "relay connect failed");
+                    warn!(relay_id = %descriptor.relay_id, %addr, error = %e, family, "relay connect failed");
                     self.metrics.inc_connection_attempt("failed", family);
                     last_err = Some(e);
                 }
                 Err(_) => {
+                    warn!(relay_id = %descriptor.relay_id, %addr, family, "relay connect timeout");
                     self.metrics.inc_connection_attempt("timeout", family);
                     last_err = Some(anyhow::anyhow!("connect timeout"));
                 }

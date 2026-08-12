@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod config;
 pub mod identity;
 pub mod network;
+pub mod plugins;
 pub mod presence;
 pub mod quic;
 pub mod relay;

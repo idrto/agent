@@ -15,16 +15,19 @@ pub fn build_registration(
     discovery_generation: u64,
     role: PresenceRole,
     cfg: &Config,
+    named_services: &[String],
 ) -> anyhow::Result<TargetRegistration> {
     let mut supported_transports = vec!["quic".into(), "ipv4".into(), "ipv6".into()];
     // Only advertise webrtc when the native feature is compiled in. Protocol/registration
     // types still compile without the feature so Presence/tests can exercise signaling.
     let webrtc = if cfg.webrtc.enabled && cfg!(feature = "webrtc") {
         supported_transports.push("webrtc".into());
-        Some(build_webrtc_registration(cfg)?)
+        Some(build_webrtc_registration(cfg, named_services)?)
     } else {
         None
     };
+
+    let entitlement_jwt = cfg.resolve_entitlement_jwt()?;
 
     let mut reg = TargetRegistration {
         version: PROTOCOL_VERSION,
@@ -37,6 +40,7 @@ pub fn build_registration(
         supported_transports,
         using_party: cfg.billing_party.using_party.clone(),
         paying_party: cfg.billing_party.paying_party.clone(),
+        entitlement_jwt,
         webrtc,
         signature: String::new(),
     };
@@ -45,7 +49,10 @@ pub fn build_registration(
     Ok(reg)
 }
 
-fn build_webrtc_registration(cfg: &Config) -> anyhow::Result<TargetWebRtcRegistration> {
+fn build_webrtc_registration(
+    cfg: &Config,
+    named_services: &[String],
+) -> anyhow::Result<TargetWebRtcRegistration> {
     let relay_mode = cfg.webrtc.relay_mode();
     let byor = match relay_mode {
         IceRelayMode::Byor | IceRelayMode::Hybrid => {
@@ -58,11 +65,14 @@ fn build_webrtc_registration(cfg: &Config) -> anyhow::Result<TargetWebRtcRegistr
         anyhow::bail!("[webrtc.byor] is required when relay_mode = \"byor\"");
     }
 
+    let mut capabilities = default_webrtc_capabilities(cfg.webrtc.max_sessions);
+    capabilities.named_services = named_services.to_vec();
+
     Ok(TargetWebRtcRegistration {
         agent_region: cfg.target.agent_region.clone(),
         relay_mode,
         stun_policy: cfg.webrtc.stun_policy(),
-        capabilities: default_webrtc_capabilities(cfg.webrtc.max_sessions),
+        capabilities,
         byor,
         turn_probe_supported: cfg.webrtc.turn_probe_enabled,
         ice_transport_policy: Default::default(),
@@ -118,8 +128,16 @@ enabled = true
         .unwrap();
         let cfg = Config::load(&path).unwrap();
         let identity = TargetIdentity::load_or_generate(None).unwrap();
-        let reg = build_registration(&identity, "host.idr.to", 1, 1, PresenceRole::Primary, &cfg)
-            .unwrap();
+        let reg = build_registration(
+            &identity,
+            "host.idr.to",
+            1,
+            1,
+            PresenceRole::Primary,
+            &cfg,
+            &[],
+        )
+        .unwrap();
         assert!(!reg.supported_transports.contains(&"webrtc".into()) || cfg!(feature = "webrtc"));
         if cfg!(feature = "webrtc") {
             assert!(reg.webrtc.is_some());

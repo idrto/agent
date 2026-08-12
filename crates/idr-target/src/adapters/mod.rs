@@ -1,5 +1,9 @@
 //! Target adapters implementing idr-core connector traits over existing bridges.
 
+mod gateway;
+
+pub use gateway::ServiceGatewayConnector;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -42,29 +46,36 @@ impl NginxBridgeConnector {
         fqhn: &str,
     ) -> Vec<(NamedService, Arc<dyn Connector>)> {
         let connector: Arc<dyn Connector> = Arc::new(Self::new("nginx", nginx, policy, fqhn));
+        use idr_protocol::stream_mux::{CredentialMode, ServiceTransportKind};
         vec![
             (
-                NamedService {
-                    name: "https".into(),
-                    kind: StreamKind::TlsPassthrough,
-                    meta: StreamOpenMeta {
+                NamedService::new(
+                    "https",
+                    StreamKind::TlsPassthrough,
+                    StreamOpenMeta {
                         target_fqhn: fqhn.into(),
+                        service_name: Some("https".into()),
                         host: None,
                         port: None,
                     },
-                },
+                )
+                .with_credential_policy(CredentialMode::Target, false)
+                .with_transport_kind(ServiceTransportKind::Tcp),
                 connector.clone(),
             ),
             (
-                NamedService {
-                    name: "http".into(),
-                    kind: StreamKind::HttpPassthrough,
-                    meta: StreamOpenMeta {
+                NamedService::new(
+                    "http",
+                    StreamKind::HttpPassthrough,
+                    StreamOpenMeta {
                         target_fqhn: fqhn.into(),
+                        service_name: Some("http".into()),
                         host: None,
                         port: None,
                     },
-                },
+                )
+                .with_credential_policy(CredentialMode::Target, false)
+                .with_transport_kind(ServiceTransportKind::Http),
                 connector,
             ),
         ]
@@ -98,7 +109,7 @@ impl Connector for NginxBridgeConnector {
     }
 }
 
-/// Parse `host:port` for connector configs (future named TCP services).
+/// Parse `host:port` for connector configs.
 pub fn parse_socket_addr(host: &str, port: u16) -> Result<SocketAddr> {
     format!("{host}:{port}")
         .parse()

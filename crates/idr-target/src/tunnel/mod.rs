@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use quinn::{RecvStream, SendStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::NginxConfig;
 use crate::relay::arena::RelayConnection;
@@ -39,7 +39,7 @@ pub fn spawn_acceptor(
                         let result = handle_tunnel_stream(send, recv, &nginx, &expected_fqhn).await;
                         relay_conn.stream_closed();
                         if let Err(e) = result {
-                            debug!(error = %e, "tunnel stream ended");
+                            warn!(error = %e, "tunnel stream ended");
                         }
                     });
                 }
@@ -71,12 +71,13 @@ async fn handle_tunnel_stream(
         TunnelStreamKind::TlsPassthrough => nginx.tls_upstream,
         TunnelStreamKind::HttpPassthrough => nginx.http_upstream,
     };
-    debug!(?open.kind, %upstream, "tunnel bridge to nginx");
-    let tcp = TcpStream::connect(upstream)
-        .await
-        .with_context(|| format!("connect nginx upstream {upstream}"))?;
-    pipe_quic_tcp(recv, send, tcp).await
-}
+            debug!(?open.kind, %upstream, "tunnel bridge to nginx");
+            let tcp = TcpStream::connect(upstream)
+                .await
+                .with_context(|| format!("connect nginx upstream {upstream}"))?;
+            info!(?open.kind, %upstream, "tunnel bridged to upstream");
+            pipe_quic_tcp(recv, send, tcp).await
+        }
 
 async fn read_tunnel_open(recv: &mut RecvStream) -> Result<TunnelOpen> {
     let mut len_buf = [0u8; 4];

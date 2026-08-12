@@ -54,6 +54,7 @@ pub struct PresenceWebSocketClient {
     discovery_generation: u64,
     quic_client: Arc<PresenceQuicClient>,
     webrtc_sessions: Arc<WebRtcSessionManager>,
+    connectors: Arc<idr_core::ConnectorRegistry>,
     signaling_outbox: Arc<Mutex<Option<PresenceSignalingOutbox>>>,
 }
 
@@ -75,6 +76,7 @@ impl PresenceWebSocketClient {
         discovery_generation: u64,
         quic_client: Arc<PresenceQuicClient>,
         webrtc_sessions: Arc<WebRtcSessionManager>,
+        connectors: Arc<idr_core::ConnectorRegistry>,
     ) -> Self {
         Self {
             server,
@@ -92,6 +94,7 @@ impl PresenceWebSocketClient {
             discovery_generation,
             quic_client,
             webrtc_sessions,
+            connectors,
             signaling_outbox: Arc::new(Mutex::new(None)),
         }
     }
@@ -157,6 +160,7 @@ impl PresenceWebSocketClient {
             anyhow::bail!("no compatible presence transports");
         }
 
+        let named = self.connectors.service_names();
         let reg = build_registration(
             &self.identity,
             &self.fqhn,
@@ -164,6 +168,7 @@ impl PresenceWebSocketClient {
             self.discovery_generation,
             self.role,
             &self.reg_cfg,
+            &named,
         )?;
         let reg_json = serde_json::to_string(&reg)?;
 
@@ -347,6 +352,8 @@ impl PresenceWebSocketClient {
                 self.webrtc_sessions.clone(),
                 self.reg_cfg.nginx.clone(),
                 self.reg_cfg.webrtc.policy.clone(),
+                self.connectors.clone(),
+                self.reg_cfg.presence.insecure_dev,
             ))
         } else {
             None
@@ -395,6 +402,7 @@ impl PresenceClientTask {
         let json_bytes = signaling_json::decode_json_frame_auto(&buf)
             .map_err(|e| anyhow::anyhow!("decode push frame: {e}"))?;
         let text = std::str::from_utf8(&json_bytes).context("push utf8")?;
+        info!(bytes = json_bytes.len(), "presence QUIC push received");
         self.handle_message(text).await
     }
 
@@ -411,8 +419,27 @@ impl PresenceClientTask {
             return Ok(());
         }
 
-        cmd.verify(&self.relay_verify_key)
-            .map_err(|e| anyhow::anyhow!("command verify failed: {e}"))?;
+        info!(
+            target_fqhn = %cmd.target_fqhn,
+            command_id = %cmd.command_id,
+            relay_id = %cmd.relay.relay_id,
+            relay_ipv4 = ?cmd.relay.ipv4,
+            relay_port = cmd.relay.port,
+            server_name = %cmd.relay.server_name,
+            "received ensure_relay_connection"
+        );
+
+        cmd.verify(&self.relay_verify_key).or_else(|e| {
+            if self.reg_cfg.presence.insecure_dev {
+                warn!(
+                    error = %e,
+                    "insecure_dev: accepting ensure command despite signature verify failure"
+                );
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("command verify failed: {e}"))
+            }
+        })?;
 
         let command_id = cmd.command_id;
         let digest = idr_protocol::crypto::content_digest(&serde_json::to_value(&cmd)?);
@@ -424,10 +451,12 @@ impl PresenceClientTask {
             .map_err(|e| anyhow::anyhow!("{e}"))?
         {
             DedupAction::Cached(_result) => {
+                info!(command_id = %command_id, "ensure ignored: duplicate (cached)");
                 self.metrics.signaling_duplicates_total.inc();
                 self.metrics.inc_signaling_result("duplicate");
             }
             DedupAction::Wait(in_flight) => {
+                info!(command_id = %command_id, "ensure waiting on in-flight connect");
                 self.metrics.signaling_duplicates_total.inc();
                 let _ = in_flight.wait().await;
             }
@@ -436,10 +465,17 @@ impl PresenceClientTask {
                 let result = self.process_command(cmd).await;
                 match result {
                     Ok(r) => {
+                        info!(
+                            command_id = %command_id,
+                            result = ?r.result,
+                            detail = ?r.detail,
+                            "ensure connect finished"
+                        );
                         self.dedup.complete(command_id, digest, r.clone()).await;
                         self.metrics.inc_signaling_result(result_label(r.result));
                     }
                     Err(e) => {
+                        error!(command_id = %command_id, error = %e, "ensure processing failed");
                         self.dedup.fail(command_id, e.to_string()).await;
                         self.metrics.inc_signaling_result("failed");
                     }
@@ -464,17 +500,25 @@ impl PresenceClientTask {
                 }
             }
             "webrtc_session_offer" => {
-                if let (Some(handler), Ok(offer)) = (
+                match (
                     self.webrtc.as_ref(),
                     serde_json::from_str::<WebRtcSessionOffer>(text),
                 ) {
-                    let outbox = self.outbox.clone();
-                    let handler = handler.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = handler.handle_offer(offer, &outbox).await {
-                            error!(error = %e, "WebRTC offer handling failed");
-                        }
-                    });
+                    (Some(handler), Ok(offer)) => {
+                        let outbox = self.outbox.clone();
+                        let handler = handler.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handler.handle_offer(offer, &outbox).await {
+                                error!(error = %e, "WebRTC offer handling failed");
+                            }
+                        });
+                    }
+                    (None, _) => {
+                        warn!("webrtc_session_offer received but WebRTC handler not configured");
+                    }
+                    (Some(_), Err(e)) => {
+                        warn!(error = %e, "failed to parse webrtc_session_offer");
+                    }
                 }
             }
             "webrtc_ice_candidate" => {
@@ -557,15 +601,27 @@ impl PresenceClientTask {
             expires_at: Some(cmd.expires_at),
         };
 
+        info!(
+            relay_id = %cmd.relay.relay_id,
+            relay_ipv4 = ?cmd.relay.ipv4,
+            relay_port = cmd.relay.port,
+            "ensure: dialing relay QUIC"
+        );
         match self.relay_manager.get_or_connect(descriptor, auth).await {
-            Ok(_conn) => Ok(CachedCommandResult {
-                result: CommandResultCode::Active,
-                detail: None,
-            }),
-            Err(e) => Ok(CachedCommandResult {
-                result: CommandResultCode::Failed,
-                detail: Some(e.to_string()),
-            }),
+            Ok(_conn) => {
+                info!(relay_id = %cmd.relay.relay_id, "ensure: relay QUIC session active");
+                Ok(CachedCommandResult {
+                    result: CommandResultCode::Active,
+                    detail: None,
+                })
+            }
+            Err(e) => {
+                error!(error = %e, relay_id = %cmd.relay.relay_id, "relay connect after ensure failed");
+                Ok(CachedCommandResult {
+                    result: CommandResultCode::Failed,
+                    detail: Some(e.to_string()),
+                })
+            }
         }
     }
 }

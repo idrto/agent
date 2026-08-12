@@ -61,6 +61,12 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // rustls 0.23 needs an explicit process-wide CryptoProvider when aws-lc-rs and
+    // ring are both linked (e.g. via tokio-tungstenite). Required in production too.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("install rustls aws-lc-rs CryptoProvider");
+
     let cli = Cli::parse();
     match cli.command.unwrap_or(Commands::Run) {
         Commands::Version => {
@@ -108,10 +114,9 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     let writer = StorageWriter::spawn(storage.clone(), metrics.clone());
 
     let discovery_key = DiscoveryService::discovery_key_from_config(&cfg.presence)?;
-    let relay_verify_key = discovery_key;
     let discovery = DiscoveryService::new(
         cfg.presence.clone(),
-        relay_verify_key,
+        discovery_key.clone(),
         storage.clone(),
         writer.clone(),
     )?;
@@ -121,11 +126,25 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
         .context("fetch presence discovery")?;
     let discovery_generation = discovery_doc.generation;
 
+    // Presence-signed ensure/relay commands use the Presence identity key from discovery.
+    let relay_verify_key = match discovery_key {
+        Some(k) => k,
+        None => {
+            let pk = discovery_doc
+                .presence_servers
+                .first()
+                .map(|s| s.public_key.as_str())
+                .ok_or_else(|| anyhow::anyhow!("discovery has no presence servers"))?;
+            idr_target::protocol::crypto::KeyPair::from_base64url_public(pk)
+                .map_err(|e| anyhow::anyhow!("presence public_key: {e}"))?
+        }
+    };
+
     let (primary_idx, secondary_idx) =
         select_primary_secondary(&fqhn, &discovery_doc.presence_servers)?;
 
     let bind: SocketAddr = quic_bind_addr(network_caps);
-    let insecure_dev = cfg.presence.discovery_key.is_empty();
+    let insecure_dev = cfg.presence.insecure_dev || cfg.presence.discovery_key.is_empty();
 
     let dp_path = identity_override.or_else(|| cfg.dp.identity_path.clone());
     let mtls_material = if let Some(path) = dp_path {
@@ -172,6 +191,11 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     relay_manager.spawn_idle_worker();
 
     let webrtc_sessions = WebRtcSessionManager::new(cfg.webrtc.clone());
+    let connectors = Arc::new(idr_target::plugins::build_connector_registry(&cfg, &fqhn));
+    info!(
+        services = ?connectors.service_names(),
+        "connector registry ready"
+    );
 
     match AcmeManager::new(cfg.acme.clone(), readiness) {
         Ok(acme) => acme.spawn(),
@@ -220,6 +244,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
         discovery_generation,
         presence_quic.clone(),
         webrtc_sessions.clone(),
+        connectors.clone(),
     );
 
     let mut tasks = vec![tokio::spawn(async move { primary_client.run().await })];
@@ -242,6 +267,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
             discovery_generation,
             presence_quic,
             webrtc_sessions,
+            connectors,
         );
         tasks.push(tokio::spawn(async move { secondary_client.run().await }));
     }

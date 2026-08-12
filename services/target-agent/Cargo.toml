@@ -21,5 +21,6 @@ idr-dp = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 prometheus = { workspace = true }
-tokio = { workspace = true }
+rustls = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time", "fs", "signal"] }
 tracing = { workspace = true }

@@ -23,11 +23,13 @@ use idr_protocol::{MAX_FRAME_BYTES, MAX_ICE_CANDIDATE_BYTES, MAX_SDP_BYTES};
 
 type NativeChannel = Box<RtcDataChannel<ChannelHandler>>;
 
+#[derive(Debug)]
 pub struct LocalCandidate {
     pub candidate: String,
     pub mid: String,
 }
 
+#[derive(Debug)]
 pub struct LocalDescription {
     pub sdp_type: String,
     pub sdp: String,
@@ -158,6 +160,29 @@ impl PeerConnectionHandler for ConnectionHandler {
             }));
     }
 
+    fn on_description_raw(&mut self, sdp: String, sdp_type: datachannel::SdpType) {
+        let sdp_type = match sdp_type {
+            datachannel::SdpType::Offer => "offer",
+            datachannel::SdpType::Answer => "answer",
+            _ => "answer",
+        };
+        if sdp.len() > self.max_sdp_bytes {
+            self.sink
+                .public(PeerEvent::Error("local SDP exceeds limit".into()));
+            return;
+        }
+        tracing::warn!(
+            sdp_type,
+            sdp_len = sdp.len(),
+            "using raw local SDP (webrtc-sdp parse failed in datachannel-rs)"
+        );
+        self.sink
+            .public(PeerEvent::LocalDescription(LocalDescription {
+                sdp_type: sdp_type.into(),
+                sdp,
+            }));
+    }
+
     fn on_candidate(&mut self, candidate: datachannel::IceCandidate) {
         if candidate.candidate.len() > self.max_candidate_bytes
             || candidate.mid.len() > self.max_candidate_bytes
@@ -244,9 +269,6 @@ pub struct NativePeerSession {
 impl NativePeerSession {
     pub fn new(config: PeerConfig) -> anyhow::Result<Self> {
         let urls = ice_servers_to_urls(&config.ice_servers);
-        if urls.is_empty() {
-            anyhow::bail!("no ICE servers configured for PeerConnection");
-        }
         let (sender, receiver) = mpsc::channel(config.event_queue_capacity.max(16));
         let dropped = Arc::new(AtomicU64::new(0));
         let channel_open = Arc::new(AtomicBool::new(false));
@@ -255,12 +277,16 @@ impl NativePeerSession {
             dropped: Arc::clone(&dropped),
         };
 
+        tracing::debug!(?urls, "webrtc peer ICE urls");
+
         let mut rtc_config = RtcConfig::new(&urls);
         rtc_config.ice_transport_policy = match config.ice_transport_policy {
             IceTransportPolicy::All => TransportPolicy::All,
             IceTransportPolicy::Relay => TransportPolicy::Relay,
         };
         rtc_config.max_message_size = config.max_message_bytes as i32;
+        // Explicit create_answer() owns the answer; avoid sync auto-answer during set_remote.
+        rtc_config.disable_auto_negotiation = true;
 
         let handler = ConnectionHandler {
             sink,
@@ -288,21 +314,26 @@ impl NativePeerSession {
         if sdp.len() > MAX_SDP_BYTES {
             anyhow::bail!("remote SDP too large");
         }
-        let parsed = datachannel::sdp::parse_sdp(sdp, false)
-            .map_err(|e| anyhow::anyhow!("parse remote SDP: {e}"))?;
-        let description = datachannel::SessionDescription {
-            sdp: parsed,
-            sdp_type: datachannel::SdpType::Offer,
-        };
+        // Apply raw SDP: Source may forward libdatachannel SDP that webrtc-sdp
+        // cannot parse; requiring parse first silently killed the session.
+        if let Err(e) = datachannel::sdp::parse_sdp(sdp, false) {
+            tracing::warn!(
+                error = %e,
+                sdp_len = sdp.len(),
+                "remote offer webrtc-sdp parse failed; applying raw SDP to libdatachannel"
+            );
+        }
         self.peer_mut()?
-            .set_remote_description(&description)
-            .map_err(|e| anyhow::anyhow!("set_remote_description: {e}"))
+            .set_remote_description_raw(sdp, datachannel::SdpType::Offer)
+            .map_err(|e| anyhow::anyhow!("set_remote_description: {e}"))?;
+        Ok(())
     }
 
     pub fn create_answer(&mut self) -> anyhow::Result<()> {
         self.peer_mut()?
             .set_local_description(datachannel::SdpType::Answer)
-            .map_err(|e| anyhow::anyhow!("create_answer: {e}"))
+            .map_err(|e| anyhow::anyhow!("create_answer: {e}"))?;
+        Ok(())
     }
 
     pub fn add_remote_candidate(&mut self, candidate: &str, mid: &str) -> anyhow::Result<()> {

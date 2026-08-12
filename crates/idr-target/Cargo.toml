@@ -13,7 +13,7 @@ webrtc = ["dep:datachannel"]
 
 [dependencies]
 idr-protocol = { workspace = true }
-idr-core = { workspace = true }
+idr-core = { workspace = true, features = ["net"] }
 idr-dp = { workspace = true }
 anyhow = { workspace = true }
 async-trait = "0.1"
@@ -36,7 +36,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time", "fs", "signal", "process"] }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
@@ -49,9 +49,12 @@ rustls-pemfile = { workspace = true }
 webpki-roots = { workspace = true }
 
 [dependencies.datachannel]
-git = "https://github.com/idrto/datachannel-rs"
-rev = "519a790"
-features = ["tracing", "vendored"]
+# Repo-root clone: c:\dev\idrto\datachannel-rs (not crates.io).
+path = "../../../datachannel-rs"
+default-features = false
+# vendored-libdatachannel: build libdatachannel from source; use system OpenSSL
+# (OPENSSL_ROOT_DIR). Avoids openssl-src + broken Git Perl on Windows.
+features = ["tracing", "vendored-libdatachannel"]
 optional = true
 
 [dev-dependencies]

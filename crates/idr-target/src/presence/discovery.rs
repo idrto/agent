@@ -17,7 +17,7 @@ use idr_protocol::discovery::PresenceDiscoveryDocument;
 pub struct DiscoveryService {
     cfg: PresenceConfig,
     client: Client,
-    discovery_key: VerifyingKey,
+    discovery_key: Option<VerifyingKey>,
     storage: Storage,
     writer: StorageWriter,
     cached: parking_lot::RwLock<Option<PresenceDiscoveryDocument>>,
@@ -26,7 +26,7 @@ pub struct DiscoveryService {
 impl DiscoveryService {
     pub fn new(
         cfg: PresenceConfig,
-        discovery_key: VerifyingKey,
+        discovery_key: Option<VerifyingKey>,
         storage: Storage,
         writer: StorageWriter,
     ) -> Result<Self> {
@@ -46,14 +46,29 @@ impl DiscoveryService {
         Ok(svc)
     }
 
-    pub fn discovery_key_from_config(cfg: &PresenceConfig) -> Result<VerifyingKey> {
+    /// `None` = skip signature verify (local / insecure_dev with empty key).
+    pub fn discovery_key_from_config(cfg: &PresenceConfig) -> Result<Option<VerifyingKey>> {
         if cfg.discovery_key.is_empty() {
-            // Dev fallback: generate ephemeral key; documents must be signed with matching key in demo.
-            let kp = KeyPair::generate();
-            return Ok(kp.verifying_key);
+            if cfg.insecure_dev {
+                warn!("discovery_key empty + insecure_dev: skipping discovery signature verify");
+                return Ok(None);
+            }
+            anyhow::bail!(
+                "presence.discovery_key is required unless presence.insecure_dev = true"
+            );
         }
-        KeyPair::from_base64url_public(&cfg.discovery_key)
-            .map_err(|e| anyhow::anyhow!("invalid discovery key: {e}"))
+        Ok(Some(KeyPair::from_base64url_public(&cfg.discovery_key).map_err(
+            |e| anyhow::anyhow!("invalid discovery key: {e}"),
+        )?))
+    }
+
+    fn verify_doc(&self, doc: &PresenceDiscoveryDocument) -> Result<()> {
+        match &self.discovery_key {
+            Some(key) => doc
+                .verify(key)
+                .map_err(|e| anyhow::anyhow!("discovery verify failed: {e}")),
+            None => Ok(()),
+        }
     }
 
     fn load_cache(&self) {
@@ -61,7 +76,7 @@ impl DiscoveryService {
             if let Ok(doc) =
                 serde_json::from_slice::<PresenceDiscoveryDocument>(&row.canonical_json)
             {
-                if doc.verify(&self.discovery_key).is_ok() {
+                if self.verify_doc(&doc).is_ok() {
                     *self.cached.write() = Some(doc);
                 }
             }
@@ -77,7 +92,7 @@ impl DiscoveryService {
             Err(err) => {
                 warn!(error = %err, "discovery fetch failed, using cache if valid");
                 if let Some(doc) = self.cached.read().clone() {
-                    if doc.verify(&self.discovery_key).is_ok() && Utc::now() <= doc.valid_until {
+                    if self.verify_doc(&doc).is_ok() && Utc::now() <= doc.valid_until {
                         return Ok(doc);
                     }
                 }
@@ -101,8 +116,7 @@ impl DiscoveryService {
 
         let doc: PresenceDiscoveryDocument =
             serde_json::from_slice(&bytes).context("parse discovery document")?;
-        doc.verify(&self.discovery_key)
-            .map_err(|e| anyhow::anyhow!("discovery verify failed: {e}"))?;
+        self.verify_doc(&doc)?;
 
         let row = PresenceDiscoveryCacheRow {
             generation: doc.generation,

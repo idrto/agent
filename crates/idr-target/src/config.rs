@@ -27,12 +27,207 @@ pub struct Config {
     /// Optional DP DeviceIdentity for Presence PEP mTLS (QUIC / WSS).
     #[serde(default)]
     pub dp: DpConfig,
+    /// Entitlement JWT path / Presence auth helpers.
+    #[serde(default)]
+    pub auth: AuthConfig,
+    #[serde(default)]
+    pub plugins: PluginsConfig,
+    /// Generic named services (HTTP/TCP gateway). Replaces app-specific plugins.
+    #[serde(default)]
+    pub services: Vec<GatewayServiceConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DpConfig {
     /// Path to DeviceIdentity JSON (ski, private_jwk, credential).
     pub identity_path: Option<PathBuf>,
+}
+
+/// Presence entitlement JWT presentation.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AuthConfig {
+    /// File containing the compact JWT (written by the Dart SDK). Prefer env
+    /// `IDR_ENTITLEMENT_JWT` when set (takes precedence).
+    pub entitlement_jwt_path: Option<PathBuf>,
+}
+
+/// Legacy nginx plugin toggle only (`http`/`https` connectors).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PluginsConfig {
+    /// Register built-in nginx http/https connectors (default true when section omitted).
+    #[serde(default = "default_true")]
+    pub http: bool,
+}
+
+impl Default for PluginsConfig {
+    fn default() -> Self {
+        Self { http: true }
+    }
+}
+
+/// Service type for [[services]].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GatewayServiceType {
+    Http,
+    Tcp,
+}
+
+impl Default for GatewayServiceType {
+    fn default() -> Self {
+        Self::Http
+    }
+}
+
+/// Who authenticates to the upstream (`credential_mode` in TOML).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GatewayCredentialMode {
+    /// Source supplies credentials on the stream (opaque byte bridge on Target).
+    #[default]
+    Source,
+    /// Target holds secrets / local trust (e.g. inject_headers, loopback trust).
+    Target,
+}
+
+impl From<GatewayCredentialMode> for idr_protocol::stream_mux::CredentialMode {
+    fn from(m: GatewayCredentialMode) -> Self {
+        match m {
+            GatewayCredentialMode::Source => Self::Source,
+            GatewayCredentialMode::Target => Self::Target,
+        }
+    }
+}
+
+/// Optional header injected on Target (secrets never leave Target).
+#[derive(Debug, Clone, Deserialize)]
+pub struct InjectHeaderConfig {
+    pub name: String,
+    #[serde(default)]
+    pub from_env: Option<String>,
+    #[serde(default)]
+    pub from_file: Option<PathBuf>,
+    /// Prepended to the secret value (e.g. `"Bearer "`).
+    #[serde(default)]
+    pub prefix: Option<String>,
+}
+
+/// One `[[services]]` entry — application-agnostic gateway endpoint.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GatewayServiceConfig {
+    pub name: String,
+    #[serde(rename = "type", default)]
+    pub service_type: GatewayServiceType,
+    /// Full base URL for HTTP services (e.g. `http://127.0.0.1:11434`).
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub inject_headers: Vec<InjectHeaderConfig>,
+    /// Who authenticates to the upstream. Default: `source`.
+    #[serde(default)]
+    pub credential_mode: GatewayCredentialMode,
+    /// When true, Source must use TLS inside the mux stream (advertised in catalog).
+    /// When omitted, Target derives a default for common DB services in source mode.
+    #[serde(default)]
+    pub require_upstream_tls: Option<bool>,
+    /// Filled at registry build time from Target FQHN (not required in TOML).
+    #[serde(skip)]
+    pub target_fqhn: Option<String>,
+}
+
+impl GatewayServiceConfig {
+    /// Effective upstream-TLS policy for catalog advertisement.
+    pub fn effective_require_upstream_tls(&self) -> bool {
+        self.require_upstream_tls
+            .unwrap_or_else(|| self.suggests_upstream_tls_default())
+    }
+
+    /// Suggest TLS for common DB ports/names when mode is source and TOML omitted the flag.
+    fn suggests_upstream_tls_default(&self) -> bool {
+        if self.credential_mode != GatewayCredentialMode::Source {
+            return false;
+        }
+        let name = self.name.to_ascii_lowercase();
+        if name.contains("postgres")
+            || name.contains("pgsql")
+            || name.contains("mysql")
+            || name.contains("mariadb")
+        {
+            return true;
+        }
+        matches!(self.port, Some(5432 | 3306 | 5433))
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.name.trim().is_empty() {
+            anyhow::bail!("services entry missing name");
+        }
+        match self.service_type {
+            GatewayServiceType::Http => {
+                self.base_url_parsed()?;
+            }
+            GatewayServiceType::Tcp => {
+                self.tcp_endpoint()?;
+            }
+        }
+        for h in &self.inject_headers {
+            if h.name.trim().is_empty() {
+                anyhow::bail!("inject_headers entry missing name");
+            }
+            if h.from_env.is_none() && h.from_file.is_none() {
+                anyhow::bail!(
+                    "inject_headers {} needs from_env or from_file",
+                    h.name
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn base_url_parsed(&self) -> anyhow::Result<String> {
+        if let Some(u) = &self.base_url {
+            let t = u.trim();
+            if t.starts_with("http://") || t.starts_with("https://") {
+                return Ok(t.trim_end_matches('/').to_string());
+            }
+            anyhow::bail!("service {}: base_url must be http(s)://…", self.name);
+        }
+        let host = self
+            .host
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("service {}: need base_url or host", self.name))?;
+        let port = self.port.unwrap_or(80);
+        Ok(format!("http://{host}:{port}"))
+    }
+
+    pub fn tcp_endpoint(&self) -> anyhow::Result<String> {
+        if let Some(u) = &self.base_url {
+            let t = u
+                .trim()
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_end_matches('/');
+            let hostport = t.split('/').next().unwrap_or(t);
+            if hostport.contains(':') {
+                return Ok(hostport.to_string());
+            }
+            anyhow::bail!("service {}: tcp needs host:port", self.name);
+        }
+        let host = self
+            .host
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("service {}: need host or base_url", self.name))?;
+        let port = self
+            .port
+            .ok_or_else(|| anyhow::anyhow!("service {}: need port", self.name))?;
+        Ok(format!("{host}:{port}"))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -80,6 +275,9 @@ pub struct PresenceConfig {
     pub transport_fallback_delay_ms: u64,
     #[serde(default = "default_presence_connect_timeout_seconds")]
     pub connect_timeout_seconds: u64,
+    /// Skip TLS verify for Presence/Relay QUIC (local self-signed only).
+    #[serde(default)]
+    pub insecure_dev: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -515,6 +713,27 @@ impl Config {
         let mut cfg: Config = toml::from_str(&raw).context("parse config TOML")?;
         cfg.apply_env_overrides();
         Ok(cfg)
+    }
+
+    /// Resolve entitlement JWT from `IDR_ENTITLEMENT_JWT` or `[auth].entitlement_jwt_path`.
+    pub fn resolve_entitlement_jwt(&self) -> anyhow::Result<Option<String>> {
+        if let Ok(v) = std::env::var("IDR_ENTITLEMENT_JWT") {
+            let t = v.trim();
+            if !t.is_empty() {
+                return Ok(Some(t.to_string()));
+            }
+        }
+        if let Some(path) = &self.auth.entitlement_jwt_path {
+            let raw = std::fs::read_to_string(path).with_context(|| {
+                format!("read entitlement JWT from {}", path.display())
+            })?;
+            let t = raw.trim();
+            if t.is_empty() {
+                anyhow::bail!("entitlement JWT file empty: {}", path.display());
+            }
+            return Ok(Some(t.to_string()));
+        }
+        Ok(None)
     }
 
     fn apply_env_overrides(&mut self) {
