@@ -22,7 +22,7 @@ class IdrStream {
 
   Future<void> halfClose() async {
     _ensureOpen();
-    _runtime.halfCloseStream(sessionId, id);
+    await _runtime.halfCloseStream(sessionId, id);
   }
 
   Future<void> reset({int reason = 0}) async {
@@ -30,7 +30,7 @@ class IdrStream {
       return;
     }
     _closed = true;
-    _runtime.resetStream(sessionId, id, reason);
+    await _runtime.resetStream(sessionId, id, reason);
   }
 
   void _ensureOpen() {

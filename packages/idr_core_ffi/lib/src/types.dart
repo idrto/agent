@@ -1,7 +1,11 @@
 /// Shared ABI constants and event kinds (mirrors `idr.h`).
 library;
 
-const int idrAbiVersion = 1;
+const int idrAbiVersion = 2;
+
+const int idrAuthBearer = 0;
+const int idrAuthDeviceToken = 1;
+const int idrAuthMtls = 2;
 
 const int idrEventNone = 0;
 const int idrEventConnected = 1;

@@ -17,6 +17,18 @@ final class IdrEngineConfigNative extends Struct {
   external Pointer<Utf8> sourceId;
 
   external Pointer<Utf8> sourceRegion;
+
+  external Pointer<Utf8> authToken;
+
+  @Uint32()
+  external int authMode;
+
+  external Pointer<Utf8> discoveryUrl;
+
+  external Pointer<Utf8> discoveryKey;
+
+  @Uint32()
+  external int insecureDev;
 }
 
 final class IdrEventNative extends Struct {
@@ -58,6 +70,19 @@ typedef ConnectDart = int Function(
 
 typedef DisconnectC = Int32 Function(Pointer<Void>, Uint64);
 typedef DisconnectDart = int Function(Pointer<Void>, int);
+
+typedef SessionNamedServicesC = Int32 Function(
+  Pointer<Void>,
+  Uint64,
+  Pointer<Utf8>,
+  IntPtr,
+);
+typedef SessionNamedServicesDart = int Function(
+  Pointer<Void>,
+  int,
+  Pointer<Utf8>,
+  int,
+);
 
 typedef OpenStreamC = Int32 Function(
   Pointer<Void>,
@@ -144,6 +169,10 @@ class IdrBindings {
             lib.lookupFunction<EngineDestroyC, EngineDestroyDart>('idr_engine_destroy'),
         connect = lib.lookupFunction<ConnectC, ConnectDart>('idr_connect'),
         disconnect = lib.lookupFunction<DisconnectC, DisconnectDart>('idr_disconnect'),
+        sessionNamedServices = lib.lookupFunction<SessionNamedServicesC,
+            SessionNamedServicesDart>('idr_session_named_services'),
+        sessionNamedServiceCatalog = lib.lookupFunction<SessionNamedServicesC,
+            SessionNamedServicesDart>('idr_session_named_service_catalog'),
         openStream = lib.lookupFunction<OpenStreamC, OpenStreamDart>('idr_open_stream'),
         streamWrite = lib.lookupFunction<StreamWriteC, StreamWriteDart>('idr_stream_write'),
         streamRead = lib.lookupFunction<StreamReadC, StreamReadDart>('idr_stream_read'),
@@ -163,6 +192,8 @@ class IdrBindings {
   final EngineDestroyDart engineDestroy;
   final ConnectDart connect;
   final DisconnectDart disconnect;
+  final SessionNamedServicesDart sessionNamedServices;
+  final SessionNamedServicesDart sessionNamedServiceCatalog;
   final OpenStreamDart openStream;
   final StreamWriteDart streamWrite;
   final StreamReadDart streamRead;

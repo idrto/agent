@@ -1,115 +1,98 @@
-import 'dart:convert';
-import 'dart:ffi';
+import 'dart:developer' as developer;
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
 import 'package:idr_core_ffi/idr_core_ffi.dart';
 
 import 'errors.dart';
 import 'events.dart';
+import 'ffi_isolate.dart';
 import 'session.dart';
+import 'catalog.dart';
 
-/// Embedded Source runtime (owns the native engine).
+void _idrLog(String message) {
+  developer.log(message, name: 'idr_client');
+}
+
+/// Embedded Source runtime (owns the native engine on a background isolate).
 class IdrRuntime {
-  IdrRuntime._(this._bindings, this._engine);
+  IdrRuntime._(this._ffi);
 
-  final IdrBindings _bindings;
-  final Pointer<Void> _engine;
+  final IdrFfiIsolate _ffi;
   bool _disposed = false;
 
-  /// Create a runtime. Pass [useMock]=true for CI / local tests without libdatachannel.
-  factory IdrRuntime.create({
+  /// Create a runtime. Product path: [authToken] required, [useMock]=false.
+  ///
+  /// Engine create and later [connect] run on a background isolate so the
+  /// Flutter UI thread does not freeze during Discovery/WebRTC signaling.
+  static Future<IdrRuntime> create({
     String? libraryPath,
     String sourceId = 'dart',
     String sourceRegion = 'unknown',
-    bool useMock = true,
-  }) {
-    final bindings = openIdrBindings(libraryPath: libraryPath);
-    bindings.ensureAbiCompatible();
-
-    final idPtr = sourceId.toNativeUtf8();
-    final regionPtr = sourceRegion.toNativeUtf8();
-    final cfg = calloc<IdrEngineConfigNative>();
-    cfg.ref
-      ..abiVersion = idrAbiVersion
-      ..structSize = sizeOf<IdrEngineConfigNative>()
-      ..useMock = useMock ? 1 : 0
-      ..sourceId = idPtr
-      ..sourceRegion = regionPtr;
-
-    final engine = bindings.engineCreate(cfg);
-    calloc.free(cfg);
-    malloc.free(idPtr);
-    malloc.free(regionPtr);
-
-    if (engine == nullptr) {
+    required String authToken,
+    int authMode = idrAuthBearer,
+    bool useMock = false,
+    String? discoveryUrl,
+    String? discoveryKey,
+    bool insecureDev = false,
+  }) async {
+    _idrLog(
+      'create: lib=${libraryPath ?? "(auto)"} mock=$useMock '
+      'sourceId=$sourceId region=$sourceRegion '
+      'discovery=${discoveryUrl ?? "(none)"} insecureDev=$insecureDev '
+      'tokenLen=${authToken.length}',
+    );
+    if (authToken.isEmpty) {
       throw IdrException(
-        bindings.lastErrorCode(),
-        _readLastError(bindings),
+        IdrErrorCode.authenticationFailed,
+        'authToken is required',
       );
     }
-    return IdrRuntime._(bindings, engine);
-  }
-
-  /// Inject DP DeviceIdentity JSON (from [idr_secure_storage] / flutter_secure_storage).
-  void setDpIdentityJson(String identityJson) {
-    _ensureOpen();
-    final ptr = identityJson.toNativeUtf8();
-    final rc = _bindings.setDpIdentity(_engine, ptr);
-    malloc.free(ptr);
-    checkRc(rc);
-  }
-
-  /// Inject a DP identity map (`ski`, `private_jwk`, `credential`, …).
-  void setDpIdentityMap(Map<String, dynamic> identity) {
-    setDpIdentityJson(jsonEncode(identity));
+    final ffi = await IdrFfiIsolate.spawn();
+    try {
+      await ffi.engineCreate({
+        'libraryPath': libraryPath,
+        'sourceId': sourceId,
+        'sourceRegion': sourceRegion,
+        'authToken': authToken,
+        'authMode': authMode,
+        'useMock': useMock,
+        'discoveryUrl': discoveryUrl,
+        'discoveryKey': discoveryKey,
+        'insecureDev': insecureDev,
+      });
+    } catch (e) {
+      await ffi.dispose();
+      rethrow;
+    }
+    _idrLog('engineCreate OK (background isolate)');
+    return IdrRuntime._(ffi);
   }
 
   Future<IdrSession> connect(String targetFqhn) async {
     _ensureOpen();
-    final fqhn = targetFqhn.toNativeUtf8();
-    final out = calloc<Uint64>();
-    final rc = _bindings.connect(_engine, fqhn, out);
-    malloc.free(fqhn);
-    final sessionId = out.value;
-    calloc.free(out);
-    if (rc != 0) {
-      throw IdrException(_bindings.lastErrorCode(), _readLastError(_bindings));
+    _idrLog('connect: fqhn=$targetFqhn');
+    try {
+      final sessionId = await _ffi.connect(targetFqhn);
+      _idrLog('connect OK sessionId=$sessionId');
+      return IdrSession(this, sessionId);
+    } on IdrException catch (e) {
+      _idrLog(
+        'connect FAILED code=${e.code}/${describeErrorCode(e.code)} msg=${e.message}',
+      );
+      rethrow;
     }
-    return IdrSession(this, sessionId);
   }
 
-  /// Drain up to [max] batched events (no per-packet callbacks).
+  /// Events are not yet proxied across the FFI isolate; returns empty.
   List<IdrEvent> pollEvents({int max = 32}) {
     _ensureOpen();
-    final buf = calloc<IdrEventNative>(max);
-    final outCount = calloc<IntPtr>();
-    final rc = _bindings.pollEvents(_engine, buf, max, outCount);
-    if (rc != 0) {
-      calloc.free(buf);
-      calloc.free(outCount);
-      throw IdrException(_bindings.lastErrorCode(), _readLastError(_bindings));
-    }
-    final n = outCount.value;
-    final events = <IdrEvent>[];
-    for (var i = 0; i < n; i++) {
-      final e = buf[i];
-      final mapped = mapNativeEvent(e.kind, e.sessionId, e.streamId, e.code, e.len);
-      if (mapped != null) {
-        events.add(mapped);
-      }
-    }
-    calloc.free(buf);
-    calloc.free(outCount);
-    return events;
+    return const [];
   }
 
-  void dispose() {
-    if (_disposed) {
-      return;
-    }
+  Future<void> dispose() async {
+    if (_disposed) return;
     _disposed = true;
-    _bindings.engineDestroy(_engine);
+    await _ffi.dispose();
   }
 
   void _ensureOpen() {
@@ -118,80 +101,48 @@ class IdrRuntime {
     }
   }
 
-  IdrBindings get bindings => _bindings;
-  Pointer<Void> get engine => _engine;
-
-  static String _readLastError(IdrBindings bindings) {
-    final buf = calloc<Uint8>(512);
-    final n = bindings.lastErrorMessage(buf.cast<Utf8>(), 512);
-    if (n <= 0) {
-      calloc.free(buf);
-      return describeErrorCode(bindings.lastErrorCode());
-    }
-    final msg = buf.cast<Utf8>().toDartString();
-    calloc.free(buf);
-    return msg;
-  }
-
-  void checkRc(int rc) {
-    if (rc != 0) {
-      throw IdrException(_bindings.lastErrorCode(), _readLastError(_bindings));
-    }
-  }
+  IdrFfiIsolate get ffi => _ffi;
 }
 
 /// Internal helpers used by session/stream.
 extension IdrRuntimeInternal on IdrRuntime {
-  void disconnectSession(int sessionId) {
+  Future<void> disconnectSession(int sessionId) async {
     _ensureOpen();
-    checkRc(bindings.disconnect(engine, sessionId));
+    await ffi.disconnect(sessionId);
   }
 
-  int openNamedStream(int sessionId, String service) {
+  Future<List<String>> listNamedServices(int sessionId) async {
     _ensureOpen();
-    final svc = service.toNativeUtf8();
-    final out = calloc<Uint64>();
-    final rc = bindings.openStream(engine, sessionId, svc, out);
-    malloc.free(svc);
-    final id = out.value;
-    calloc.free(out);
-    checkRc(rc);
-    return id;
+    return ffi.sessionNamedServices(sessionId);
   }
 
-  int writeBytes(int sessionId, int streamId, Uint8List data) {
+  Future<List<NamedServiceInfo>> listNamedServiceCatalog(int sessionId) async {
     _ensureOpen();
-    final ptr = calloc<Uint8>(data.length);
-    ptr.asTypedList(data.length).setAll(0, data);
-    final out = calloc<IntPtr>();
-    final rc = bindings.streamWrite(engine, sessionId, streamId, ptr, data.length, out);
-    final n = out.value;
-    calloc.free(ptr);
-    calloc.free(out);
-    checkRc(rc);
-    return n;
+    return ffi.sessionNamedServiceCatalog(sessionId);
   }
 
-  Uint8List readBytes(int sessionId, int streamId, int maxLen) {
+  Future<int> openNamedStream(int sessionId, String service) async {
     _ensureOpen();
-    final ptr = calloc<Uint8>(maxLen);
-    final out = calloc<IntPtr>();
-    final rc = bindings.streamRead(engine, sessionId, streamId, ptr, maxLen, out);
-    final n = out.value;
-    final bytes = Uint8List.fromList(ptr.asTypedList(n));
-    calloc.free(ptr);
-    calloc.free(out);
-    checkRc(rc);
-    return bytes;
+    return ffi.openStream(sessionId, service);
   }
 
-  void halfCloseStream(int sessionId, int streamId) {
+  Future<int> writeBytes(int sessionId, int streamId, Uint8List data) async {
     _ensureOpen();
-    checkRc(bindings.streamHalfClose(engine, sessionId, streamId));
+    return ffi.streamWrite(sessionId, streamId, data);
   }
 
-  void resetStream(int sessionId, int streamId, int reason) {
+  Future<Uint8List> readBytes(int sessionId, int streamId, int maxLen) async {
     _ensureOpen();
-    checkRc(bindings.streamReset(engine, sessionId, streamId, reason));
+    return ffi.streamRead(sessionId, streamId, maxLen);
+  }
+
+  Future<void> halfCloseStream(int sessionId, int streamId) async {
+    _ensureOpen();
+    await ffi.streamHalfClose(sessionId, streamId);
+  }
+
+  Future<void> resetStream(int sessionId, int streamId, int reason) async {
+    _ensureOpen();
+    await ffi.streamReset(sessionId, streamId, reason);
   }
 }
