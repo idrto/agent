@@ -1,0 +1,39 @@
+[package]
+name = "idr-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "WASM bindings for the IDR Source Agent (browser / extension)"
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+idr-core = { workspace = true }
+idr-protocol = { workspace = true }
+idr-signaling = { workspace = true } # default-features=false via workspace
+idr-source = { workspace = true } # no dp / native-signaling
+idr-webrtc = { workspace = true }
+async-trait = "0.1"
+bytes = { workspace = true }
+console_error_panic_hook = "0.1"
+js-sys = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+tokio = { workspace = true, features = ["sync", "macros", "time", "rt"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["console"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+wasmtimer = { version = "0.4", default-features = false, features = ["tokio"] }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
