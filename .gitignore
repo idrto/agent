@@ -1,15 +1,52 @@
+# Rust build output
 /target/
+/target-identity-fix/
+debug/
 **/*.rs.bk
-.idea/
-.vscode/
+*.pdb
+Cargo.lock.bak
+
+# Local agent config and runtime data — keep *.example.toml
+config/*.local.toml
+config/*.prod.toml
 *.db
 *.db-*
-config/*.local.toml
+target.key
+identity.dp.json
+*.dp.json
+.env
+.env.*
+!.env.example
+
+# ACME / TLS material written on the Target machine
+*.pem
+*.key
+fullchain.pem
+privkey.pem
+acme-account-*.json
+
+# Local debug / process logs
+*.log
+*.err
+*.out
+
+# IDE / OS
+.idea/
+.vscode/
+!.vscode/extensions.json
+.cursor/
+*.iml
 .DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+
+# Dart / Flutter
 .dart_tool/
 **/.dart_tool/
 **/pubspec.lock
 .packages
-melos_agent.iml
-
-Cargo.lock.bak
+.flutter-plugins
+.flutter-plugins-dependencies
+**/build/
