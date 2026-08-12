@@ -6,6 +6,7 @@
 mod mux_session;
 mod runtime;
 mod service_map;
+mod time;
 
 pub use mux_session::{DemuxEvent, MuxLogicalStream};
 pub use runtime::{SourceRuntime, SourceSession};

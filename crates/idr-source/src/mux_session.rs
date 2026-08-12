@@ -47,7 +47,8 @@ impl MuxLogicalStream {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl LogicalStream for MuxLogicalStream {
     fn id(&self) -> StreamId {
         self.id
@@ -159,6 +160,12 @@ pub enum DemuxEvent {
         features: Vec<String>,
         conn_window: u32,
     },
+    ServicesCatalog {
+        services: Vec<String>,
+    },
+    ServicesCatalogDetailed {
+        entries: Vec<idr_protocol::stream_mux::ServiceCatalogEntry>,
+    },
 }
 
 /// Demux DataChannel binary frames into per-stream inboxes and control waiters.
@@ -262,10 +269,19 @@ impl StreamDemux {
                 })
                 .await;
             }
+            StreamFrame::ServicesCatalog { services } => {
+                self.emit_control(DemuxEvent::ServicesCatalog { services })
+                    .await;
+            }
+            StreamFrame::ServicesCatalogDetailed { entries } => {
+                self.emit_control(DemuxEvent::ServicesCatalogDetailed { entries })
+                    .await;
+            }
             StreamFrame::Open { .. }
             | StreamFrame::Ping { .. }
             | StreamFrame::Hello { .. }
-            | StreamFrame::AuthRefresh { .. } => {
+            | StreamFrame::AuthRefresh { .. }
+            | StreamFrame::ServicesCatalogRequest => {
                 // Source ignores inbound Open (Target-initiated reserved) and locally handled pings.
             }
         }
@@ -298,13 +314,13 @@ pub async fn wait_open_result(
     stream_id: u32,
     timeout: Duration,
 ) -> Result<(MuxProfile, u32)> {
-    let deadline = tokio::time::Instant::now() + timeout;
+    let deadline = crate::time::Instant::now() + timeout;
     loop {
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let left = deadline.saturating_duration_since(crate::time::Instant::now());
         if left.is_zero() {
             return Ok((MuxProfile::Legacy, INITIAL_STREAM_WINDOW));
         }
-        match tokio::time::timeout(left, control_rx.recv()).await {
+        match crate::time::timeout(left, control_rx.recv()).await {
             Ok(Some(DemuxEvent::OpenOk {
                 stream_id: sid,
                 initial_window,

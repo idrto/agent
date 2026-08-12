@@ -7,19 +7,30 @@ license.workspace = true
 description = "Minimal mobile-first IDR Source Agent (WebRTC-only, no Relay)"
 repository.workspace = true
 
+[features]
+default = ["dp", "native-signaling"]
+# Delegate Permissions machine identity (desktop/mobile). Off for browser WASM.
+dp = ["dep:idr-dp"]
+# Presence HTTP/QUIC/WSS client stack (off for browser WASM).
+native-signaling = ["idr-signaling/native"]
+
 [dependencies]
 idr-core = { workspace = true }
 idr-protocol = { workspace = true }
-idr-signaling = { workspace = true }
+idr-signaling = { workspace = true } # no native; traits + placement only
 idr-webrtc = { workspace = true }
-idr-dp = { workspace = true }
+idr-dp = { workspace = true, optional = true }
 async-trait = "0.1"
 bytes = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasmtimer = { version = "0.4", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
-idr-signaling = { workspace = true }
+idr-signaling = { workspace = true, features = ["native"] }
 idr-webrtc = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

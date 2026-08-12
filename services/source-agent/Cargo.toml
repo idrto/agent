@@ -12,17 +12,17 @@ name = "source-agent"
 path = "src/main.rs"
 
 [dependencies]
-idr-core = { workspace = true }
+idr-core = { workspace = true, features = ["net"] }
 idr-dp = { workspace = true }
 idr-protocol = { workspace = true }
-idr-signaling = { workspace = true }
-idr-source = { workspace = true }
+idr-signaling = { workspace = true, features = ["native"] }
+idr-source = { workspace = true, features = ["dp", "native-signaling"] }
 idr-webrtc = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time", "fs", "signal", "process"] }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
