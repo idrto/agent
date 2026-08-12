@@ -49,6 +49,9 @@
 | 10 | `AuthRefresh` | no |
 | 11 | `Hello` | no |
 | 12 | `HelloAck` | no |
+| 13 | `ServicesCatalogRequest` | no — Source→Target after DataChannel up |
+| 14 | `ServicesCatalog` | no — Target→Source service names |
+| 15 | `ServicesCatalogDetailed` | no — Target→Source structured entries (credential_mode, TLS) |
 
 **Rule:** only **append** new variants. Never reorder or insert.
 
@@ -73,7 +76,7 @@ Optional mux `Hello`/`HelloAck` may confirm windows; do **not** send `Hello` to 
 
 ### Open
 
-Source (or Target) requests a logical stream: `stream_id`, `StreamKind`, `StreamOpenMeta` (`target_fqhn`, optional `host`/`port` for TcpConnect).
+Source (or Target) requests a logical stream: `stream_id`, `StreamKind`, `StreamOpenMeta` (`target_fqhn`, optional `service_name` for ConnectorRegistry, optional `host`/`port` for TcpConnect).
 
 ### OpenOk
 
@@ -110,6 +113,15 @@ Optional token refresh blob (opaque).
 ### Hello / HelloAck
 
 `version` (`STREAM_MUX_VERSION`), `features[]`, `conn_window`.
+
+### ServicesCatalogRequest / ServicesCatalog / ServicesCatalogDetailed
+
+After the DataChannel (or future relay pipe) is up, Source may request the Target's live `openStream` catalog. Target replies with:
+
+1. `ServicesCatalog { services }` — name list (legacy Sources)
+2. `ServicesCatalogDetailed { entries }` — structured metadata (`kind`, `credential_mode`, `require_upstream_tls`)
+
+Presence is not involved — catalog rides the P2P/relay path only. New Sources prefer the detailed frame when present.
 
 ## Default windows
 

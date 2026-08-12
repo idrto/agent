@@ -8,14 +8,15 @@ use uuid::Uuid;
 use crate::crypto;
 use crate::errors::{ProtocolError, Result};
 use crate::signaling::{PresenceRole, SignalingMessageType};
-use crate::webrtc_ice::{SessionIceConfig, TurnProbeSnapshot};
+use crate::stream_mux;
+use crate::webrtc_ice::{self, SessionIceConfig, TurnProbeSnapshot};
 use crate::{MAX_SIGNALING_BYTES, MAX_WEBRTC_SIGNALING_BYTES, PROTOCOL_VERSION};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TargetWebRtcRegistration {
     pub agent_region: String,
-    pub relay_mode: crate::webrtc_ice::IceRelayMode,
-    pub stun_policy: crate::webrtc_ice::StunPolicy,
+    pub relay_mode: webrtc_ice::IceRelayMode,
+    pub stun_policy: webrtc_ice::StunPolicy,
     pub capabilities: TargetWebRtcCapabilities,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byor: Option<BringYourOwnRelay>,
@@ -54,6 +55,12 @@ pub struct TargetWebRtcCapabilities {
     pub data_channel_protocol: String,
     pub max_concurrent_sessions: u32,
     pub supported_stream_kinds: Vec<String>,
+    /// Mux feature tokens (e.g. `flow_control_v1`). Empty = legacy mux only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mux_features: Vec<String>,
+    /// Named Target services advertised to Source (catalog), e.g. `http`, `ollama`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named_services: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -78,7 +85,13 @@ pub struct ByorIceServer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceAuthMode {
+    /// Mutual TLS device identity (future).
     Mtls,
+    /// better-auth / api session bearer.
+    Bearer,
+    /// Long-lived device token issued by api.
+    DeviceToken,
+    /// Forbidden on product paths; Presence denies when billing is required.
     Anonymous,
 }
 
@@ -89,6 +102,9 @@ pub struct SourceAgentIdentity {
     pub source_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sdk_version: Option<String>,
+    /// Session or device bearer presented to Presence / api entitlement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +128,48 @@ pub struct WebRtcSessionOffer {
     pub expires_at: DateTime<Utc>,
     pub presence_generation: u64,
     pub signature: String,
+}
+
+impl WebRtcSessionOffer {
+    /// Verify Presence Ed25519 signature over the canonical unsigned offer body.
+    /// Must match Presence `WebRtcSessionOffer` signing (signature field empty in payload).
+    pub fn verify_presence_signature(&self, key: &VerifyingKey) -> Result<()> {
+        #[derive(Serialize)]
+        struct WebRtcSessionOfferUnsigned<'a> {
+            version: u32,
+            message_type: SignalingMessageType,
+            message_id: Uuid,
+            session_id: Uuid,
+            target_fqhn: &'a str,
+            source: &'a SourceAgentIdentity,
+            sdp: &'a SessionDescription,
+            ice: &'a SessionIceConfig,
+            session_token: &'a str,
+            issued_at: DateTime<Utc>,
+            expires_at: DateTime<Utc>,
+            presence_generation: u64,
+            #[serde(default, skip_serializing_if = "str::is_empty")]
+            signature: &'a str,
+        }
+        let unsigned = WebRtcSessionOfferUnsigned {
+            version: self.version,
+            message_type: self.message_type,
+            message_id: self.message_id,
+            session_id: self.session_id,
+            target_fqhn: &self.target_fqhn,
+            source: &self.source,
+            sdp: &self.sdp,
+            ice: &self.ice,
+            session_token: &self.session_token,
+            issued_at: self.issued_at,
+            expires_at: self.expires_at,
+            presence_generation: self.presence_generation,
+            signature: "",
+        };
+        let value = serde_json::to_value(&unsigned)
+            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        crypto::verify_json_canonical(&value, &self.signature, key)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -503,13 +561,15 @@ fn validate_webrtc_signaling_size<T: Serialize>(msg: &T) -> Result<()> {
 
 pub fn default_webrtc_capabilities(max_sessions: u32) -> TargetWebRtcCapabilities {
     TargetWebRtcCapabilities {
-        data_channel_label: crate::webrtc_ice::WEBRTC_DC_LABEL.into(),
-        data_channel_protocol: crate::webrtc_ice::WEBRTC_DC_PROTOCOL.into(),
+        data_channel_label: webrtc_ice::WEBRTC_DC_LABEL.into(),
+        data_channel_protocol: webrtc_ice::WEBRTC_DC_PROTOCOL.into(),
         max_concurrent_sessions: max_sessions,
         supported_stream_kinds: vec![
             "tls_passthrough".into(),
             "http_passthrough".into(),
             "tcp_connect".into(),
         ],
+        mux_features: stream_mux::MuxProfile::FlowControlV1.advertised_features(),
+        named_services: Vec::new(),
     }
 }

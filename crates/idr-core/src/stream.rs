@@ -15,7 +15,9 @@ impl StreamId {
 }
 
 /// Byte-oriented logical stream over a Target session.
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg(not(target_arch = "wasm32"))]
 pub trait LogicalStream: Send {
     fn id(&self) -> StreamId;
 
@@ -23,6 +25,20 @@ pub trait LogicalStream: Send {
     async fn write(&mut self, buf: &[u8]) -> Result<usize>;
 
     /// Read into `buf`; returns 0 on clean EOF after half-close.
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
+
+    async fn half_close(&mut self) -> Result<()>;
+
+    async fn reset(&mut self, reason: u16) -> Result<()>;
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg(target_arch = "wasm32")]
+pub trait LogicalStream {
+    fn id(&self) -> StreamId;
+
+    async fn write(&mut self, buf: &[u8]) -> Result<usize>;
+
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
 
     async fn half_close(&mut self) -> Result<()>;

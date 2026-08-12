@@ -7,12 +7,20 @@ license.workspace = true
 description = "IDR session/stream traits, error model, and bounded queues"
 repository.workspace = true
 
+[features]
+default = ["net"]
+# Target-side TCP connectors (not needed for browser Source WASM).
+net = []
+
 [dependencies]
 idr-protocol = { workspace = true }
 async-trait = "0.1"
 bytes = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

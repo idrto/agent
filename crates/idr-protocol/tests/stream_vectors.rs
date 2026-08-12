@@ -21,6 +21,7 @@ fn snapshot_core_vectors() {
         kind: StreamKind::TlsPassthrough,
         meta: StreamOpenMeta {
             target_fqhn: "host.idr.to".into(),
+            service_name: None,
             host: None,
             port: None,
         },
@@ -75,6 +76,7 @@ fn write_stream_vectors() {
                 kind: StreamKind::TlsPassthrough,
                 meta: StreamOpenMeta {
                     target_fqhn: "host.idr.to".into(),
+                    service_name: None,
                     host: None,
                     port: None,
                 },

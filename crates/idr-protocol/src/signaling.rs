@@ -22,13 +22,23 @@ pub enum SignalingMessageType {
     TurnProbeReport,
     TurnProbeAck,
     TurnProbeRequest,
+    // Explicit renames: serde snake_case would emit `web_rtc_*` (split on RTC).
+    // `alias` keeps older peers that still emit `web_rtc_*` working.
+    #[serde(rename = "webrtc_session_offer", alias = "web_rtc_session_offer")]
     WebRtcSessionOffer,
+    #[serde(rename = "webrtc_session_offer_ack", alias = "web_rtc_session_offer_ack")]
     WebRtcSessionOfferAck,
+    #[serde(rename = "webrtc_session_request", alias = "web_rtc_session_request")]
     WebRtcSessionRequest,
+    #[serde(rename = "webrtc_answer", alias = "web_rtc_answer")]
     WebRtcAnswer,
+    #[serde(rename = "webrtc_ice_candidate", alias = "web_rtc_ice_candidate")]
     WebRtcIceCandidate,
+    #[serde(rename = "webrtc_ice_complete", alias = "web_rtc_ice_complete")]
     WebRtcIceComplete,
+    #[serde(rename = "webrtc_session_end", alias = "web_rtc_session_end")]
     WebRtcSessionEnd,
+    #[serde(rename = "webrtc_session_ack", alias = "web_rtc_session_ack")]
     WebRtcSessionAck,
 }
 
@@ -108,6 +118,9 @@ pub struct TargetRegistration {
     /// Optional payer login; when omitted, equals `using_party`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paying_party: Option<String>,
+    /// Presence entitlement JWT from Auth/Billing (`POST /api/auth/agent/token`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entitlement_jwt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webrtc: Option<crate::webrtc_signaling::TargetWebRtcRegistration>,
     pub signature: String,

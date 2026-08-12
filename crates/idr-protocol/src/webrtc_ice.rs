@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_requires_turn() {
+    fn platform_without_turn_is_stun_only() {
         let ice = SessionIceConfig {
             relay_mode: IceRelayMode::Platform,
             stun_policy: StunPolicy::GoogleAndIdr,
@@ -399,10 +399,9 @@ mod tests {
             ice_transport_policy: IceTransportPolicy::All,
             p2p_only: false,
         };
-        assert!(matches!(
-            build_rtc_ice_servers(&ice, &[]),
-            Err(IceBuildError::MissingTurn)
-        ));
+        let merged = build_rtc_ice_servers(&ice, &[]).unwrap();
+        assert_eq!(merged.len(), 2);
+        assert!(merged.iter().all(|s| s.urls.iter().all(|u| u.starts_with("stun:"))));
     }
 
     #[test]

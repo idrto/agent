@@ -12,8 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::errors::{ProtocolError, Result};
-use crate::MAX_FRAME_BYTES;
+use super::errors::{ProtocolError, Result};
+use super::MAX_FRAME_BYTES;
 
 /// Mux protocol major version carried in `Hello` / documented in the spec.
 pub const STREAM_MUX_VERSION: u32 = 1;
@@ -28,6 +28,48 @@ pub const INITIAL_CONN_WINDOW: u32 = 16 * 1024 * 1024;
 pub const FEATURE_FLOW_CONTROL: &str = "flow_control_v1";
 pub const FEATURE_OPEN_ACK: &str = "open_ack";
 pub const FEATURE_PING: &str = "ping";
+
+/// Who authenticates to the upstream service (Target-configured).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialMode {
+    /// Source supplies credentials on the stream (Target is an opaque byte bridge).
+    #[default]
+    Source,
+    /// Target holds secrets / local trust; Source does not send a DB password.
+    Target,
+}
+
+/// Transport kind advertised in the live services catalog (not StreamKind).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceTransportKind {
+    Http,
+    Tcp,
+}
+
+/// One named service in the post-connect catalog (metadata for Source auth UX).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ServiceCatalogEntry {
+    pub name: String,
+    pub kind: ServiceTransportKind,
+    #[serde(default)]
+    pub credential_mode: CredentialMode,
+    /// When true, Source must use TLS inside the mux stream (e.g. Postgres sslmode=require).
+    #[serde(default)]
+    pub require_upstream_tls: bool,
+}
+
+impl ServiceCatalogEntry {
+    pub fn name_only(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            kind: ServiceTransportKind::Tcp,
+            credential_mode: CredentialMode::Source,
+            require_upstream_tls: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -44,6 +86,10 @@ pub struct StreamOpenMeta {
     pub host: Option<String>,
     #[serde(default)]
     pub port: Option<u16>,
+    /// Named Target service (e.g. `http`, `ollama`). Optional for legacy peers.
+    /// Appended for postcard wire compatibility with historical Open frames.
+    #[serde(default)]
+    pub service_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +168,17 @@ pub enum StreamFrame {
         features: Vec<String>,
         conn_window: u32,
     },
+    /// Source asks Target for the live named-service catalog (post-connect).
+    ServicesCatalogRequest,
+    /// Target reply (and optional unsolicited push) with `openStream` names.
+    ServicesCatalog {
+        services: Vec<String>,
+    },
+    /// Structured catalog (credential mode, TLS policy). Appended for wire ABI.
+    /// Target should send this after (or instead of) [`ServicesCatalog`] for new Sources.
+    ServicesCatalogDetailed {
+        entries: Vec<ServiceCatalogEntry>,
+    },
 }
 
 impl StreamFrame {
@@ -165,7 +222,10 @@ impl StreamFrame {
             | Self::GoAway { .. }
             | Self::AuthRefresh { .. }
             | Self::Hello { .. }
-            | Self::HelloAck { .. } => None,
+            | Self::HelloAck { .. }
+            | Self::ServicesCatalogRequest
+            | Self::ServicesCatalog { .. }
+            | Self::ServicesCatalogDetailed { .. } => None,
         }
     }
 
@@ -242,6 +302,7 @@ mod tests {
             kind: StreamKind::TlsPassthrough,
             meta: StreamOpenMeta {
                 target_fqhn: "host.idr.to".into(),
+                service_name: None,
                 host: None,
                 port: None,
             },
@@ -298,6 +359,26 @@ mod tests {
             StreamFrame::AuthRefresh {
                 token: vec![9, 9, 9],
             },
+            StreamFrame::ServicesCatalogRequest,
+            StreamFrame::ServicesCatalog {
+                services: vec!["ollama".into(), "lmstudio".into()],
+            },
+            StreamFrame::ServicesCatalogDetailed {
+                entries: vec![
+                    ServiceCatalogEntry {
+                        name: "postgres".into(),
+                        kind: ServiceTransportKind::Tcp,
+                        credential_mode: CredentialMode::Source,
+                        require_upstream_tls: true,
+                    },
+                    ServiceCatalogEntry {
+                        name: "ollama".into(),
+                        kind: ServiceTransportKind::Http,
+                        credential_mode: CredentialMode::Target,
+                        require_upstream_tls: false,
+                    },
+                ],
+            },
         ];
         for frame in frames {
             let enc = frame.encode().unwrap();
@@ -314,6 +395,7 @@ mod tests {
             kind: StreamKind::HttpPassthrough,
             meta: StreamOpenMeta {
                 target_fqhn: "t.idr.to".into(),
+                service_name: None,
                 host: None,
                 port: None,
             },

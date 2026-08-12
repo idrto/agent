@@ -13,13 +13,14 @@ pub trait PresencePlacement {
 /// SHA-256 dual-mod placement (v1 default).
 ///
 /// ```text
-/// primary   = hash % N
-/// secondary = hash % (N - 1)
-/// if primary == secondary:
-///     secondary = (secondary + 1) % N
+/// N == 0 → error
+/// N == 1 → primary = 0, no secondary (local / single-node discovery)
+/// N >= 2:
+///   primary   = hash % N
+///   secondary = hash % (N - 1)
+///   if primary == secondary:
+///       secondary = (secondary + 1) % N
 /// ```
-///
-/// Requires `N >= 2`. Secondary is always present.
 ///
 /// **Append safety:** when `presence_servers` grows by one trailing entry, old and new
 /// `{primary, secondary}` sets share at least one index (Source/Target discovery epoch skew).
@@ -34,10 +35,13 @@ impl PresencePlacement for ModuloPlacement {
         target_fqhn: &str,
         servers: &[PresenceServer],
     ) -> crate::errors::Result<(usize, Option<usize>)> {
-        if servers.len() < 2 {
+        if servers.is_empty() {
             return Err(crate::errors::ProtocolError::MalformedDocument(
-                "at least two Presence servers are required".into(),
+                "discovery has no Presence servers".into(),
             ));
+        }
+        if servers.len() == 1 {
+            return Ok((0, None));
         }
         let digest = fqhn::fqhn_digest(target_fqhn)?;
         let value = digest_to_u128_be(&digest);
@@ -111,14 +115,16 @@ mod tests {
     }
 
     #[test]
-    fn requires_at_least_two_servers() {
+    fn empty_servers_rejected_single_node_ok() {
         let p = ModuloPlacement;
         assert!(p
             .primary_secondary("a.example.idr.to", &servers(0))
             .is_err());
-        assert!(p
+        let (primary, secondary) = p
             .primary_secondary("a.example.idr.to", &servers(1))
-            .is_err());
+            .unwrap();
+        assert_eq!(primary, 0);
+        assert!(secondary.is_none());
     }
 
     #[test]
