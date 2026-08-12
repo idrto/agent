@@ -6,8 +6,10 @@ members = [
     "crates/idr-webrtc",
     "crates/idr-signaling",
     "crates/idr-dp",
+    "crates/idr-dp-ffi",
     "crates/idr-source",
     "crates/idr-c-api",
+    "crates/idr-wasm",
     "crates/idr-target",
     "services/target-agent",
     "services/source-agent",
@@ -19,8 +21,10 @@ default-members = [
     "crates/idr-webrtc",
     "crates/idr-signaling",
     "crates/idr-dp",
+    "crates/idr-dp-ffi",
     "crates/idr-source",
     "crates/idr-c-api",
+    "crates/idr-wasm",
     "crates/idr-target",
     "services/target-agent",
     "services/source-agent",
@@ -39,7 +43,7 @@ anyhow = "1"
 base64 = "0.22"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
-ed25519-dalek = { version = "2", features = ["rand_core", "serde"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "serde", "pkcs8", "pem"] }
 futures = "0.3"
 hex = "0.4"
 http = "1"
@@ -55,14 +59,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "time", "rt"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["time"] }
 toml = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
 instant-acme = "0.7"
 rustls-pemfile = "2"
 webpki-roots = "0.26"
@@ -75,14 +79,26 @@ clap = { version = "4", features = ["derive", "env"] }
 dp-rust = { git = "https://github.com/2keyapp/dp-sdk", package = "dp-rust" }
 dp-rust-mtls = { git = "https://github.com/2keyapp/dp-sdk", package = "dp-rust-mtls" }
 
+dns-encoded-format = { path = "../dns-encoded-format/packages/rust" }
 idr-protocol = { path = "crates/idr-protocol" }
-idr-core = { path = "crates/idr-core" }
+idr-core = { path = "crates/idr-core", default-features = false }
 idr-webrtc = { path = "crates/idr-webrtc" }
-idr-signaling = { path = "crates/idr-signaling" }
+idr-signaling = { path = "crates/idr-signaling", default-features = false }
 idr-dp = { path = "crates/idr-dp" }
-idr-source = { path = "crates/idr-source" }
+idr-dp-ffi = { path = "crates/idr-dp-ffi" }
+idr-source = { path = "crates/idr-source", default-features = false }
 idr-c-api = { path = "crates/idr-c-api" }
+idr-wasm = { path = "crates/idr-wasm" }
 idr-target = { path = "crates/idr-target" }
+
+# Use the in-repo fork at ../datachannel-rs (not crates.io / remote git).
+[patch."https://github.com/idrto/datachannel-rs"]
+datachannel = { path = "../datachannel-rs" }
+
+# Local dp-sdk (crypto helpers for Target FFI).
+[patch."https://github.com/2keyapp/dp-sdk"]
+dp-rust = { path = "../dp-sdk/packages/dp-rust" }
+dp-rust-mtls = { path = "../dp-sdk/packages/dp-rust-mtls" }
 
 [profile.release]
 lto = "thin"
