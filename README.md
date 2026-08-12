@@ -19,14 +19,16 @@ agent/
 ├── crates/
 │   ├── idr-protocol/     # canonical wire types (Presence/Relay sync here)
 │   ├── idr-core/
-│   ├── idr-webrtc/
-│   ├── idr-signaling/    # discovery + PepClient (QUIC→WSS)
+│   ├── idr-webrtc/       # PeerTransport + native libdatachannel (feature native)
+│   ├── idr-signaling/    # discovery + PepClient (QUIC→WSS) + presence_quic
 │   ├── idr-dp/           # dp-sdk integration + secret store ports
+│   ├── idr-dp-ffi/       # C ABI for Target desktop crypto (IdrCrypto)
 │   ├── idr-source/       # minimal mobile-first Source (WebRTC only)
 │   ├── idr-c-api/        # stable C ABI (opaque handles + batched events)
-│   └── idr-target/
+│   └── idr-target/       # Presence + WebRTC + generic [[services]] gateway
 ├── packages/
 │   ├── idr_core_ffi/
+│   ├── idr_dp_ffi/       # deprecated re-export; IdrDpCrypto is in idr_target
 │   ├── idr_client/       # embeddable Dart Source API
 │   ├── idr_http/
 │   ├── idr_secure_storage/  # flutter_secure_storage (fl-start)
@@ -52,6 +54,12 @@ cargo run -p target-agent -- version
 
 # WebRTC answerer (needs native libdatachannel + cmake)
 cargo run -p target-agent --features webrtc -- run
+
+# Source C ABI with real offerer
+cargo build -p idr-c-api --release --features native
+
+# Target desktop crypto FFI (Windows idr_dp.dll / macOS libidr_dp.dylib / Linux libidr_dp.so)
+cargo build -p idr-dp-ffi --release
 ```
 
 ### Source Agent (desktop service / CLI)
@@ -73,12 +81,22 @@ import 'package:idr_secure_storage/idr_secure_storage.dart';
 final secrets = DpSecretStore(store: FlutterSecureKvStore());
 final bundle = await secrets.loadIdentity();
 
-final runtime = IdrRuntime.create(useMock: false);
+final runtime = await IdrRuntime.create(
+  useMock: false,
+  authToken: '...', // Bearer / device token from @idrto/api
+);
 if (bundle != null) {
-  runtime.setDpIdentityMap(bundle.toNativeJson());
+  // Optional: inject DP identity via C ABI when isolate wiring is available.
 }
 final session = await runtime.connect('cam1.acme.idr.to');
 ```
+
+### Auth + plugins
+
+- Source requires `auth_token` (Bearer / device token from `@idrto/api`). Anonymous is rejected (unless DP mTLS identity is set).
+- Target `[[services]]` registers generic HTTP/TCP gateway endpoints; optional `inject_headers` keeps secrets on Target.
+- `[plugins].http` still enables nginx `http`/`https` site connectors.
+- ADRs: [0013](docs/adr/0013-target-plugins-catalog.md), [0014](docs/adr/0014-api-backed-auth.md), [0015](docs/adr/0015-libdatachannel-required.md), [0016](docs/adr/0016-generic-service-gateway.md).
 
 ### Flutter desktop CLI (secrets in secure storage)
 
@@ -86,6 +104,18 @@ final session = await runtime.connect('cam1.acme.idr.to');
 cd packages/idr_cli
 flutter pub get
 flutter run -d windows --dart-define=... # or: dart run bin/idr_cli.dart doctor
+```
+
+## E2E runbook
+
+```bash
+# From agent/ — auth unit gates + source no-relay invariant
+bash scripts/e2e-sdk.sh
+
+# Full stack (local): start Postgres + api (RELAY_USAGE_BEARER set) + Presence
+# with billing.enabled=true pointing at api mux, target-agent --features webrtc,
+# HTTP upstream :18080, optional Ollama :11434, then Source native connect.
+# See docs/adr/0014-api-backed-auth.md and config/target.local.toml [plugins].
 ```
 
 ## Develop
@@ -97,6 +127,7 @@ bash scripts/check-source-no-relay.sh
 
 # Dart (after building libidr_c_api)
 cargo build -p idr-c-api --release
+# Product: useMock false + authToken required
 dart pub get --directory packages/idr_client
 ```
 
@@ -124,6 +155,7 @@ Personal / Enterprise / Service Provider / Data Transfer — see
 - [`turn`](https://github.com/idrto/turn) — coturn Docker TURN nodes
 - [`dp-sdk`](https://github.com/2keyapp/dp-sdk) — Delegate Permissions SDKs
 - [`billing`](https://github.com/2keyapp/billing) — seats + usage ledger
+- [`api`](https://github.com/idrto/api) — Auth+Billing (`@idrto/api`)
 - [`target-quic`](https://github.com/idrto/target-quic) — **deprecated / archived** (historical donor)
 
 ## License
