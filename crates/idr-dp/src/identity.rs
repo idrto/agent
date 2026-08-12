@@ -24,6 +24,10 @@ pub struct DeviceIdentityJson {
     pub public_jwk: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fqhn: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_pem: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_pem: Option<String>,
 }
 
 impl From<&DeviceIdentity> for DeviceIdentityJson {
@@ -41,6 +45,8 @@ impl From<&DeviceIdentity> for DeviceIdentityJson {
                 })
             }),
             fqhn: id.credential.host.clone(),
+            cert_pem: id.cert_pem.clone(),
+            chain_pem: id.chain_pem.clone(),
         }
     }
 }
@@ -64,6 +70,8 @@ impl TryFrom<DeviceIdentityJson> for DeviceIdentity {
             ski: value.ski,
             private_jwk: value.private_jwk,
             credential: value.credential,
+            cert_pem: value.cert_pem,
+            chain_pem: value.chain_pem,
         })
     }
 }

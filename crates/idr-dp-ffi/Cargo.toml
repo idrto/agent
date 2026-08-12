@@ -1,0 +1,16 @@
+[package]
+name = "idr-dp-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "C ABI for idr-dp crypto (desktop Target FFI)"
+repository.workspace = true
+
+[lib]
+name = "idr_dp"
+crate-type = ["cdylib", "staticlib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+idr-dp = { workspace = true }

@@ -103,6 +103,8 @@ mod tests {
                 "x": x,
                 "alg": "EdDSA"
             }),
+            cert_pem: None,
+            chain_pem: None,
             credential: CapabilityCredential {
                 version: 1,
                 kind: CredentialKind::Machine,

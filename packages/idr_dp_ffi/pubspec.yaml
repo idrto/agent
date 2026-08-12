@@ -1,0 +1,16 @@
+name: idr_dp_ffi
+description: >-
+  Deprecated re-export of IdrDpCrypto from idr_target. Prefer depending on
+  idr_target directly.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  idr_target:
+    path: ../../../idr_target
+
+dev_dependencies:
+  lints: ^4.0.0
