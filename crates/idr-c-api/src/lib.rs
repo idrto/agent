@@ -12,7 +12,12 @@ mod engine;
 mod error;
 mod ffi;
 mod mock_backend;
+#[cfg(feature = "native")]
+mod native_backend;
 
-pub use engine::{Engine, EngineConfig, EngineEvent, ABI_VERSION};
+pub use engine::{
+    Engine, EngineConfig, EngineEvent, ABI_VERSION, IDR_AUTH_BEARER, IDR_AUTH_DEVICE_TOKEN,
+    IDR_AUTH_MTLS,
+};
 pub use error::{clear_last_error, last_error_code, last_error_message, set_last_error};
 pub use ffi::*;

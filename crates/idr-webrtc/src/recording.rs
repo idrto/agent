@@ -30,7 +30,8 @@ impl Default for RecordingPeer {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl PeerTransport for RecordingPeer {
     async fn start(&mut self, request: PeerConnectRequest) -> Result<()> {
         self.role = request.role;
@@ -71,9 +72,13 @@ impl PeerTransport for RecordingPeer {
     }
 
     async fn next_event(&mut self) -> Result<PeerEvent> {
-        self.events
-            .pop_front()
-            .ok_or_else(|| IdrError::new(IdrErrorKind::TransportClosed, "no more peer events"))
+        if let Some(ev) = self.events.pop_front() {
+            return Ok(ev);
+        }
+        // Idle until a later set_remote_description pushes DataChannelOpen (or test ends).
+        // Returning Err here races with signaling in SourceRuntime::connect's select!.
+        std::future::pending::<()>().await;
+        unreachable!("pending resolved")
     }
 
     fn close(&mut self) {

@@ -69,7 +69,8 @@ impl MockPeer {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl PeerTransport for MockPeer {
     async fn start(&mut self, request: PeerConnectRequest) -> Result<()> {
         self.role = request.role;

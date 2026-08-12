@@ -14,21 +14,25 @@ path = "src/lib.rs"
 
 [features]
 default = ["mock"]
-# In-process mock signaling + peer for CI / Dart integration without libdatachannel.
+# In-process mock signaling + peer for unit/FFI tests (not a product mode).
 mock = []
+# Real libdatachannel offerer + Presence QUIC signaling.
+native = ["idr-webrtc/native", "idr-signaling/quic", "idr-source/native-signaling", "idr-source/dp"]
 
 [dependencies]
 async-trait = "0.1"
-idr-core = { workspace = true }
+idr-core = { workspace = true, features = ["net"] }
 idr-protocol = { workspace = true }
-idr-signaling = { workspace = true }
-idr-source = { workspace = true }
+idr-signaling = { workspace = true, features = ["native"] }
+idr-source = { workspace = true, features = ["dp", "native-signaling"] }
 idr-webrtc = { workspace = true }
 idr-dp = { workspace = true }
 bytes = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
 tracing = { workspace = true }
 parking_lot = { workspace = true }
+# Process-wide CryptoProvider for QUIC/Presence (rustls 0.23).
+rustls = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

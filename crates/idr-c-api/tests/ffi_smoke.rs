@@ -6,8 +6,27 @@ use std::ptr;
 use idr_c_api::{
     idr_abi_version, idr_connect, idr_disconnect, idr_engine_create, idr_engine_destroy,
     idr_open_stream, idr_poll_events, idr_stream_half_close, idr_stream_read, idr_stream_write,
-    IdrEngineConfig, IdrEvent, ABI_VERSION, IDR_EVENT_CONNECTED, IDR_EVENT_STREAM_OPENED,
+    IdrEngineConfig, IdrEvent, ABI_VERSION, IDR_AUTH_BEARER, IDR_EVENT_CONNECTED,
+    IDR_EVENT_STREAM_OPENED,
 };
+
+fn test_config(use_mock: u32, auth: Option<&CString>) -> (IdrEngineConfig, CString, CString) {
+    let source_id = CString::new("ffi-test").unwrap();
+    let region = CString::new("test").unwrap();
+    let cfg = IdrEngineConfig {
+        abi_version: ABI_VERSION,
+        struct_size: std::mem::size_of::<IdrEngineConfig>() as u32,
+        use_mock,
+        source_id: source_id.as_ptr(),
+        source_region: region.as_ptr(),
+        auth_token: auth.map(|a| a.as_ptr()).unwrap_or(ptr::null()),
+        auth_mode: IDR_AUTH_BEARER,
+        discovery_url: ptr::null(),
+        discovery_key: ptr::null(),
+        insecure_dev: 0,
+    };
+    (cfg, source_id, region)
+}
 
 #[test]
 fn abi_version_matches() {
@@ -16,15 +35,8 @@ fn abi_version_matches() {
 
 #[test]
 fn mock_round_trip_bytes() {
-    let source_id = CString::new("ffi-test").unwrap();
-    let region = CString::new("test").unwrap();
-    let cfg = IdrEngineConfig {
-        abi_version: ABI_VERSION,
-        struct_size: std::mem::size_of::<IdrEngineConfig>() as u32,
-        use_mock: 1,
-        source_id: source_id.as_ptr(),
-        source_region: region.as_ptr(),
-    };
+    let token = CString::new("test-bearer-token").unwrap();
+    let (cfg, _id, _region) = test_config(1, Some(&token));
 
     let engine = unsafe { idr_engine_create(&cfg) };
     assert!(!engine.is_null());
@@ -98,15 +110,18 @@ fn mock_round_trip_bytes() {
 }
 
 #[test]
-fn rejects_native_without_backend() {
-    let cfg = IdrEngineConfig {
-        abi_version: ABI_VERSION,
-        struct_size: std::mem::size_of::<IdrEngineConfig>() as u32,
-        use_mock: 0,
-        source_id: ptr::null(),
-        source_region: ptr::null(),
-    };
+fn rejects_missing_auth_token() {
+    let (cfg, _id, _region) = test_config(1, None);
     let engine = unsafe { idr_engine_create(&cfg) };
+    assert!(engine.is_null());
+}
+
+#[test]
+fn rejects_native_without_backend() {
+    let token = CString::new("tok").unwrap();
+    let (cfg, _id, _region) = test_config(0, Some(&token));
+    let engine = unsafe { idr_engine_create(&cfg) };
+    // Without --features native this fails; with native it fails on missing discovery_url.
     assert!(engine.is_null());
 }
 

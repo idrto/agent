@@ -4,6 +4,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 use std::slice;
+use std::sync::Once;
 
 use idr_core::IdrErrorKind;
 
@@ -11,6 +12,14 @@ use crate::engine::{Engine, EngineConfig, EngineEvent, ABI_VERSION};
 use crate::error::{
     clear_last_error, last_error_code, last_error_message, set_last_error, set_last_error_kind,
 };
+
+fn ensure_crypto_provider() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        // rustls 0.23: both aws-lc-rs and ring may be linked via deps; pick one.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
 
 /// Opaque engine handle.
 pub type IdrEngine = c_void;
@@ -22,6 +31,11 @@ pub struct IdrEngineConfig {
     pub use_mock: u32,
     pub source_id: *const c_char,
     pub source_region: *const c_char,
+    pub auth_token: *const c_char,
+    pub auth_mode: u32,
+    pub discovery_url: *const c_char,
+    pub discovery_key: *const c_char,
+    pub insecure_dev: u32,
 }
 
 #[repr(C)]
@@ -53,6 +67,7 @@ pub extern "C" fn idr_abi_version() -> u32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn idr_engine_create(config: *const IdrEngineConfig) -> *mut IdrEngine {
+    ensure_crypto_provider();
     clear_last_error();
     if config.is_null() {
         set_last_error_kind(IdrErrorKind::InvalidArgument, "null config");
@@ -65,6 +80,11 @@ pub unsafe extern "C" fn idr_engine_create(config: *const IdrEngineConfig) -> *m
         use_mock: cfg.use_mock,
         source_id: cfg.source_id,
         source_region: cfg.source_region,
+        auth_token: cfg.auth_token,
+        auth_mode: cfg.auth_mode,
+        discovery_url: cfg.discovery_url,
+        discovery_key: cfg.discovery_key,
+        insecure_dev: cfg.insecure_dev,
     };
     match Engine::new(&eng_cfg) {
         Ok(engine) => Box::into_raw(Box::new(engine)) as *mut IdrEngine,
@@ -152,6 +172,60 @@ pub unsafe extern "C" fn idr_open_stream(
         }
         Err(e) => map_err(e),
     }
+}
+
+/// Copies a JSON array of Target named services into `buf` (NUL-terminated when capacity allows).
+/// Returns bytes written excluding NUL, or a negative error code.
+#[no_mangle]
+pub unsafe extern "C" fn idr_session_named_services(
+    engine: *mut IdrEngine,
+    session_id: u64,
+    buf: *mut c_char,
+    capacity: usize,
+) -> c_int {
+    clear_last_error();
+    if engine.is_null() || buf.is_null() || capacity == 0 {
+        set_last_error_kind(IdrErrorKind::InvalidArgument, "null argument");
+        return -(IdrErrorKind::InvalidArgument as c_int);
+    }
+    let eng = &*(engine as *mut Engine);
+    match eng.named_services_json(session_id) {
+        Ok(json) => copy_json_to_buf(json, buf, capacity),
+        Err(e) => map_err(e),
+    }
+}
+
+/// Structured catalog JSON (credential_mode, require_upstream_tls, …).
+#[no_mangle]
+pub unsafe extern "C" fn idr_session_named_service_catalog(
+    engine: *mut IdrEngine,
+    session_id: u64,
+    buf: *mut c_char,
+    capacity: usize,
+) -> c_int {
+    clear_last_error();
+    if engine.is_null() || buf.is_null() || capacity == 0 {
+        set_last_error_kind(IdrErrorKind::InvalidArgument, "null argument");
+        return -(IdrErrorKind::InvalidArgument as c_int);
+    }
+    let eng = &*(engine as *mut Engine);
+    match eng.named_service_catalog_json(session_id) {
+        Ok(json) => copy_json_to_buf(json, buf, capacity),
+        Err(e) => map_err(e),
+    }
+}
+
+unsafe fn copy_json_to_buf(json: String, buf: *mut c_char, capacity: usize) -> c_int {
+    let cstr = CString::new(json.replace('\0', "")).unwrap_or_default();
+    let bytes = cstr.as_bytes_with_nul();
+    let n = bytes.len().min(capacity);
+    ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, buf, n);
+    if n < bytes.len() {
+        *buf.add(capacity - 1) = 0;
+        set_last_error_kind(IdrErrorKind::ResourceExhausted, "buffer too small");
+        return -(IdrErrorKind::ResourceExhausted as c_int);
+    }
+    (n.saturating_sub(1)) as c_int
 }
 
 #[no_mangle]

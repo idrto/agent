@@ -9,16 +9,25 @@
 extern "C" {
 #endif
 
-#define IDR_ABI_VERSION 1
+#define IDR_ABI_VERSION 2
+
+#define IDR_AUTH_BEARER 0
+#define IDR_AUTH_DEVICE_TOKEN 1
+#define IDR_AUTH_MTLS 2
 
 typedef struct idr_engine idr_engine_t;
 
 typedef struct idr_engine_config {
   uint32_t abi_version;
   uint32_t struct_size;
-  uint32_t use_mock; /* 1 = mock backend (CI / tests); 0 = native (future) */
+  uint32_t use_mock; /* 1 = unit-test mock only; 0 = native libdatachannel */
   const char *source_id;
   const char *source_region;
+  const char *auth_token; /* required */
+  uint32_t auth_mode;     /* IDR_AUTH_* */
+  const char *discovery_url; /* required when use_mock=0 */
+  const char *discovery_key; /* optional; empty skips verify (dev) */
+  uint32_t insecure_dev;     /* 1 = skip Presence TLS verify (local) */
 } idr_engine_config_t;
 
 enum {
@@ -45,6 +54,17 @@ void idr_engine_destroy(idr_engine_t *engine);
 
 int idr_connect(idr_engine_t *engine, const char *target_fqhn, uint64_t *out_session);
 int idr_disconnect(idr_engine_t *engine, uint64_t session_id);
+
+/** JSON array of Target named services (fetched over DataChannel after connect). */
+int idr_session_named_services(idr_engine_t *engine, uint64_t session_id, char *buf,
+                               size_t capacity);
+
+/**
+ * JSON array of structured service catalog entries:
+ * [{"name":"...","kind":"http|tcp","credential_mode":"source|target","require_upstream_tls":bool}, ...]
+ */
+int idr_session_named_service_catalog(idr_engine_t *engine, uint64_t session_id, char *buf,
+                                      size_t capacity);
 
 int idr_open_stream(idr_engine_t *engine, uint64_t session_id, const char *service,
                     uint64_t *out_stream);

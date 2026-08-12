@@ -1,9 +1,12 @@
 //! Mock backend: MockSignalingClient + peer that auto-replies OpenOk and echoes DATA.
+//!
+//! Only for unit/FFI tests (`use_mock=1`). Product builds use the native backend.
 
 use std::collections::VecDeque;
 
 use async_trait::async_trait;
 use idr_protocol::stream_mux::{StreamFrame, INITIAL_STREAM_WINDOW};
+use idr_protocol::webrtc_signaling::SourceAuthMode;
 use idr_signaling::mock::MockSignalingClient;
 use idr_source::SourceRuntime;
 use idr_webrtc::transport::{PeerConnectRequest, PeerEvent, PeerTransport};
@@ -49,7 +52,31 @@ impl PeerTransport for AutoOkPeer {
             };
             self.pending.push_back(ok.encode().expect("OpenOk encode"));
         }
-        // Echo DATA for round-trip FFI tests (loopback mock).
+        if let Ok(StreamFrame::ServicesCatalogRequest) = StreamFrame::decode(message) {
+            let catalog = StreamFrame::ServicesCatalog {
+                services: vec!["http".into(), "ollama".into()],
+            };
+            self.pending
+                .push_back(catalog.encode().expect("ServicesCatalog encode"));
+            let detailed = StreamFrame::ServicesCatalogDetailed {
+                entries: vec![
+                    idr_protocol::stream_mux::ServiceCatalogEntry {
+                        name: "http".into(),
+                        kind: idr_protocol::stream_mux::ServiceTransportKind::Http,
+                        credential_mode: idr_protocol::stream_mux::CredentialMode::Target,
+                        require_upstream_tls: false,
+                    },
+                    idr_protocol::stream_mux::ServiceCatalogEntry {
+                        name: "ollama".into(),
+                        kind: idr_protocol::stream_mux::ServiceTransportKind::Http,
+                        credential_mode: idr_protocol::stream_mux::CredentialMode::Target,
+                        require_upstream_tls: false,
+                    },
+                ],
+            };
+            self.pending
+                .push_back(detailed.encode().expect("ServicesCatalogDetailed encode"));
+        }
         if let Ok(StreamFrame::Data { stream_id, bytes }) = StreamFrame::decode(message) {
             let echo = StreamFrame::Data { stream_id, bytes };
             self.pending.push_back(echo.encode().expect("Data encode"));
@@ -69,11 +96,18 @@ impl PeerTransport for AutoOkPeer {
     }
 }
 
-pub fn mock_runtime(source_id: &str, region: &str) -> SourceRuntime {
-    SourceRuntime::new(
+pub fn mock_runtime(
+    source_id: &str,
+    region: &str,
+    auth_mode: SourceAuthMode,
+    auth_token: &str,
+) -> SourceRuntime {
+    SourceRuntime::with_auth(
         Box::new(MockSignalingClient::default()),
         || Box::new(AutoOkPeer::new()),
         source_id,
         region,
+        auth_mode,
+        Some(auth_token.to_string()),
     )
 }
