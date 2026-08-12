@@ -73,12 +73,29 @@ jobs:
         with:
           shared-key: webrtc
           prefix-key: v0-libdatachannel
-      - name: release build with webrtc
+      - name: release build with webrtc (Target answerer)
         run: cargo build -p target-agent --release --features webrtc
+      - name: release build Source C ABI with native offerer
+        run: cargo build -p idr-c-api --release --features native
       - name: record webrtc binary size
         run: |
           ls -la target/release/target-agent | tee webrtc-size.txt
           stat -c '%n %s' target/release/target-agent | tee -a webrtc-size.txt
+          ls -la target/release/libidr_c_api.so 2>/dev/null | tee -a webrtc-size.txt || true
+
+  e2e-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e-sdk
+      - name: run e2e-sdk harness
+        run: bash scripts/e2e-sdk.sh
+        env:
+          # When api is not running locally, A1/A2 soft-skip inside the script on curl failure.
+          API_URL: http://127.0.0.1:3000
 
   security:
     runs-on: ubuntu-latest
