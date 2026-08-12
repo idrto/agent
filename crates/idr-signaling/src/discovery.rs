@@ -6,10 +6,10 @@ use ed25519_dalek::VerifyingKey;
 use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_protocol::crypto::KeyPair;
 use idr_protocol::discovery::PresenceDiscoveryDocument;
-use idr_protocol::fqhn;
-use idr_protocol::placement::{ModuloPlacement, PresencePlacement};
 use reqwest::Client;
 use tracing::warn;
+
+use crate::place;
 
 #[derive(Debug, Clone)]
 pub struct DiscoveryConfig {
@@ -101,20 +101,12 @@ impl DiscoveryClient {
     }
 
     /// Pick primary + secondary Presence indexes for a Target FQHN.
-    ///
-    /// Dual-mod placement (`hash%N`, `hash%(N-1)`, bump secondary on collide).
-    /// Requires at least two servers in `doc`. Dial Primary first, then Secondary
-    /// on miss/unreachable so append-epoch skew still finds a registered Target.
     pub fn place(
         &self,
         doc: &PresenceDiscoveryDocument,
         target_fqhn: &str,
     ) -> Result<(usize, Option<usize>)> {
-        let fqhn = fqhn::canonicalize(target_fqhn)
-            .map_err(|e| IdrError::new(IdrErrorKind::InvalidArgument, e.to_string()))?;
-        ModuloPlacement
-            .primary_secondary(&fqhn, &doc.presence_servers)
-            .map_err(|e| IdrError::new(IdrErrorKind::SignalingFailed, e.to_string()))
+        place::place(doc, target_fqhn)
     }
 
     /// Ordered dial list: Primary then Secondary Presence servers.
@@ -123,11 +115,6 @@ impl DiscoveryClient {
         doc: &'a PresenceDiscoveryDocument,
         target_fqhn: &str,
     ) -> Result<Vec<&'a idr_protocol::discovery::PresenceServer>> {
-        let (primary, secondary) = self.place(doc, target_fqhn)?;
-        let mut out = vec![&doc.presence_servers[primary]];
-        if let Some(sec) = secondary {
-            out.push(&doc.presence_servers[sec]);
-        }
-        Ok(out)
+        place::place_servers(doc, target_fqhn)
     }
 }

@@ -29,7 +29,8 @@ impl Default for MockSignalingClient {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl WebRtcSignalingClient for MockSignalingClient {
     async fn begin_session(
         &mut self,
@@ -72,7 +73,8 @@ struct MockEphemeral {
     inbox: VecDeque<SignalingMessage>,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EphemeralSignaling for MockEphemeral {
     async fn next_message(&mut self) -> Result<SignalingMessage> {
         self.inbox

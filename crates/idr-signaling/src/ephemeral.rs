@@ -36,7 +36,9 @@ pub struct SessionPending {
 }
 
 /// Client that opens an ephemeral Presence session for WebRTC negotiation.
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg(not(target_arch = "wasm32"))]
 pub trait WebRtcSignalingClient: Send {
     /// Send session request and return the signaling channel handle.
     async fn begin_session(
@@ -45,8 +47,31 @@ pub trait WebRtcSignalingClient: Send {
     ) -> Result<Box<dyn EphemeralSignaling>>;
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg(target_arch = "wasm32")]
+pub trait WebRtcSignalingClient {
+    async fn begin_session(
+        &mut self,
+        request: WebRtcSessionRequest,
+    ) -> Result<Box<dyn EphemeralSignaling>>;
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg(not(target_arch = "wasm32"))]
 pub trait EphemeralSignaling: Send {
+    async fn next_message(&mut self) -> Result<SignalingMessage>;
+
+    async fn send_ice(&mut self, candidate: WebRtcIceCandidate) -> Result<()>;
+
+    async fn send_json(&mut self, json: &str) -> Result<()>;
+
+    async fn close(&mut self) -> Result<()>;
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg(target_arch = "wasm32")]
+pub trait EphemeralSignaling {
     async fn next_message(&mut self) -> Result<SignalingMessage>;
 
     async fn send_ice(&mut self, candidate: WebRtcIceCandidate) -> Result<()>;
