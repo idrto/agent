@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, e2e]
     tags: ["v*"]
   pull_request:
 
@@ -16,6 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout sibling crates
+        env:
+          GH_TOKEN: ${{ secrets.SIBLING_REPOS_TOKEN || github.token }}
+        run: bash scripts/ci-clone-siblings.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -64,6 +68,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout sibling crates
+        env:
+          GH_TOKEN: ${{ secrets.SIBLING_REPOS_TOKEN || github.token }}
+        run: bash scripts/ci-clone-siblings.sh
       - name: install native build deps
         run: |
           sudo apt-get update
@@ -87,6 +95,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout sibling crates
+        env:
+          GH_TOKEN: ${{ secrets.SIBLING_REPOS_TOKEN || github.token }}
+        run: bash scripts/ci-clone-siblings.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -101,6 +113,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout sibling crates
+        env:
+          GH_TOKEN: ${{ secrets.SIBLING_REPOS_TOKEN || github.token }}
+        run: bash scripts/ci-clone-siblings.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:

@@ -1,6 +1,8 @@
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
+# cargo-deny no longer accepts lint levels for unmaintained.
+# Previous value was "warn" (report, do not fail). Closest equivalent is
+# "none" — unmaintained crates are not treated as errors.
+unmaintained = "none"
 yanked = "warn"
 
 [licenses]
