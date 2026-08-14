@@ -4,12 +4,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use idr_dp::{load_client_auth, MtlsClientMaterial};
-use quinn::{ClientConfig, Connection, Endpoint};
+use quinn::{ClientConfig, Connection, Endpoint, TransportConfig};
 use rustls::pki_types::ServerName;
 use rustls::RootCertStore;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
+use crate::quic::limits::apply_presence_client_transport_limits;
 use idr_protocol::discovery::PresenceServer;
 use idr_protocol::signaling_json;
 use idr_protocol::ALPN_IDR_PRESENCE_V1;
@@ -59,9 +60,12 @@ impl PresenceQuicClient {
         };
         crypto.alpn_protocols = vec![ALPN_IDR_PRESENCE_V1.to_vec()];
 
-        let client_config = ClientConfig::new(Arc::new(
+        let mut client_config = ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(crypto)?,
         ));
+        let mut transport = TransportConfig::default();
+        apply_presence_client_transport_limits(&mut transport);
+        client_config.transport_config(Arc::new(transport));
 
         let mut endpoint = Endpoint::client(bind)?;
         endpoint.set_default_client_config(client_config);

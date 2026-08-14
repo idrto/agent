@@ -1,5 +1,5 @@
 [target]
-fqhn = "host-identity.idr.to"
+fqhn = "laptop--example@gmail.com.idr.to"
 agent_region = "eu-central"
 # Durable Ed25519 key for this device. Required when multiple Targets share one
 # FQHN (DNS multi-A): each machine must use its own key file so Presence/Relay

@@ -19,3 +19,10 @@ pub fn apply_relay_client_transport_limits(config: &mut TransportConfig) {
     // Keepalive probes also help complete QUIC path validation after migration/rebind.
     config.keep_alive_interval(Some(Duration::from_secs(30)));
 }
+
+/// Persistent Presence PEP (Target register session). Quinn default idle is 30s
+/// with no PINGs; after `register_target_ack` the connection is silent and dies.
+pub fn apply_presence_client_transport_limits(config: &mut TransportConfig) {
+    apply_transport_limits(config);
+    config.keep_alive_interval(Some(Duration::from_secs(15)));
+}

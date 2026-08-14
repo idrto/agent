@@ -5,6 +5,7 @@ debug/
 **/*.rs.bk
 *.pdb
 Cargo.lock.bak
+dist
 
 # Local agent config and runtime data — keep *.example.toml
 config/*.local.toml

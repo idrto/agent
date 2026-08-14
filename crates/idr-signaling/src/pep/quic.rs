@@ -8,7 +8,7 @@ use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_dp::{load_client_auth, MtlsClientMaterial};
 use idr_protocol::discovery::PresenceServer;
 use idr_protocol::ALPN_IDR_PRESENCE_V1;
-use quinn::{ClientConfig, Connection, Endpoint};
+use quinn::{ClientConfig, Connection, Endpoint, TransportConfig};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{
@@ -26,11 +26,17 @@ impl PepQuicEndpoint {
         mtls: Option<&MtlsClientMaterial>,
     ) -> Result<Self> {
         let crypto = build_rustls(insecure_dev, mtls)?;
-        let client_config = ClientConfig::new(Arc::new(
+        let mut client_config = ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(crypto).map_err(|e| {
                 IdrError::new(IdrErrorKind::InternalError, format!("quic crypto: {e}"))
             })?,
         ));
+        let mut transport = TransportConfig::default();
+        transport.max_idle_timeout(Some(
+            Duration::from_secs(120).try_into().expect("idle timeout"),
+        ));
+        transport.keep_alive_interval(Some(Duration::from_secs(15)));
+        client_config.transport_config(Arc::new(transport));
         let mut endpoint = Endpoint::client(bind).map_err(|e| {
             IdrError::new(IdrErrorKind::InternalError, format!("quic endpoint: {e}"))
         })?;
