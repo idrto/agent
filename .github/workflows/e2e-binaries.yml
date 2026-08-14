@@ -258,27 +258,41 @@ jobs:
         run: |
           set -euo pipefail
           (cd dist && zip -r ../e2e-agent-binaries.zip .)
-          ls -lh e2e-agent-binaries.zip
+          (cd dist && zip -r ../e2e-source-binaries.zip source GIT_SHA GIT_REF)
+          ls -lh e2e-agent-binaries.zip e2e-source-binaries.zip
 
-      - name: Publish private rolling release
+      - name: Publish rolling release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # This job never checks out the repo; gh must not infer origin from .git.
           repo="${GITHUB_REPOSITORY}"
-          notes="Rolling e2e binaries from ${GITHUB_SHA}"
+          notes="Rolling e2e binaries from ${GITHUB_SHA}
+
+          - \`e2e-source-binaries.zip\` — Source only (C ABI + source-agent). Use this from secMail.
+          - \`e2e-agent-binaries.zip\` — Source + Target (full dump)."
           if gh release view e2e-latest --repo "${repo}" >/dev/null 2>&1; then
-            gh release upload e2e-latest e2e-agent-binaries.zip --repo "${repo}" --clobber
+            gh release upload e2e-latest \
+              e2e-source-binaries.zip e2e-agent-binaries.zip \
+              --repo "${repo}" --clobber
             gh release edit e2e-latest --repo "${repo}" --target "${GITHUB_SHA}" --notes "${notes}"
           else
-            gh release create e2e-latest e2e-agent-binaries.zip \
+            gh release create e2e-latest \
+              e2e-source-binaries.zip e2e-agent-binaries.zip \
               --repo "${repo}" \
               --prerelease \
               --target "${GITHUB_SHA}" \
               --title "e2e agent binaries" \
               --notes "${notes}"
           fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-source-binaries
+          path: e2e-source-binaries.zip
+          if-no-files-found: error
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:
@@ -293,18 +307,16 @@ jobs:
             echo "## e2e agent binaries"
             echo
             echo "- commit: \`${GITHUB_SHA}\`"
-            echo "- private release: \`e2e-latest\` / \`e2e-agent-binaries.zip\`"
+            echo "- Source only (secMail): \`e2e-latest\` / \`e2e-source-binaries.zip\`"
+            echo "- Full dump (Source + Target): \`e2e-agent-binaries.zip\`"
             echo
-            echo "### Fetch from another private app"
+            echo "### Fetch Source (public)"
             echo '```'
-            echo 'gh release download e2e-latest --repo idrto/agent -p e2e-agent-binaries.zip'
-            echo 'unzip e2e-agent-binaries.zip'
+            echo 'curl -fL -o e2e-source-binaries.zip \'
+            echo '  https://github.com/idrto/agent/releases/download/e2e-latest/e2e-source-binaries.zip'
             echo '```'
             echo
-            echo "Local: \`gh auth login\` as an org member (no extra token)."
-            echo "CI in another private repo: org secret PAT with Contents: Read on idrto/agent, then GH_TOKEN that secret."
-            echo
-            echo "### Target (desktop only)"
+            echo "### Target (desktop only, full zip)"
             echo "- \`target/linux-x64/target-agent\`"
             echo "- \`target/windows-x64/target-agent.exe\`"
             echo "- \`target/macos-arm64/target-agent\`"
