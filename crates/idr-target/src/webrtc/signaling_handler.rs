@@ -134,6 +134,12 @@ impl WebRtcSignalingHandler {
             .await?;
             return Ok(());
         }
+        if offer.ice.has_turn_credentials() {
+            tracing::info!(
+                session_id = %offer.session_id,
+                "received TURN credentials"
+            );
+        }
 
         let guard = match self.sessions.try_acquire(offer.session_id) {
             Ok(g) => g,

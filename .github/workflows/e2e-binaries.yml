@@ -6,19 +6,10 @@
 #   Android                            →  libidr_c_api.so (arm64-v8a, armeabi-v7a, x86_64)
 #   iOS                                →  libidr_c_api.a (device + simulator)
 #
-# Combined artifact name: `e2e-agent-binaries`
-#
-# Consuming repo (needs a token with `actions:read` on idrto/agent):
-#
-#   - uses: dawidd6/action-download-artifact@v6
-#     with:
-#       github_token: ${{ secrets.AGENT_REPO_TOKEN }}
-#       workflow: e2e-binaries.yml
-#       repo: idrto/agent
-#       branch: e2e
-#       name: e2e-agent-binaries
-#       path: bins
-#       workflow_conclusion: success
+# Published as a private rolling GitHub Release tag `e2e-latest`
+# (single zip: e2e-agent-binaries.zip). Same-repo GITHUB_TOKEN can
+# create the release. The other private app needs a PAT/org secret
+# with `contents: read` on idrto/agent — see job summary.
 
 name: e2e binaries
 
@@ -32,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 env:
@@ -165,9 +156,9 @@ jobs:
             -t arm64-v8a \
             -t armeabi-v7a \
             -t x86_64 \
-            -p 24 \
+            -P 24 \
             -o dist/source/android \
-            build -p idr-c-api --release
+            build -p idr-c-api --release --features native
           cp crates/idr-c-api/include/idr.h dist/source/android/
           find dist/source/android -type f | sort
 
@@ -254,12 +245,35 @@ jobs:
           echo "=== tree ==="
           find dist -print | sort
 
+      - name: Zip binaries
+        run: |
+          set -euo pipefail
+          (cd dist && zip -r ../e2e-agent-binaries.zip .)
+          ls -lh e2e-agent-binaries.zip
+
+      - name: Publish private rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="Rolling e2e binaries from ${GITHUB_SHA}"
+          if gh release view e2e-latest >/dev/null 2>&1; then
+            gh release upload e2e-latest e2e-agent-binaries.zip --clobber
+            gh release edit e2e-latest --target "${GITHUB_SHA}" --notes "${notes}"
+          else
+            gh release create e2e-latest e2e-agent-binaries.zip \
+              --prerelease \
+              --target "${GITHUB_SHA}" \
+              --title "e2e agent binaries" \
+              --notes "${notes}"
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: e2e-agent-binaries
-          path: dist
+          path: e2e-agent-binaries.zip
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
 
       - name: job summary
         run: |
@@ -267,7 +281,16 @@ jobs:
             echo "## e2e agent binaries"
             echo
             echo "- commit: \`${GITHUB_SHA}\`"
-            echo "- artifact: \`e2e-agent-binaries\`"
+            echo "- private release: \`e2e-latest\` / \`e2e-agent-binaries.zip\`"
+            echo
+            echo "### Fetch from another private app"
+            echo '```'
+            echo 'gh release download e2e-latest --repo idrto/agent -p e2e-agent-binaries.zip'
+            echo 'unzip e2e-agent-binaries.zip'
+            echo '```'
+            echo
+            echo "Local: \`gh auth login\` as an org member (no extra token)."
+            echo "CI in another private repo: org secret PAT with Contents: Read on idrto/agent, then GH_TOKEN that secret."
             echo
             echo "### Target (desktop only)"
             echo "- \`target/linux-x64/target-agent\`"

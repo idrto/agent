@@ -285,6 +285,12 @@ impl SourceRuntime {
                     match msg? {
                         SignalingMessage::Pending(pending) => {
                             if let Some(ice) = pending.ice.as_ref() {
+                                if ice.has_turn_credentials() {
+                                    tracing::info!(
+                                        %session_id,
+                                        "received TURN credentials"
+                                    );
+                                }
                                 match build_rtc_ice_servers(ice, &[]) {
                                     Ok(servers) if !servers.is_empty() => {
                                         if let Ok(json) = serde_json::to_string(&servers) {

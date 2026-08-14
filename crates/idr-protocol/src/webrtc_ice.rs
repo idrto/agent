@@ -71,6 +71,26 @@ pub struct SessionIceConfig {
     pub p2p_only: bool,
 }
 
+impl SessionIceConfig {
+    /// True when platform or BYOR TURN entries include username and credential.
+    /// Does not return or format secret values.
+    pub fn has_turn_credentials(&self) -> bool {
+        let platform = self.turn.as_ref().is_some_and(|t| {
+            t.servers.iter().any(|s| {
+                s.username.as_deref().is_some_and(|u| !u.is_empty())
+                    && s.credential.as_deref().is_some_and(|c| !c.is_empty())
+            })
+        });
+        let byor = self.byor.as_ref().is_some_and(|b| {
+            b.turn_servers.iter().any(|s| {
+                s.username.as_deref().is_some_and(|u| !u.is_empty())
+                    && s.credential.as_deref().is_some_and(|c| !c.is_empty())
+            })
+        });
+        platform || byor
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IceBuildError {
     MissingTurn,
@@ -352,6 +372,7 @@ mod tests {
             ice_transport_policy: IceTransportPolicy::All,
             p2p_only: false,
         };
+        assert!(ice.has_turn_credentials());
         let merged = build_rtc_ice_servers(&ice, &[]).unwrap();
         assert_eq!(merged.len(), 3);
         assert!(merged[0].urls[0].starts_with("stun:"));
@@ -383,6 +404,7 @@ mod tests {
             ice_transport_policy: IceTransportPolicy::All,
             p2p_only: false,
         };
+        assert!(ice.has_turn_credentials());
         let merged = build_rtc_ice_servers(&ice, &[]).unwrap();
         assert_eq!(merged.len(), 2);
         assert!(merged[1].urls[0].contains("acme.corp"));
@@ -415,6 +437,7 @@ mod tests {
             ice_transport_policy: IceTransportPolicy::All,
             p2p_only: true,
         };
+        assert!(!ice.has_turn_credentials());
         let merged = build_rtc_ice_servers(&ice, &[]).unwrap();
         assert!(merged.iter().all(|s| s.urls.iter().all(|u| u.starts_with("stun:"))));
     }

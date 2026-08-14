@@ -20,13 +20,18 @@ idr-protocol = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 
-[dependencies.datachannel]
-# Repo-root clone: c:\dev\idrto\datachannel-rs (not crates.io).
+# Desktop: system OpenSSL (OPENSSL_ROOT_DIR). Avoids openssl-src + Git Perl on Windows.
+[target.'cfg(not(target_os = "android"))'.dependencies.datachannel]
 path = "../../../datachannel-rs"
 default-features = false
-# vendored-libdatachannel: build libdatachannel from source; use system OpenSSL
-# (OPENSSL_ROOT_DIR). Avoids openssl-src + broken Git Perl on Windows.
 features = ["tracing", "vendored-libdatachannel"]
+optional = true
+
+# Android: openssl-src (host OpenSSL is the wrong ABI).
+[target.'cfg(target_os = "android")'.dependencies.datachannel]
+path = "../../../datachannel-rs"
+default-features = false
+features = ["tracing", "vendored"]
 optional = true
 
 [dev-dependencies]
