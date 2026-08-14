@@ -66,9 +66,18 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install cmake ninja openssl@3
-          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "${GITHUB_ENV}"
-          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "${GITHUB_ENV}"
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> "${GITHUB_ENV}"
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          # openssl@3 is keg-only; cmake uses OPENSSL_ROOT_DIR, but the final
+          # rustc link of libidr_c_api.dylib still needs -L (ld: library 'ssl'
+          # not found). LIBRARY_PATH is picked up by Apple clang/ld.
+          {
+            echo "OPENSSL_ROOT_DIR=${OPENSSL_PREFIX}"
+            echo "OPENSSL_DIR=${OPENSSL_PREFIX}"
+            echo "OPENSSL_LIBRARIES=${OPENSSL_PREFIX}/lib"
+            echo "PKG_CONFIG_PATH=${OPENSSL_PREFIX}/lib/pkgconfig"
+            echo "LIBRARY_PATH=${OPENSSL_PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}"
+            echo "CARGO_BUILD_RUSTFLAGS=-Lnative=${OPENSSL_PREFIX}/lib"
+          } >> "${GITHUB_ENV}"
 
       - name: Install native deps (Windows)
         if: runner.os == 'Windows'
