@@ -265,12 +265,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # This job never checks out the repo; gh must not infer origin from .git.
+          repo="${GITHUB_REPOSITORY}"
           notes="Rolling e2e binaries from ${GITHUB_SHA}"
-          if gh release view e2e-latest >/dev/null 2>&1; then
-            gh release upload e2e-latest e2e-agent-binaries.zip --clobber
-            gh release edit e2e-latest --target "${GITHUB_SHA}" --notes "${notes}"
+          if gh release view e2e-latest --repo "${repo}" >/dev/null 2>&1; then
+            gh release upload e2e-latest e2e-agent-binaries.zip --repo "${repo}" --clobber
+            gh release edit e2e-latest --repo "${repo}" --target "${GITHUB_SHA}" --notes "${notes}"
           else
             gh release create e2e-latest e2e-agent-binaries.zip \
+              --repo "${repo}" \
               --prerelease \
               --target "${GITHUB_SHA}" \
               --title "e2e agent binaries" \
