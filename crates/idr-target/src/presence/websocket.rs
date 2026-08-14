@@ -21,7 +21,7 @@ use crate::presence::endpoint::{
 };
 use crate::presence::outbox::PresenceSignalingOutbox;
 use crate::presence::quic_client::PresenceQuicClient;
-use crate::presence::registration::build_registration;
+use crate::presence::registration::{build_registration, build_unregistration};
 use crate::relay::descriptor::{ConnectionAuthorization, StableRelayDescriptor};
 use crate::relay::RelayConnectionManager;
 use crate::shutdown::ShutdownCoordinator;
@@ -253,7 +253,10 @@ impl PresenceWebSocketClient {
                     debug!(?reason, "presence QUIC closed");
                     break;
                 }
-                _ = shutdown.wait_for_drain() => break,
+                _ = shutdown.wait_for_drain() => {
+                    self.send_unregister_if_connected().await;
+                    break;
+                }
             }
         }
         Ok(())
@@ -319,10 +322,47 @@ impl PresenceWebSocketClient {
                         _ => {}
                     }
                 }
-                _ = self.shutdown.wait_for_drain() => break,
+                _ = self.shutdown.wait_for_drain() => {
+                    self.send_unregister_if_connected().await;
+                    break;
+                }
             }
         }
         Ok(())
+    }
+
+    async fn send_unregister_if_connected(&self) {
+        let Some(outbox) = self.signaling_outbox.lock().await.clone() else {
+            return;
+        };
+        if !outbox.is_connected() {
+            debug!("skip unregister_target: presence connection already closed");
+            return;
+        }
+        let msg = match build_unregistration(
+            &self.identity,
+            &self.fqhn,
+            self.connection_epoch,
+            self.role,
+        ) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(error = %e, "build unregister_target failed");
+                return;
+            }
+        };
+        let json = match serde_json::to_string(&msg) {
+            Ok(j) => j,
+            Err(e) => {
+                warn!(error = %e, "serialize unregister_target failed");
+                return;
+            }
+        };
+        match outbox.send_json(&json).await {
+            Ok(()) => info!(fqhn = %self.fqhn, "sent unregister_target"),
+            Err(e) => debug!(error = %e, "skip unregister_target: presence not writable"),
+        }
+        outbox.close();
     }
 
     fn on_presence_registered(&self, role_label: &'static str) {

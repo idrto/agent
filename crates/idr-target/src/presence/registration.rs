@@ -1,7 +1,7 @@
 use crate::config::{Config, WebRtcByorServerConfig};
 use crate::identity::TargetIdentity;
 use idr_protocol::crypto;
-use idr_protocol::signaling::{PresenceRole, SignalingMessageType, TargetRegistration};
+use idr_protocol::signaling::{PresenceRole, SignalingMessageType, TargetRegistration, TargetUnregistration};
 use idr_protocol::webrtc_ice::IceRelayMode;
 use idr_protocol::webrtc_signaling::{
     default_webrtc_capabilities, BringYourOwnRelay, ByorIceServer, TargetWebRtcRegistration,
@@ -47,6 +47,26 @@ pub fn build_registration(
     let value = serde_json::to_value(&reg)?;
     reg.signature = crypto::sign_json_canonical(&value, identity.signing_key())?;
     Ok(reg)
+}
+
+pub fn build_unregistration(
+    identity: &TargetIdentity,
+    fqhn: &str,
+    connection_epoch: u64,
+    role: PresenceRole,
+) -> anyhow::Result<TargetUnregistration> {
+    let mut msg = TargetUnregistration {
+        version: PROTOCOL_VERSION,
+        message_type: SignalingMessageType::UnregisterTarget,
+        target_fqhn: fqhn.to_string(),
+        target_identity: identity.public_key_base64url(),
+        connection_epoch,
+        role,
+        signature: String::new(),
+    };
+    let value = serde_json::to_value(&msg)?;
+    msg.signature = crypto::sign_json_canonical(&value, identity.signing_key())?;
+    Ok(msg)
 }
 
 fn build_webrtc_registration(
@@ -146,5 +166,14 @@ enabled = true
             assert!(reg.webrtc.is_none());
         }
         reg.verify().unwrap();
+    }
+
+    #[test]
+    fn unregistration_verifies_and_does_not_match_register() {
+        let identity = TargetIdentity::load_or_generate(None).unwrap();
+        let msg = build_unregistration(&identity, "host.idr.to", 7, PresenceRole::Primary).unwrap();
+        assert_eq!(msg.message_type, SignalingMessageType::UnregisterTarget);
+        assert_eq!(msg.connection_epoch, 7);
+        msg.verify().unwrap();
     }
 }

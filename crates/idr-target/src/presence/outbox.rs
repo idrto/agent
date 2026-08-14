@@ -24,6 +24,19 @@ impl PresenceSignalingOutbox {
         Self::Wss(tx)
     }
 
+    pub fn is_connected(&self) -> bool {
+        match self {
+            Self::Quic { connection } => connection.close_reason().is_none(),
+            Self::Wss(tx) => !tx.is_closed(),
+        }
+    }
+
+    pub fn close(&self) {
+        if let Self::Quic { connection } = self {
+            connection.close(0u32.into(), b"unregister");
+        }
+    }
+
     pub async fn send_json(&self, json: &str) -> Result<()> {
         match self {
             Self::Quic { connection } => {
@@ -42,6 +55,7 @@ impl PresenceSignalingOutbox {
                     .await
                     .context("write signaling frame")?;
                 send.finish().context("finish signaling bi-stream")?;
+                let _ = send.stopped().await;
             }
             Self::Wss(tx) => {
                 tx.send(json.to_string())

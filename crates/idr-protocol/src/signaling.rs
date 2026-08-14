@@ -13,6 +13,7 @@ use crate::MAX_SIGNALING_BYTES;
 pub enum SignalingMessageType {
     RegisterTarget,
     RegisterTargetAck,
+    UnregisterTarget,
     EnsureRelayConnection,
     EnsureRelayConnectionAck,
     ResolveDomainAlias,
@@ -133,6 +134,18 @@ pub enum PresenceRole {
     Secondary,
 }
 
+/// Target → Presence: this device is going offline on purpose.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TargetUnregistration {
+    pub version: u32,
+    pub message_type: SignalingMessageType,
+    pub target_fqhn: String,
+    pub target_identity: String,
+    pub connection_epoch: u64,
+    pub role: PresenceRole,
+    pub signature: String,
+}
+
 impl TargetRegistration {
     pub fn billing_parties(&self) -> Result<BillingPartyPair> {
         BillingPartyPair::new(self.using_party.clone(), self.paying_party.clone())
@@ -144,6 +157,21 @@ impl TargetRegistration {
             return Err(ProtocolError::MalformedDocument("wrong message type".into()));
         }
         let _ = self.billing_parties()?;
+        let target_key = crypto::KeyPair::from_base64url_public(&self.target_identity)?;
+        let mut unsigned = self.clone();
+        unsigned.signature = String::new();
+        let value = serde_json::to_value(&unsigned)
+            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        crypto::verify_json_canonical(&value, &self.signature, &target_key)
+    }
+}
+
+impl TargetUnregistration {
+    pub fn verify(&self) -> Result<()> {
+        validate_signaling_size(self)?;
+        if self.message_type != SignalingMessageType::UnregisterTarget {
+            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+        }
         let target_key = crypto::KeyPair::from_base64url_public(&self.target_identity)?;
         let mut unsigned = self.clone();
         unsigned.signature = String::new();
