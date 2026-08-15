@@ -388,6 +388,17 @@ impl NativePeerSession {
         }
     }
 
+    pub fn selected_ice_summary(&self) -> Option<(String, String, String)> {
+        let pair = self.peer.as_deref()?.selected_candidate_pair()?;
+        let local_type = ice_candidate_type(&pair.local);
+        let remote_type = ice_candidate_type(&pair.remote);
+        Some((
+            ice_pair_path(local_type, remote_type).to_string(),
+            local_type.to_string(),
+            remote_type.to_string(),
+        ))
+    }
+
     pub fn close(&mut self) {
         self.channel = None;
         self.peer = None;
@@ -398,6 +409,34 @@ impl NativePeerSession {
         self.peer
             .as_deref_mut()
             .ok_or_else(|| anyhow::anyhow!("peer closed"))
+    }
+}
+
+fn ice_candidate_type(candidate: &str) -> &'static str {
+    let lower = candidate.to_ascii_lowercase();
+    let kind = lower
+        .split(" typ ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap_or("");
+    match kind {
+        "host" => "host",
+        "srflx" => "srflx",
+        "prflx" => "prflx",
+        "relay" => "relay",
+        _ => "unknown",
+    }
+}
+
+fn ice_pair_path(local: &str, remote: &str) -> &'static str {
+    if local == "relay" || remote == "relay" {
+        "turn"
+    } else if local == "srflx" || remote == "srflx" {
+        "stun"
+    } else if matches!(local, "host" | "prflx") && matches!(remote, "host" | "prflx") {
+        "host"
+    } else {
+        "unknown"
     }
 }
 

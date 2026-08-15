@@ -441,6 +441,7 @@ impl PeerTransport for NativePeer {
             IceTransportPolicy::Relay => TransportPolicy::Relay,
         };
         rtc_config.max_message_size = self.config.max_message_bytes as i32;
+        rtc_config.disable_auto_gathering = true;
 
         let handler = ConnectionHandler {
             sink,
@@ -602,5 +603,27 @@ impl PeerTransport for NativePeer {
         self.channel = None;
         self.peer = None;
         self.channel_open.store(false, Ordering::Release);
+    }
+
+    fn set_ice_servers_json(&mut self, json: &str) -> Result<()> {
+        let urls = if json.trim().is_empty() || json.trim() == "[]" {
+            Vec::new()
+        } else {
+            let servers: Vec<IceServer> = serde_json::from_str(json).map_err(|e| {
+                IdrError::new(
+                    IdrErrorKind::InvalidArgument,
+                    format!("ice_servers_json: {e}"),
+                )
+            })?;
+            ice_servers_to_urls(&servers)
+        };
+        self.peer_mut()?
+            .gather_local_candidates(&urls)
+            .map_err(|e| {
+                IdrError::new(
+                    IdrErrorKind::IceFailed,
+                    format!("gather ICE candidates: {e}"),
+                )
+            })
     }
 }

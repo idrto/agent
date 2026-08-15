@@ -178,6 +178,27 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                     PeerEvent::DataChannelOpen => {
                         dc_open = true;
                         rt.sessions.set_state(session_id, SessionState::DataChannelOpen);
+                        if let Some((path, local_type, remote_type)) = peer.selected_ice_summary() {
+                            let via = match path.as_str() {
+                                "host" => "host (LAN/P2P)",
+                                "stun" => "stun",
+                                "turn" => "turn (relay)",
+                                other => other,
+                            };
+                            tracing::info!(
+                                %session_id,
+                                ice_path = %path,
+                                local_type = %local_type,
+                                remote_type = %remote_type,
+                                "WebRTC connected via {via}"
+                            );
+                        } else {
+                            tracing::info!(
+                                %session_id,
+                                ice_path = "unknown",
+                                "WebRTC connected (selected ICE pair not available yet)"
+                            );
+                        }
                         send_session_ack(
                             &rt.outbox,
                             session_id,
@@ -200,6 +221,10 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                         }
                     }
                     PeerEvent::DataChannelClosed => {
+                        if dc_open {
+                            tracing::info!(%session_id, "WebRTC data channel closed");
+                            break Ok(());
+                        }
                         break Err(anyhow::anyhow!("data channel closed"));
                     }
                     PeerEvent::ConnectionFailed(reason) => {
@@ -250,6 +275,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
     writers.clear();
     peer.close();
     rt.sessions.clear_ice_inbox(session_id);
+    rt.sessions.end_session(session_id);
 
     match result {
         Ok(()) => Ok(()),
@@ -261,7 +287,6 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                 Some(e.to_string()),
             )
             .await;
-            rt.sessions.end_session(session_id);
             Err(e)
         }
     }

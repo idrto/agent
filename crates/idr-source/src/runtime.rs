@@ -237,7 +237,6 @@ impl SourceRuntime {
                 sdp_type: "offer".into(),
                 sdp: local_sdp,
             },
-            // Production default: allow P2P + relay. Set Relay only when Source must not use P2P.
             ice_transport_policy: IceTransportPolicy::All,
             signature: None,
         };
@@ -284,32 +283,37 @@ impl SourceRuntime {
                 msg = channel.next_message() => {
                     match msg? {
                         SignalingMessage::Pending(pending) => {
-                            if let Some(ice) = pending.ice.as_ref() {
-                                if ice.has_turn_credentials() {
-                                    tracing::info!(
-                                        %session_id,
-                                        "received TURN credentials"
-                                    );
-                                }
-                                match build_rtc_ice_servers(ice, &[]) {
-                                    Ok(servers) if !servers.is_empty() => {
-                                        if let Ok(json) = serde_json::to_string(&servers) {
-                                            if let Err(e) = peer.set_ice_servers_json(&json) {
-                                                tracing::warn!(
-                                                    error = %e,
-                                                    "failed to apply Presence ICE servers"
-                                                );
-                                            }
-                                        }
-                                    }
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            error = %e,
-                                            "invalid Presence session ICE; keeping local servers"
+                            let ice_json = pending
+                                .ice
+                                .as_ref()
+                                .map(|ice| {
+                                    if ice.has_turn_credentials() {
+                                        tracing::info!(
+                                            %session_id,
+                                            "received TURN credentials"
                                         );
                                     }
-                                }
+                                    match build_rtc_ice_servers(ice, &[]) {
+                                        Ok(servers) if !servers.is_empty() => {
+                                            serde_json::to_string(&servers).ok()
+                                        }
+                                        Ok(_) => Some("[]".into()),
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                error = %e,
+                                                "invalid Presence session ICE; gathering without extra servers"
+                                            );
+                                            Some("[]".into())
+                                        }
+                                    }
+                                })
+                                .flatten()
+                                .unwrap_or_else(|| "[]".into());
+                            if let Err(e) = peer.set_ice_servers_json(&ice_json) {
+                                tracing::warn!(
+                                    error = %e,
+                                    "failed to apply Presence ICE servers"
+                                );
                             }
                         }
                         SignalingMessage::Answer(ans) => {

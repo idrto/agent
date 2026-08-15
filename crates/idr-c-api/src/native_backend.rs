@@ -6,6 +6,7 @@ use idr_protocol::webrtc_signaling::SourceAuthMode;
 use idr_signaling::discovery::{DiscoveryClient, DiscoveryConfig};
 use idr_signaling::{PepClient, PepClientConfig};
 use idr_source::SourceRuntime;
+use idr_webrtc::native::NativePeerConfig;
 use idr_webrtc::NativePeer;
 
 pub struct NativeBackendConfig {
@@ -44,9 +45,7 @@ pub async fn native_runtime(cfg: NativeBackendConfig) -> idr_core::Result<Source
     Ok(SourceRuntime::with_auth(
         Box::new(pep),
         || {
-            Box::new(
-                NativePeer::new(Default::default()).expect("NativePeer::new"),
-            )
+            Box::new(NativePeer::new(NativePeerConfig::default()).expect("NativePeer::new"))
         },
         cfg.source_id,
         cfg.source_region,

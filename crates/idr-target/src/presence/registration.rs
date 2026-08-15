@@ -95,7 +95,7 @@ fn build_webrtc_registration(
         capabilities,
         byor,
         turn_probe_supported: cfg.webrtc.turn_probe_enabled,
-        ice_transport_policy: Default::default(),
+        ice_transport_policy: idr_protocol::webrtc_ice::IceTransportPolicy::All,
     })
 }
 
