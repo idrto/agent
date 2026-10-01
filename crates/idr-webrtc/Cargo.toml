@@ -22,14 +22,16 @@ tracing = { workspace = true, optional = true }
 
 # Desktop: system OpenSSL (OPENSSL_ROOT_DIR). Avoids openssl-src + Git Perl on Windows.
 [target.'cfg(not(target_os = "android"))'.dependencies.datachannel]
-path = "../../../datachannel-rs"
+git = "https://github.com/idrto/datachannel-rs.git"
+branch = "fix/raw-sdp-forward"
 default-features = false
 features = ["tracing", "vendored-libdatachannel"]
 optional = true
 
 # Android: openssl-src (host OpenSSL is the wrong ABI).
 [target.'cfg(target_os = "android")'.dependencies.datachannel]
-path = "../../../datachannel-rs"
+git = "https://github.com/idrto/datachannel-rs.git"
+branch = "fix/raw-sdp-forward"
 default-features = false
 features = ["tracing", "vendored"]
 optional = true

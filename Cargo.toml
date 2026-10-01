@@ -76,8 +76,8 @@ tempfile = "3"
 tokio-test = "0.4"
 
 clap = { version = "4", features = ["derive", "env"] }
-dp-rust = { git = "https://github.com/2keyapp/dp-sdk", branch = "e2e", package = "dp-rust" }
-dp-rust-mtls = { git = "https://github.com/2keyapp/dp-sdk", branch = "e2e", package = "dp-rust-mtls" }
+dp-rust = { git = "https://github.com/2keyapp/dp-sdk.git", branch = "main" }
+dp-rust-mtls = { git = "https://github.com/2keyapp/dp-sdk.git", branch = "main" }
 
 dns-encoded-format = { path = "../dns-encoded-format/packages/rust" }
 idr-protocol = { path = "crates/idr-protocol" }
@@ -90,15 +90,6 @@ idr-source = { path = "crates/idr-source", default-features = false }
 idr-c-api = { path = "crates/idr-c-api" }
 idr-wasm = { path = "crates/idr-wasm" }
 idr-target = { path = "crates/idr-target" }
-
-# Use the in-repo fork at ../datachannel-rs (not crates.io / remote git).
-[patch."https://github.com/idrto/datachannel-rs"]
-datachannel = { path = "../datachannel-rs" }
-
-# Local dp-sdk (crypto helpers for Target FFI).
-[patch."https://github.com/2keyapp/dp-sdk"]
-dp-rust = { path = "../dp-sdk/packages/dp-rust" }
-dp-rust-mtls = { path = "../dp-sdk/packages/dp-rust-mtls" }
 
 [profile.release]
 lto = "thin"

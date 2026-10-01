@@ -600,6 +600,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 [[package]]
 name = "datachannel"
 version = "0.16.1"
+source = "git+https://github.com/idrto/datachannel-rs.git?branch=fix/raw-sdp-forward#0580f895f28ae511502d011c3f21e3405914f403"
 dependencies = [
  "datachannel-sys",
  "derive_more",
@@ -612,6 +613,7 @@ dependencies = [
 [[package]]
 name = "datachannel-sys"
 version = "0.24.5+idrto.1"
+source = "git+https://github.com/idrto/datachannel-rs.git?branch=fix/raw-sdp-forward#0580f895f28ae511502d011c3f21e3405914f403"
 dependencies = [
  "bindgen",
  "cmake",
@@ -689,7 +691,8 @@ dependencies = [
 
 [[package]]
 name = "dp-rust"
-version = "0.1.0"
+version = "0.1.2"
+source = "git+https://github.com/2keyapp/dp-sdk.git?branch=main#7da7e9a7ad606c6bae4d0731e5d9de4f096a8da6"
 dependencies = [
  "serde",
  "serde_json",
@@ -697,7 +700,8 @@ dependencies = [
 
 [[package]]
 name = "dp-rust-mtls"
-version = "0.1.0"
+version = "0.1.2"
+source = "git+https://github.com/2keyapp/dp-sdk.git?branch=main#7da7e9a7ad606c6bae4d0731e5d9de4f096a8da6"
 dependencies = [
  "base64",
  "dp-rust",
@@ -2606,6 +2610,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",

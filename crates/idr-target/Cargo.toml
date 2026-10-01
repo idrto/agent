@@ -49,8 +49,8 @@ rustls-pemfile = { workspace = true }
 webpki-roots = { workspace = true }
 
 [dependencies.datachannel]
-# Repo-root clone: c:\dev\idrto\datachannel-rs (not crates.io).
-path = "../../../datachannel-rs"
+git = "https://github.com/idrto/datachannel-rs.git"
+branch = "fix/raw-sdp-forward"
 default-features = false
 # vendored-libdatachannel: build libdatachannel from source; use system OpenSSL
 # (OPENSSL_ROOT_DIR). Avoids openssl-src + broken Git Perl on Windows.
