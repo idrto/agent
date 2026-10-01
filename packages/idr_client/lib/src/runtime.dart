@@ -83,6 +83,13 @@ class IdrRuntime {
     }
   }
 
+  /// Install the DP device identity (`idr_dp::DeviceIdentityJson`) used for
+  /// mTLS / PoP. Call before [connect] when `authMode == idrAuthMtls`.
+  Future<void> setDpIdentity(String identityJson) async {
+    _ensureOpen();
+    await _ffi.setDpIdentity(identityJson);
+  }
+
   /// Events are not yet proxied across the FFI isolate; returns empty.
   List<IdrEvent> pollEvents({int max = 32}) {
     _ensureOpen();

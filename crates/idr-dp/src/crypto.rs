@@ -96,6 +96,16 @@ pub fn sign_csr_with_ca_jwk(
     })
 }
 
+/// Rebuild the self-signed CA cert PEM from a stored CA private JWK (JSON) + CN.
+pub fn ca_cert_pem_from_jwk_json(
+    ca_private_jwk_json: &str,
+    common_name: &str,
+) -> Result<String, DpCryptoError> {
+    let jwk: serde_json::Value = serde_json::from_str(ca_private_jwk_json)
+        .map_err(|e| DpCryptoError::Json(e.to_string()))?;
+    Ok(ca_cert_pem_from_private_jwk(&jwk, common_name)?)
+}
+
 pub fn sign_csr_with_ca_jwk_json(
     csr_pem: &str,
     ca_private_jwk_json: &str,

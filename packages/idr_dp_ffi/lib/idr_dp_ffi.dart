@@ -1,6 +1,9 @@
-/// Deprecated entrypoint — desktop crypto lives in `package:idr_target`.
+/// Dart bindings for the `idr_dp_*` crypto C ABI (`idr-dp-ffi` crate).
 ///
-/// Prefer: `import 'package:idr_target/idr_target.dart';` then [IdrDpCrypto].
+/// Load from the standalone `idr_dp` library or from `idr_c_api`, which
+/// re-exports the same symbols so Source ships a single native library.
 library idr_dp_ffi;
 
-export 'package:idr_target/idr_target.dart' show IdrDpCrypto, IdrCrypto, Ed25519KeyMaterial;
+export 'src/crypto.dart';
+export 'src/idr_dp_crypto.dart';
+export 'src/jwk.dart';

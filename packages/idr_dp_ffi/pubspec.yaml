@@ -1,16 +1,16 @@
 name: idr_dp_ffi
 description: >-
-  Deprecated re-export of IdrDpCrypto from idr_target. Prefer depending on
-  idr_target directly.
-version: 0.1.0
+  Dart FFI bindings for idr-dp crypto (Ed25519, CSR, PoP sign, CA sign) — the
+  `idr_dp_*` C ABI exported by `idr_dp` and `idr_c_api`. Shared by Source and Target.
+version: 0.2.0
 publish_to: none
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
 
 dependencies:
-  idr_target:
-    path: ../../../idr_target
+  ffi: ^2.1.0
 
 dev_dependencies:
   lints: ^4.0.0
+  test: ^1.25.0

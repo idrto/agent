@@ -21,3 +21,7 @@ pub use engine::{
 };
 pub use error::{clear_last_error, last_error_code, last_error_message, set_last_error};
 pub use ffi::*;
+// Compile the `idr_dp_*` C ABI into this cdylib so Source ships one native lib.
+// Included by path (not as a dep): both `idr-dp` and `idr-dp-ffi` have lib name `idr_dp`.
+#[path = "../../idr-dp-ffi/src/lib.rs"]
+pub mod dp_ffi;

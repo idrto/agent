@@ -37,53 +37,41 @@ String? _resolveLibraryPath(String? explicit) {
   if (explicit != null && explicit.trim().isNotEmpty) {
     candidates.add(explicit.trim());
   }
-  final env = Platform.environment['IDR_SDK_LIB'];
-  if (env != null && env.trim().isNotEmpty) {
-    candidates.add(env.trim());
+  for (final name in const ['IDR_C_API_LIB', 'IDR_SDK_LIB']) {
+    final env = Platform.environment[name];
+    if (env != null && env.trim().isNotEmpty) {
+      candidates.add(env.trim());
+    }
   }
 
-  if (Platform.isWindows) {
-    candidates.addAll(const [
-      r'C:\dev\idrto\agent\target\release\idr_c_api.dll',
-      r'C:\dev\idrto\agent\target\debug\idr_c_api.dll',
-    ]);
-  } else if (Platform.isMacOS) {
-    candidates.addAll(const [
-      '/Users/Shared/idrto/agent/target/release/libidr_c_api.dylib',
-    ]);
-  } else if (Platform.isLinux) {
-    candidates.addAll(const [
-      '/opt/idrto/agent/target/release/libidr_c_api.so',
-    ]);
-  }
-
-  // Walk upward from cwd looking for agent/target/{release,debug}/…
-  var dir = Directory.current;
-  for (var i = 0; i < 8; i++) {
-    final release = _joinNativeLib(dir.path, 'release');
-    final debug = _joinNativeLib(dir.path, 'debug');
-    candidates.add(release);
-    candidates.add(debug);
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
-    dir = parent;
+  // Walk upward from cwd (then the executable) for
+  // agents_engine/agent/target/{release,debug}/… (legacy agent/target too).
+  final lib = Platform.isWindows
+      ? 'idr_c_api.dll'
+      : Platform.isMacOS
+          ? 'libidr_c_api.dylib'
+          : 'libidr_c_api.so';
+  for (final start in [Directory.current, File(Platform.resolvedExecutable).parent]) {
+    var dir = start;
+    for (var i = 0; i < 8; i++) {
+      for (final agent in const ['agents_engine/agent', 'agent']) {
+        for (final profile in const ['release', 'debug']) {
+          candidates.add(
+            [dir.path, ...agent.split('/'), 'target', profile, lib]
+                .join(Platform.pathSeparator),
+          );
+        }
+      }
+      final parent = dir.parent;
+      if (parent.path == dir.path) break;
+      dir = parent;
+    }
   }
 
   for (final c in candidates) {
     if (File(c).existsSync()) return c;
   }
   return null;
-}
-
-String _joinNativeLib(String root, String profile) {
-  if (Platform.isWindows) {
-    return '$root${Platform.pathSeparator}agent${Platform.pathSeparator}target'
-        '${Platform.pathSeparator}$profile${Platform.pathSeparator}idr_c_api.dll';
-  }
-  if (Platform.isMacOS) {
-    return '$root/agent/target/$profile/libidr_c_api.dylib';
-  }
-  return '$root/agent/target/$profile/libidr_c_api.so';
 }
 
 /// Make OpenSSL (and other) deps next to `idr_c_api.dll` resolvable on Windows.

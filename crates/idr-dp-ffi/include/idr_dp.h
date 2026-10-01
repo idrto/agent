@@ -22,6 +22,9 @@ int idr_dp_sign(const char *private_pem, const unsigned char *msg, size_t msg_le
                 char **out_b64);
 int idr_dp_sign_json(const char *private_pem, const char *json, char **out_b64);
 int idr_dp_ski(const char *public_b64url, char **out_ski);
+/* Self-signed CA cert PEM from CA private JWK JSON + CN (= CA SKI by convention). */
+int idr_dp_ca_cert_pem_from_jwk(const char *ca_private_jwk_json, const char *common_name,
+                                char **out_pem);
 /* host may be NULL. out_json is {"leaf_pem":"...","chain_pem":"..."}. */
 int idr_dp_sign_csr(const char *csr_pem, const char *ca_private_jwk_json,
                     const char *issuer_ski, const char *host, char **out_json);

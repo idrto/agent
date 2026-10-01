@@ -11,7 +11,10 @@ use std::os::raw::{c_char, c_int, c_uchar};
 use std::ptr;
 use std::slice;
 
-use idr_dp::{build_csr, generate_ed25519_json, sign, sign_csr_with_ca_jwk_json, sign_json, ski};
+use idr_dp::{
+    build_csr, ca_cert_pem_from_jwk_json, generate_ed25519_json, sign, sign_csr_with_ca_jwk_json,
+    sign_json, ski,
+};
 
 thread_local! {
     static LAST_ERROR: RefCell<Option<String>> = RefCell::new(None);
@@ -204,6 +207,41 @@ pub unsafe extern "C" fn idr_dp_ski(
         }
     };
     write_cstring(out_ski, ski(x))
+}
+
+/// Self-signed CA cert PEM from a CA private JWK (JSON) + common name (= CA SKI by convention).
+#[no_mangle]
+pub unsafe extern "C" fn idr_dp_ca_cert_pem_from_jwk(
+    ca_private_jwk_json: *const c_char,
+    common_name: *const c_char,
+    out_pem: *mut *mut c_char,
+) -> c_int {
+    clear_error();
+    if ca_private_jwk_json.is_null() || common_name.is_null() || out_pem.is_null() {
+        set_error("null argument");
+        return -1;
+    }
+    let jwk = match CStr::from_ptr(ca_private_jwk_json).to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            set_error("ca_private_jwk_json not utf8");
+            return -2;
+        }
+    };
+    let cn = match CStr::from_ptr(common_name).to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            set_error("common_name not utf8");
+            return -2;
+        }
+    };
+    match ca_cert_pem_from_jwk_json(jwk, cn) {
+        Ok(pem) => write_cstring(out_pem, pem),
+        Err(e) => {
+            set_error(e.to_string());
+            -3
+        }
+    }
 }
 
 /// Sign device CSR with admin CA private JWK → JSON `{leaf_pem, chain_pem}`.

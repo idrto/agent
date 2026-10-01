@@ -47,6 +47,9 @@ class IdrFfiIsolate {
   Future<void> disconnect(int sessionId) =>
       _request({'op': 'disconnect', 'sessionId': sessionId});
 
+  Future<void> setDpIdentity(String identityJson) =>
+      _request({'op': 'setDpIdentity', 'json': identityJson});
+
   Future<List<String>> sessionNamedServices(int sessionId) async {
     final v = await _request({
       'op': 'namedServices',
@@ -207,6 +210,15 @@ void _main(SendPort ready) {
           return;
         case 'disconnect':
           _rc(bindings!, bindings!.disconnect(engine!, msg['sessionId'] as int));
+          ok();
+          return;
+        case 'setDpIdentity':
+          final json = (msg['json'] as String).toNativeUtf8();
+          try {
+            _rc(bindings!, bindings!.setDpIdentity(engine!, json));
+          } finally {
+            malloc.free(json);
+          }
           ok();
           return;
         case 'namedServices':
