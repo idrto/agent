@@ -25,7 +25,7 @@ identity.dp.json
 fullchain.pem
 privkey.pem
 acme-account-*.json
-
+scripts/local-http-upstream.py
 # Local debug / process logs
 *.log
 *.err

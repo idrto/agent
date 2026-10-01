@@ -388,7 +388,7 @@ impl PresenceWebSocketClient {
                 self.reg_cfg.webrtc.clone(),
                 self.fqhn.clone(),
                 self.identity.clone(),
-                self.relay_verify_key,
+                self.presence_push_verify_key(),
                 self.webrtc_sessions.clone(),
                 self.reg_cfg.nginx.clone(),
                 self.reg_cfg.webrtc.policy.clone(),
@@ -399,7 +399,7 @@ impl PresenceWebSocketClient {
             None
         };
         PresenceClientTask {
-            relay_verify_key: self.relay_verify_key,
+            relay_verify_key: self.presence_push_verify_key(),
             relay_manager: self.relay_manager.clone(),
             dedup: self.dedup.clone(),
             identity: self.identity.clone(),
@@ -409,6 +409,18 @@ impl PresenceWebSocketClient {
             webrtc,
             reg_cfg: self.reg_cfg.clone(),
         }
+    }
+
+    /// Key Presence uses after re-signing ensure pushes: this node's discovery `public_key`.
+    fn presence_push_verify_key(&self) -> VerifyingKey {
+        if !self.server.public_key.is_empty() {
+            if let Ok(key) =
+                idr_protocol::crypto::KeyPair::from_base64url_public(&self.server.public_key)
+            {
+                return key;
+            }
+        }
+        self.relay_verify_key
     }
 
     async fn handle_message(&self, text: &str) -> Result<()> {
