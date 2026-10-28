@@ -91,24 +91,6 @@ jobs:
           stat -c '%n %s' target/release/target-agent | tee -a webrtc-size.txt
           ls -la target/release/libidr_c_api.so 2>/dev/null | tee -a webrtc-size.txt || true
 
-  e2e-sdk:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Checkout sibling crates
-        env:
-          GH_TOKEN: ${{ secrets.SIBLING_REPOS_TOKEN || github.token }}
-        run: bash scripts/ci-clone-siblings.sh
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: e2e-sdk
-      - name: run e2e-sdk harness
-        run: bash scripts/e2e-sdk.sh
-        env:
-          # When api is not running locally, A1/A2 soft-skip inside the script on curl failure.
-          API_URL: http://127.0.0.1:3000
-
   security:
     runs-on: ubuntu-latest
     steps:

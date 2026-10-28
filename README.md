@@ -109,9 +109,6 @@ flutter run -d windows --dart-define=... # or: dart run bin/idr_cli.dart doctor
 ## E2E runbook
 
 ```bash
-# From agent/ — auth unit gates + source no-relay invariant
-bash scripts/e2e-sdk.sh
-
 # Full stack (local): start Postgres + api (RELAY_USAGE_BEARER set) + Presence
 # with billing.enabled=true pointing at api mux, target-agent --features webrtc,
 # HTTP upstream :18080, optional Ollama :11434, then Source native connect.
