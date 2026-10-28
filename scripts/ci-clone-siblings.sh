@@ -4,7 +4,7 @@
 #
 # Branch pins (CI must match these; `git clone --depth 1` otherwise uses default/main):
 #   datachannel-rs  fix/raw-sdp-forward
-#   dp-sdk          e2e
+#   dp-sdk          main
 set -euo pipefail
 
 AGENT_ROOT="$(cd "${1:-.}" && pwd)"
@@ -57,7 +57,7 @@ clone_repo() {
 
 clone_repo https://github.com/idrto/dns-encoded-format.git "${PARENT}/dns-encoded-format"
 clone_repo https://github.com/idrto/datachannel-rs.git "${PARENT}/datachannel-rs" "fix/raw-sdp-forward"
-clone_repo https://github.com/2keyapp/dp-sdk.git "${PARENT}/dp-sdk" "e2e"
+clone_repo https://github.com/2keyapp/dp-sdk.git "${PARENT}/dp-sdk" "main"
 
 if [[ ! -f "${PARENT}/datachannel-rs/datachannel-sys/libdatachannel/CMakeLists.txt" ]]; then
   echo "error: datachannel-sys/libdatachannel submodule was not checked out" >&2
