@@ -27,7 +27,10 @@ pub enum SignalingMessageType {
     // `alias` keeps older peers that still emit `web_rtc_*` working.
     #[serde(rename = "webrtc_session_offer", alias = "web_rtc_session_offer")]
     WebRtcSessionOffer,
-    #[serde(rename = "webrtc_session_offer_ack", alias = "web_rtc_session_offer_ack")]
+    #[serde(
+        rename = "webrtc_session_offer_ack",
+        alias = "web_rtc_session_offer_ack"
+    )]
     WebRtcSessionOfferAck,
     #[serde(rename = "webrtc_session_request", alias = "web_rtc_session_request")]
     WebRtcSessionRequest,
@@ -154,7 +157,9 @@ impl TargetRegistration {
     pub fn verify(&self) -> Result<()> {
         validate_signaling_size(self)?;
         if self.message_type != SignalingMessageType::RegisterTarget {
-            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+            return Err(ProtocolError::MalformedDocument(
+                "wrong message type".into(),
+            ));
         }
         let _ = self.billing_parties()?;
         let target_key = crypto::KeyPair::from_base64url_public(&self.target_identity)?;
@@ -170,7 +175,9 @@ impl TargetUnregistration {
     pub fn verify(&self) -> Result<()> {
         validate_signaling_size(self)?;
         if self.message_type != SignalingMessageType::UnregisterTarget {
-            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+            return Err(ProtocolError::MalformedDocument(
+                "wrong message type".into(),
+            ));
         }
         let target_key = crypto::KeyPair::from_base64url_public(&self.target_identity)?;
         let mut unsigned = self.clone();
@@ -184,7 +191,8 @@ impl TargetUnregistration {
 impl EnsureRelayConnectionCommand {
     pub fn sign(mut cmd: EnsureRelayConnectionUnsigned, key: &SigningKey) -> Result<Self> {
         cmd.signature = String::new();
-        let value = serde_json::to_value(&cmd).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_value(&cmd).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, key)?;
         Ok(Self {
             version: cmd.version,
@@ -208,7 +216,9 @@ impl EnsureRelayConnectionCommand {
     pub fn verify(&self, relay_key: &VerifyingKey) -> Result<()> {
         validate_signaling_size(self)?;
         if self.message_type != SignalingMessageType::EnsureRelayConnection {
-            return Err(ProtocolError::MalformedDocument("wrong message type".into()));
+            return Err(ProtocolError::MalformedDocument(
+                "wrong message type".into(),
+            ));
         }
         if Utc::now() > self.expires_at {
             return Err(ProtocolError::CommandExpired);

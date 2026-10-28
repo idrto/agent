@@ -692,7 +692,6 @@ dependencies = [
 [[package]]
 name = "dp-rust"
 version = "0.1.2"
-source = "git+https://github.com/2keyapp/dp-sdk.git?branch=main#7da7e9a7ad606c6bae4d0731e5d9de4f096a8da6"
 dependencies = [
  "serde",
  "serde_json",
@@ -701,7 +700,6 @@ dependencies = [
 [[package]]
 name = "dp-rust-mtls"
 version = "0.1.2"
-source = "git+https://github.com/2keyapp/dp-sdk.git?branch=main#7da7e9a7ad606c6bae4d0731e5d9de4f096a8da6"
 dependencies = [
  "base64",
  "dp-rust",
@@ -1415,7 +1413,10 @@ name = "idr-source"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64",
  "bytes",
+ "chrono",
+ "ed25519-dalek",
  "idr-core",
  "idr-dp",
  "idr-protocol",

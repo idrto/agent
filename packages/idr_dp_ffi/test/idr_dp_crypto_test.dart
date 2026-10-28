@@ -84,4 +84,49 @@ void main() {
     expect(leaf.leafPem, contains('BEGIN CERTIFICATE'));
     expect(leaf.chainPem, contains(leaf.leafPem.trim()));
   }, skip: available ? false : 'build idr-dp-ffi first: $path');
+
+  // Chain signature checks live in the Rust tests (idr-dp, dp-rust-mtls);
+  // this covers the two new C symbols and their argument plumbing.
+  test('zone CA under root → member leaf with the real chain (native)', () {
+    final crypto = IdrDpCrypto.open(libraryPath: path);
+    final root = crypto.generateEd25519();
+    final rootJwk = ed25519PrivateJwk(
+        privatePem: root.privatePem, publicJwk: root.publicJwk);
+    final rootPem = crypto.caCertPemFromPrivateJwk(
+        privateJwk: rootJwk, commonName: root.ski);
+
+    final zone = crypto.generateEd25519();
+    final zonePem = crypto.signIntermediateCa(
+      childPublicJwk: zone.publicJwk,
+      childCommonName: zone.ski,
+      parentPrivateJwk: rootJwk,
+      parentCommonName: root.ski,
+    );
+    expect(zonePem, contains('BEGIN CERTIFICATE'));
+    expect(zonePem.trim(), isNot(rootPem.trim()));
+
+    final member = crypto.generateEd25519();
+    final leaf = crypto.signCsr(
+      csrPem: crypto.buildCsr(
+          privatePem: member.privatePem, fqhn: 'laptop--a@acme.com'),
+      caPrivateJwk: ed25519PrivateJwk(
+          privatePem: zone.privatePem, publicJwk: zone.publicJwk),
+      issuerSki: zone.ski,
+      host: 'laptop--a@acme.com',
+      issuerChainPem: '$zonePem$rootPem',
+    );
+    expect(leaf.chainPem, startsWith(leaf.leafPem.trim()));
+    expect(leaf.chainPem, contains(zonePem.trim()));
+    expect(leaf.chainPem, contains(rootPem.trim()));
+
+    expect(
+      () => crypto.signIntermediateCa(
+        childPublicJwk: const {'kty': 'OKP', 'crv': 'Ed25519', 'x': 'AAAA'},
+        childCommonName: 'bad',
+        parentPrivateJwk: rootJwk,
+        parentCommonName: root.ski,
+      ),
+      throwsA(isA<IdrDpException>()),
+    );
+  }, skip: available ? false : 'build idr-dp-ffi first: $path');
 }

@@ -68,10 +68,25 @@ abstract interface class IdrCrypto {
     required String commonName,
   });
 
+  /// Sign a device CSR with a CA private JWK.
+  ///
+  /// [issuerChainPem] is the issuer's real chain (issuer cert, then parents up
+  /// to the root) for subordinate issuers such as zone authorities. Omitted, the
+  /// issuer is treated as a root and its self-signed cert is re-derived.
   SignedLeaf signCsr({
     required String csrPem,
     required Map<String, dynamic> caPrivateJwk,
     required String issuerSki,
     String? host,
+    String? issuerChainPem,
+  });
+
+  /// Subordinate (zone) CA cert PEM — CA, path length 0 — for [childPublicJwk],
+  /// signed by the parent CA. Common names are SKIs by convention.
+  String signIntermediateCa({
+    required Map<String, dynamic> childPublicJwk,
+    required String childCommonName,
+    required Map<String, dynamic> parentPrivateJwk,
+    required String parentCommonName,
   });
 }

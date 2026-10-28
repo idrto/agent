@@ -2,8 +2,9 @@
 
 use dp_rust_mtls::{
     build_csr_from_private_pem, ca_cert_pem_from_private_jwk, generate_ed25519,
-    sign_client_cert_from_csr, sign_json_b64url, sign_message_b64url, ski_from_csr_pem,
-    ski_from_public_b64url, GeneratedEd25519, MtlsError, SignClientCertFromCsrParams,
+    sign_client_cert_from_csr, sign_intermediate_ca, sign_json_b64url, sign_message_b64url,
+    ski_from_csr_pem, ski_from_public_b64url, GeneratedEd25519, MtlsError,
+    SignClientCertFromCsrParams, SignIntermediateCaParams,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -70,6 +71,10 @@ pub fn generate_ed25519_json() -> Result<String, DpCryptoError> {
     serde_json::to_string(&mat).map_err(|e| DpCryptoError::Json(e.to_string()))
 }
 
+fn parse_jwk(json: &str) -> Result<serde_json::Value, DpCryptoError> {
+    serde_json::from_str(json).map_err(|e| DpCryptoError::Json(e.to_string()))
+}
+
 /// Sign CSR with CA private JWK. Re-derives CA cert using common_name (= issuer_ski by convention).
 pub fn sign_csr_with_ca_jwk(
     csr_pem: &str,
@@ -77,13 +82,24 @@ pub fn sign_csr_with_ca_jwk(
     issuer_ski: &str,
     host: Option<&str>,
 ) -> Result<SignedLeafJson, DpCryptoError> {
-    let ca_private_jwk: serde_json::Value = serde_json::from_str(ca_private_jwk_json)
-        .map_err(|e| DpCryptoError::Json(e.to_string()))?;
-    let ca_cert_pem = ca_cert_pem_from_private_jwk(&ca_private_jwk, issuer_ski)?;
+    let ca_cert_pem = ca_cert_pem_from_private_jwk(&parse_jwk(ca_private_jwk_json)?, issuer_ski)?;
+    sign_csr_with_issuer_chain(csr_pem, ca_private_jwk_json, issuer_ski, &ca_cert_pem, host)
+}
+
+/// Sign CSR with a (possibly subordinate) CA key, appending the issuer's real
+/// chain (`issuer_chain_pem` = issuer cert, then its parents up to the root).
+pub fn sign_csr_with_issuer_chain(
+    csr_pem: &str,
+    ca_private_jwk_json: &str,
+    issuer_ski: &str,
+    issuer_chain_pem: &str,
+    host: Option<&str>,
+) -> Result<SignedLeafJson, DpCryptoError> {
+    let ca_private_jwk = parse_jwk(ca_private_jwk_json)?;
     let leaf_ski = ski_from_csr_pem(csr_pem)?;
     let signed = sign_client_cert_from_csr(SignClientCertFromCsrParams {
         csr_pem,
-        ca_cert_pem: &ca_cert_pem,
+        ca_cert_pem: issuer_chain_pem,
         ca_private_jwk: &ca_private_jwk,
         ca_common_name: issuer_ski,
         ski: &leaf_ski,
@@ -94,6 +110,40 @@ pub fn sign_csr_with_ca_jwk(
         leaf_pem: signed.leaf_pem,
         chain_pem: signed.chain_pem,
     })
+}
+
+pub fn sign_csr_with_issuer_chain_json(
+    csr_pem: &str,
+    ca_private_jwk_json: &str,
+    issuer_ski: &str,
+    issuer_chain_pem: &str,
+    host: Option<&str>,
+) -> Result<String, DpCryptoError> {
+    let signed = sign_csr_with_issuer_chain(
+        csr_pem,
+        ca_private_jwk_json,
+        issuer_ski,
+        issuer_chain_pem,
+        host,
+    )?;
+    serde_json::to_string(&signed).map_err(|e| DpCryptoError::Json(e.to_string()))
+}
+
+/// Zone / subordinate CA cert PEM for `child_public_jwk_json`, signed by the
+/// parent CA key. CNs are SKIs by convention.
+pub fn sign_intermediate_ca_json(
+    child_public_jwk_json: &str,
+    child_common_name: &str,
+    parent_private_jwk_json: &str,
+    parent_common_name: &str,
+) -> Result<String, DpCryptoError> {
+    Ok(sign_intermediate_ca(SignIntermediateCaParams {
+        child_public_jwk: &parse_jwk(child_public_jwk_json)?,
+        child_common_name,
+        parent_private_jwk: &parse_jwk(parent_private_jwk_json)?,
+        parent_common_name,
+        not_after_days: None,
+    })?)
 }
 
 /// Rebuild the self-signed CA cert PEM from a stored CA private JWK (JSON) + CN.
@@ -150,5 +200,44 @@ mod tests {
         let json = sign_csr_with_ca_jwk_json(&csr, &jwk, &ca.ski, None).expect("json");
         assert!(json.contains("leaf_pem"));
         assert!(json.contains("chain_pem"));
+    }
+
+    #[test]
+    fn zone_ca_and_member_leaf_chain_to_root_via_json_api() {
+        use dp_rust_mtls::verify_ed25519_cert_against_issuer;
+
+        // Root as kickstart builds it: CN = root SKI.
+        let root_key = dp_rust_mtls::generate_ed25519().expect("root key");
+        let root_jwk = serde_json::to_string(&root_key.private_jwk).unwrap();
+        let root_pem = ca_cert_pem_from_jwk_json(&root_jwk, &root_key.ski).expect("root cert");
+
+        let zone = dp_rust_mtls::generate_ed25519().expect("zone key");
+        let zone_pem = sign_intermediate_ca_json(
+            &serde_json::to_string(&zone.public_jwk).unwrap(),
+            &zone.ski,
+            &root_jwk,
+            &root_key.ski,
+        )
+        .expect("zone cert");
+        assert!(verify_ed25519_cert_against_issuer(&zone_pem, &root_pem).unwrap());
+
+        let member = generate_ed25519_material().expect("member");
+        let csr = build_csr(&member.private_pem, "laptop--a@acme.com").expect("csr");
+        let chain = format!("{zone_pem}{root_pem}");
+        let json = sign_csr_with_issuer_chain_json(
+            &csr,
+            &serde_json::to_string(&zone.private_jwk).unwrap(),
+            &zone.ski,
+            &chain,
+            Some("laptop--a@acme.com"),
+        )
+        .expect("member leaf");
+        let leaf: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let leaf_pem = leaf["leaf_pem"].as_str().unwrap();
+        assert!(verify_ed25519_cert_against_issuer(leaf_pem, &zone_pem).unwrap());
+        assert!(leaf["chain_pem"]
+            .as_str()
+            .unwrap()
+            .contains(root_pem.trim()));
     }
 }

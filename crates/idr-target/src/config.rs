@@ -535,6 +535,10 @@ pub struct WebRtcPolicyConfig {
     pub deny_private_ips: bool,
     #[serde(default)]
     pub allowed_tcp_connect_suffixes: Vec<String>,
+    /// Refuse streams from Sources without a Presence-verified policy
+    /// (`source.policy` in the signed offer). Off by default; on for Enterprise.
+    #[serde(default)]
+    pub require_source_policy: bool,
 }
 
 impl Default for WebRtcPolicyConfig {
@@ -542,6 +546,7 @@ impl Default for WebRtcPolicyConfig {
         Self {
             deny_private_ips: true,
             allowed_tcp_connect_suffixes: Vec::new(),
+            require_source_policy: false,
         }
     }
 }
@@ -779,5 +784,45 @@ impl Config {
                 .map(str::to_string)
                 .collect();
         }
+    }
+}
+
+#[cfg(test)]
+mod webrtc_policy_tests {
+    use super::*;
+
+    /// The key the idr_target SDK writes (`TomlWriter`) for Enterprise Targets.
+    #[test]
+    fn reads_require_source_policy_from_webrtc_policy() {
+        let on: WebRtcPolicyConfig =
+            toml::from_str("deny_private_ips = true\nrequire_source_policy = true\n").unwrap();
+        assert!(on.require_source_policy);
+        let off: WebRtcPolicyConfig = toml::from_str("deny_private_ips = true\n").unwrap();
+        assert!(!off.require_source_policy, "off by default");
+        assert!(!WebRtcPolicyConfig::default().require_source_policy);
+    }
+
+    /// The `[acme]` block the idr_target SDK writes for verified custom domains.
+    #[test]
+    fn reads_sdk_acme_block() {
+        let acme: AcmeConfig = toml::from_str(
+            r#"
+enabled = true
+domains = ["app.customer.com"]
+email = "a@acme.test"
+staging = true
+webroot = "C:\\cfg\\acme\\webroot"
+cert_dir = "C:\\cfg\\acme\\certs"
+nginx_reload_command = ""
+"#,
+        )
+        .unwrap();
+        assert_eq!(acme.domains, vec!["app.customer.com"]);
+        assert_eq!(
+            acme.cert_dir,
+            std::path::PathBuf::from(r"C:\cfg\acme\certs")
+        );
+        assert_eq!(acme.nginx_reload_command.as_deref(), Some(""));
+        crate::acme::AcmeManager::new(acme).expect("SDK block starts the manager");
     }
 }

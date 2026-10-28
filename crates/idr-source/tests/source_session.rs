@@ -162,3 +162,107 @@ async fn flow_control_write_respects_window() {
         idr_core::IdrErrorKind::Backpressure
     );
 }
+
+/// Records the session request the runtime sends, then answers like the mock.
+struct RecordingSignaling {
+    inner: MockSignalingClient,
+    seen: Arc<Mutex<Option<idr_protocol::webrtc_signaling::WebRtcSessionRequest>>>,
+}
+
+#[async_trait::async_trait]
+impl idr_signaling::ephemeral::WebRtcSignalingClient for RecordingSignaling {
+    async fn begin_session(
+        &mut self,
+        request: idr_protocol::webrtc_signaling::WebRtcSessionRequest,
+    ) -> idr_core::Result<Box<dyn idr_signaling::ephemeral::EphemeralSignaling>> {
+        *self.seen.lock().unwrap() = Some(request.clone());
+        self.inner.begin_session(request).await
+    }
+}
+
+fn connect_runtime(
+    identity: Option<idr_dp::DeviceIdentity>,
+) -> (
+    SourceRuntime,
+    Arc<Mutex<Option<idr_protocol::webrtc_signaling::WebRtcSessionRequest>>>,
+) {
+    let seen = Arc::new(Mutex::new(None));
+    let runtime = SourceRuntime::with_auth(
+        Box::new(RecordingSignaling {
+            inner: MockSignalingClient::default(),
+            seen: seen.clone(),
+        }),
+        || {
+            Box::new(SlotPeer {
+                inner: RecordingPeer::new(),
+                sent_sink: Arc::new(Mutex::new(Vec::new())),
+                auto_open_ok: true,
+                pending_in: Vec::new(),
+            })
+        },
+        "src",
+        "eu",
+        SourceAuthMode::Bearer,
+        Some("test-token".into()),
+    );
+    let runtime = match identity {
+        Some(id) => runtime.with_identity(id),
+        None => runtime,
+    };
+    (runtime, seen)
+}
+
+#[tokio::test]
+async fn enrolled_source_sends_a_proof_bound_to_the_session() {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let key = ed25519_dalek::SigningKey::from_bytes(&[9; 32]);
+    let x = URL_SAFE_NO_PAD.encode(key.verifying_key().as_bytes());
+    let identity = idr_dp::DeviceIdentity {
+        ski: "member-ski".into(),
+        private_jwk: serde_json::json!({
+            "kty": "OKP", "crv": "Ed25519", "x": x, "d": URL_SAFE_NO_PAD.encode([9u8; 32]),
+        }),
+        credential: idr_dp::CapabilityCredential {
+            version: 1,
+            kind: idr_dp::CredentialKind::Machine,
+            entity_id: "a@acme.test".into(),
+            ski: "member-ski".into(),
+            public_jwk: serde_json::json!({"kty": "OKP", "crv": "Ed25519", "x": x}),
+            permissions: vec![],
+            zone: Some("zone-a".into()),
+            host: Some("member--a@acme.test".into()),
+            issuer_ski: "zone-ski".into(),
+            not_before: "2026-01-01T00:00:00.000Z".into(),
+            not_after: "2027-01-01T00:00:00.000Z".into(),
+            package: None,
+            platform_cosign: None,
+            signature: "hdr.payload.sig".into(),
+        },
+        cert_pem: Some("LEAF".into()),
+        chain_pem: Some("LEAF\nZONE\nROOT".into()),
+    };
+    let (mut runtime, seen) = connect_runtime(Some(identity));
+    runtime.connect("t.idr.to").await.unwrap();
+
+    let request = seen.lock().unwrap().clone().expect("session request sent");
+    let proof = request
+        .source_proof
+        .expect("enrolled Source attaches a proof");
+    assert_eq!(proof.ski, "member-ski");
+    assert_eq!(proof.chain_pem, "LEAF\nZONE\nROOT");
+    let vk = key.verifying_key();
+    assert!(proof
+        .verify_signature(&vk, request.session_id, "t.idr.to")
+        .is_ok());
+    assert!(proof
+        .verify_signature(&vk, uuid::Uuid::new_v4(), "t.idr.to")
+        .is_err());
+}
+
+#[tokio::test]
+async fn unenrolled_source_sends_no_proof() {
+    let (mut runtime, seen) = connect_runtime(None);
+    runtime.connect("t.idr.to").await.unwrap();
+    let request = seen.lock().unwrap().clone().expect("session request sent");
+    assert!(request.source_proof.is_none());
+}

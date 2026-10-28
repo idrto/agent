@@ -466,8 +466,23 @@ async fn handle_mux_message(
         }
         StreamFrame::HelloAck { .. } => {}
         StreamFrame::ServicesCatalogRequest => {
-            let services = rt.connectors.service_names();
-            let entries = rt.connectors.catalog_entries();
+            // A Source only sees the services its policy lets it open.
+            let (policy, require) = (
+                rt.offer.source.policy.as_ref(),
+                rt.policy.require_source_policy,
+            );
+            let services = crate::webrtc::source_policy::visible(
+                policy,
+                require,
+                rt.connectors.service_names(),
+                |n: &String| n.as_str(),
+            );
+            let entries = crate::webrtc::source_policy::visible(
+                policy,
+                require,
+                rt.connectors.catalog_entries(),
+                |e| e.name.as_str(),
+            );
             let catalog = StreamFrame::ServicesCatalog { services };
             if let Ok(bytes) = encode_datachannel_message(&catalog) {
                 let _ = out_tx.send(Outbound::Frame(bytes)).await;
@@ -510,6 +525,22 @@ async fn open_via_registry(
             "OPEN requires service_name (or http/https kind)".into(),
         ));
     };
+
+    let source_policy = rt.offer.source.policy.as_ref();
+    if let Err(reason) = crate::webrtc::source_policy::service_allowed(
+        source_policy,
+        rt.policy.require_source_policy,
+        service_name,
+    ) {
+        warn!(
+            session_id = %rt.offer.session_id,
+            service = service_name,
+            zone = ?source_policy.and_then(|p| p.zone.as_deref()),
+            ski = ?source_policy.map(|p| p.ski.as_str()),
+            "stream refused by Source policy"
+        );
+        return Err((OpenErrorCode::Unauthorized, reason.into()));
+    }
 
     let (svc, connector) = rt.connectors.resolve(service_name).map_err(|e| {
         (

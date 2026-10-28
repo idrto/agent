@@ -209,7 +209,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
         idle.clone(),
         writer.clone(),
         Some(nginx),
-        readiness.clone(),
+        readiness,
         fqhn.clone(),
     ));
     relay_manager.spawn_idle_worker();
@@ -221,7 +221,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
         "connector registry ready"
     );
 
-    match AcmeManager::new(cfg.acme.clone(), readiness) {
+    match AcmeManager::new(cfg.acme.clone()) {
         Ok(acme) => acme.spawn(),
         Err(e) => error!(error = %e, "ACME manager not started"),
     }

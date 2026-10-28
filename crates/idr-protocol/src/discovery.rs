@@ -260,12 +260,18 @@ mod tests {
         let doc = parse_discovery_document(LIVE_JSON.as_bytes()).unwrap();
         assert_eq!(doc.generation, 5);
         assert_eq!(doc.presence_servers.len(), 2);
-        assert_eq!(doc.presence_servers[0].ipv4.as_deref(), Some("46.62.246.148"));
+        assert_eq!(
+            doc.presence_servers[0].ipv4.as_deref(),
+            Some("46.62.246.148")
+        );
         assert_eq!(
             doc.presence_servers[0].wss_url,
             "ws://46.62.246.148:8080/v1/presence"
         );
-        assert_eq!(doc.presence_servers[0].server_name, LIVE_PRESENCE_SERVER_NAME);
+        assert_eq!(
+            doc.presence_servers[0].server_name,
+            LIVE_PRESENCE_SERVER_NAME
+        );
         assert_eq!(doc.presence_servers[1].presence_id, "presence-0002");
     }
 }

@@ -13,7 +13,7 @@ use std::slice;
 
 use idr_dp::{
     build_csr, ca_cert_pem_from_jwk_json, generate_ed25519_json, sign, sign_csr_with_ca_jwk_json,
-    sign_json, ski,
+    sign_csr_with_issuer_chain_json, sign_intermediate_ca_json, sign_json, ski,
 };
 
 thread_local! {
@@ -297,6 +297,97 @@ pub unsafe extern "C" fn idr_dp_sign_csr(
     };
     match sign_csr_with_ca_jwk_json(csr, jwk, issuer, host_opt) {
         Ok(json) => write_cstring(out_json, json),
+        Err(e) => {
+            set_error(e.to_string());
+            -3
+        }
+    }
+}
+
+/// Borrow a required UTF-8 C string argument; sets the last error on failure.
+unsafe fn arg<'a>(p: *const c_char, name: &str) -> Result<&'a str, c_int> {
+    if p.is_null() {
+        set_error(format!("{name} is null"));
+        return Err(-1);
+    }
+    CStr::from_ptr(p).to_str().map_err(|_| {
+        set_error(format!("{name} not utf8"));
+        -2
+    })
+}
+
+/// Sign device CSR with a (zone or root) CA private JWK, appending the issuer's
+/// real chain PEM (issuer cert, then parents to the root) → JSON
+/// `{leaf_pem, chain_pem}`. `host` may be null.
+#[no_mangle]
+pub unsafe extern "C" fn idr_dp_sign_csr_with_chain(
+    csr_pem: *const c_char,
+    ca_private_jwk_json: *const c_char,
+    issuer_ski: *const c_char,
+    issuer_chain_pem: *const c_char,
+    host: *const c_char,
+    out_json: *mut *mut c_char,
+) -> c_int {
+    clear_error();
+    if out_json.is_null() {
+        set_error("null argument");
+        return -1;
+    }
+    let args = (|| {
+        Ok::<_, c_int>((
+            arg(csr_pem, "csr_pem")?,
+            arg(ca_private_jwk_json, "ca_private_jwk_json")?,
+            arg(issuer_ski, "issuer_ski")?,
+            arg(issuer_chain_pem, "issuer_chain_pem")?,
+            if host.is_null() {
+                None
+            } else {
+                Some(arg(host, "host")?)
+            },
+        ))
+    })();
+    let (csr, jwk, issuer, chain, host) = match args {
+        Ok(a) => a,
+        Err(code) => return code,
+    };
+    match sign_csr_with_issuer_chain_json(csr, jwk, issuer, chain, host) {
+        Ok(json) => write_cstring(out_json, json),
+        Err(e) => {
+            set_error(e.to_string());
+            -3
+        }
+    }
+}
+
+/// Zone / subordinate CA cert PEM (CA, path length 0) for a child public JWK,
+/// signed by the parent CA private JWK. CNs are SKIs by convention.
+#[no_mangle]
+pub unsafe extern "C" fn idr_dp_sign_intermediate_ca(
+    child_public_jwk_json: *const c_char,
+    child_common_name: *const c_char,
+    parent_private_jwk_json: *const c_char,
+    parent_common_name: *const c_char,
+    out_pem: *mut *mut c_char,
+) -> c_int {
+    clear_error();
+    if out_pem.is_null() {
+        set_error("null argument");
+        return -1;
+    }
+    let args = (|| {
+        Ok::<_, c_int>((
+            arg(child_public_jwk_json, "child_public_jwk_json")?,
+            arg(child_common_name, "child_common_name")?,
+            arg(parent_private_jwk_json, "parent_private_jwk_json")?,
+            arg(parent_common_name, "parent_common_name")?,
+        ))
+    })();
+    let (child, child_cn, parent, parent_cn) = match args {
+        Ok(a) => a,
+        Err(code) => return code,
+    };
+    match sign_intermediate_ca_json(child, child_cn, parent, parent_cn) {
+        Ok(pem) => write_cstring(out_pem, pem),
         Err(e) => {
             set_error(e.to_string());
             -3

@@ -56,7 +56,7 @@ pub fn spawn_acceptor(
 }
 
 async fn handle_tunnel_stream(
-    mut send: SendStream,
+    send: SendStream,
     mut recv: RecvStream,
     nginx: &NginxConfig,
     expected_fqhn: &str,
@@ -67,17 +67,65 @@ async fn handle_tunnel_stream(
     if claimed != expected_fqhn {
         anyhow::bail!("TunnelOpen FQHN mismatch: claimed={claimed} expected={expected_fqhn}");
     }
-    let upstream = match open.kind {
-        TunnelStreamKind::TlsPassthrough => nginx.tls_upstream,
-        TunnelStreamKind::HttpPassthrough => nginx.http_upstream,
-    };
-            debug!(?open.kind, %upstream, "tunnel bridge to nginx");
-            let tcp = TcpStream::connect(upstream)
-                .await
-                .with_context(|| format!("connect nginx upstream {upstream}"))?;
-            info!(?open.kind, %upstream, "tunnel bridged to upstream");
-            pipe_quic_tcp(recv, send, tcp).await
+    let (upstream, head) = match open.kind {
+        TunnelStreamKind::TlsPassthrough => (nginx.tls_upstream, Vec::new()),
+        TunnelStreamKind::HttpPassthrough => {
+            // ACME HTTP-01 for our own orders is answered here (no nginx needed).
+            let head = read_request_line(&mut recv).await?;
+            if let Some(body) = acme_token(&head).and_then(crate::acme::http01_key_authorization) {
+                info!("tunnel answered ACME HTTP-01 challenge");
+                return write_http01(send, &body).await;
+            }
+            (nginx.http_upstream, head)
         }
+    };
+    debug!(?open.kind, %upstream, "tunnel bridge to nginx");
+    let mut tcp = TcpStream::connect(upstream)
+        .await
+        .with_context(|| format!("connect nginx upstream {upstream}"))?;
+    tcp.write_all(&head).await?;
+    info!(?open.kind, %upstream, "tunnel bridged to upstream");
+    pipe_quic_tcp(recv, send, tcp).await
+}
+
+/// Max bytes read while looking for the HTTP request line.
+const MAX_REQUEST_LINE: usize = 8192;
+
+/// Bytes up to and including the first `\r\n` (or 8 KiB / EOF). Anything read
+/// past the line is kept and replayed to the upstream.
+async fn read_request_line(recv: &mut RecvStream) -> Result<Vec<u8>> {
+    let mut head = Vec::new();
+    let mut buf = [0u8; 1024];
+    while head.len() < MAX_REQUEST_LINE && !head.windows(2).any(|w| w == b"\r\n") {
+        match recv.read(&mut buf).await? {
+            Some(n) if n > 0 => head.extend_from_slice(&buf[..n]),
+            _ => break,
+        }
+    }
+    Ok(head)
+}
+
+/// `GET /.well-known/acme-challenge/<token> HTTP/1.1` → `<token>`.
+fn acme_token(head: &[u8]) -> Option<&str> {
+    let line = std::str::from_utf8(head.split(|b| *b == b'\r').next()?).ok()?;
+    let mut parts = line.split(' ');
+    let (method, path) = (parts.next()?, parts.next()?);
+    if method != "GET" {
+        return None;
+    }
+    let token = path.strip_prefix(idr_protocol::tunnel::ACME_WELL_KNOWN_PREFIX)?;
+    (!token.is_empty() && !token.contains('/')).then_some(token)
+}
+
+async fn write_http01(mut send: SendStream, body: &str) -> Result<()> {
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    send.write_all(resp.as_bytes()).await?;
+    let _ = send.finish();
+    Ok(())
+}
 
 async fn read_tunnel_open(recv: &mut RecvStream) -> Result<TunnelOpen> {
     let mut len_buf = [0u8; 4];
@@ -133,4 +181,29 @@ pub fn spawn_on_connection(
     relay_conn: Arc<RelayConnection>,
 ) {
     spawn_acceptor(quic.connection().clone(), nginx, expected_fqhn, relay_conn);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::acme_token;
+
+    #[test]
+    fn finds_acme_tokens_in_get_request_lines() {
+        let req =
+            b"GET /.well-known/acme-challenge/tok_en-1 HTTP/1.1\r\nHost: app.customer.com\r\n";
+        assert_eq!(acme_token(req), Some("tok_en-1"));
+        assert_eq!(acme_token(b"GET /index.html HTTP/1.1\r\n"), None);
+        assert_eq!(
+            acme_token(b"POST /.well-known/acme-challenge/t HTTP/1.1\r\n"),
+            None
+        );
+        assert_eq!(
+            acme_token(b"GET /.well-known/acme-challenge/ HTTP/1.1\r\n"),
+            None
+        );
+        assert_eq!(
+            acme_token(b"GET /.well-known/acme-challenge/a/b HTTP/1.1\r\n"),
+            None
+        );
+    }
 }

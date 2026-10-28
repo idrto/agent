@@ -20,9 +20,7 @@ pub fn canonicalize(fqhn: &str) -> Result<String> {
     }
     // Port (`host:443`) is rejected; email `user@domain` has no `:`.
     if trimmed.contains(':') {
-        return Err(ProtocolError::InvalidFqhn(
-            "must not include port".into(),
-        ));
+        return Err(ProtocolError::InvalidFqhn("must not include port".into()));
     }
     let mut canonical = trimmed.to_ascii_lowercase();
     if canonical.ends_with('.') {

@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = ["dp", "native-signaling"]
 # Delegate Permissions machine identity (desktop/mobile). Off for browser WASM.
-dp = ["dep:idr-dp"]
+dp = ["dep:idr-dp", "dep:ed25519-dalek", "dep:base64", "dep:chrono"]
 # Presence HTTP/QUIC/WSS client stack (off for browser WASM).
 native-signaling = ["idr-signaling/native"]
 
@@ -20,6 +20,10 @@ idr-protocol = { workspace = true }
 idr-signaling = { workspace = true } # no native; traits + placement only
 idr-webrtc = { workspace = true }
 idr-dp = { workspace = true, optional = true }
+# Source proof signing (dp): device key → session request proof.
+ed25519-dalek = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
 async-trait = "0.1"
 bytes = { workspace = true }
 tokio = { workspace = true }

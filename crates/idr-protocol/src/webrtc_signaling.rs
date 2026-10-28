@@ -105,6 +105,99 @@ pub struct SourceAgentIdentity {
     /// Session or device bearer presented to Presence / api entitlement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_token: Option<String>,
+    /// Set by Presence (never the Source) after verifying a `source_proof`
+    /// against billing: the Target enforces it per stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<SourcePolicy>,
+}
+
+/// Verified Source identity + zone policy, carried in the Presence-signed offer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourcePolicy {
+    /// Device SKI proven by the Source's `source_proof`.
+    pub ski: String,
+    /// Zone the device was enrolled under; None for root-issued devices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zone: Option<String>,
+    /// Services the Source may open on this Target; `["*"]` = all.
+    pub allowed_services: Vec<String>,
+    /// Zone policy version (0 for root-issued devices).
+    #[serde(default)]
+    pub policy_version: u64,
+}
+
+/// Source proof of possession of its DP device key, sent with a session request.
+///
+/// `chain_pem` is the device leaf followed by its issuers up to the entity root
+/// (e.g. leaf, zone CA, root). `signature` is base64url Ed25519 by the device key
+/// over [`SourceProof::signing_payload`], which binds the session and the Target.
+/// Presence verifies the chain and signature; keep in sync with Presence's copy.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceProof {
+    pub ski: String,
+    pub chain_pem: String,
+    pub signed_at: DateTime<Utc>,
+    pub signature: String,
+}
+
+impl SourceProof {
+    /// Domain separation tag for the signed text.
+    pub const DOMAIN: &'static str = "idr-source-proof/v1";
+
+    /// `idr-source-proof/v1\n<session_id>\n<target_fqhn>\n<signed_at, RFC 3339 ms Z>`.
+    pub fn signing_payload(
+        session_id: Uuid,
+        target_fqhn: &str,
+        signed_at: DateTime<Utc>,
+    ) -> Vec<u8> {
+        format!(
+            "{}\n{}\n{}\n{}",
+            Self::DOMAIN,
+            session_id,
+            target_fqhn,
+            signed_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        )
+        .into_bytes()
+    }
+
+    pub fn sign(
+        key: &SigningKey,
+        ski: impl Into<String>,
+        chain_pem: impl Into<String>,
+        session_id: Uuid,
+        target_fqhn: &str,
+        signed_at: DateTime<Utc>,
+    ) -> Self {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use ed25519_dalek::Signer;
+        let sig = key.sign(&Self::signing_payload(session_id, target_fqhn, signed_at));
+        Self {
+            ski: ski.into(),
+            chain_pem: chain_pem.into(),
+            signed_at,
+            signature: URL_SAFE_NO_PAD.encode(sig.to_bytes()),
+        }
+    }
+
+    /// Check the signature with the device leaf's public key for this session.
+    pub fn verify_signature(
+        &self,
+        key: &VerifyingKey,
+        session_id: Uuid,
+        target_fqhn: &str,
+    ) -> Result<()> {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let bytes = URL_SAFE_NO_PAD
+            .decode(&self.signature)
+            .map_err(|_| ProtocolError::InvalidSignature)?;
+        let sig = ed25519_dalek::Signature::from_slice(&bytes)
+            .map_err(|_| ProtocolError::InvalidSignature)?;
+        key.verify_strict(
+            &Self::signing_payload(session_id, target_fqhn, self.signed_at),
+            &sig,
+        )
+        .map_err(|_| ProtocolError::InvalidSignature)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -258,6 +351,9 @@ pub struct WebRtcSessionRequest {
     /// Source preferred ICE transport. `relay` means P2P is not acceptable.
     #[serde(default)]
     pub ice_transport_policy: crate::webrtc_ice::IceTransportPolicy,
+    /// Proof the Source holds its enrolled device key (absent for unenrolled Sources).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_proof: Option<SourceProof>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 }
@@ -500,8 +596,8 @@ pub struct TurnProbeReportUnsigned {
 impl TurnProbeRequest {
     pub fn sign(mut req: TurnProbeRequestUnsigned, key: &SigningKey) -> Result<Self> {
         req.signature = String::new();
-        let value = serde_json::to_value(&req)
-            .map_err(|e| ProtocolError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_value(&req).map_err(|e| ProtocolError::Serialization(e.to_string()))?;
         let sig = crypto::sign_json_canonical(&value, key)?;
         Ok(Self {
             version: req.version,
@@ -571,5 +667,132 @@ pub fn default_webrtc_capabilities(max_sessions: u32) -> TargetWebRtcCapabilitie
         ],
         mux_features: stream_mux::MuxProfile::FlowControlV1.advertised_features(),
         named_services: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod source_proof_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn key(seed: u8) -> SigningKey {
+        SigningKey::from_bytes(&[seed; 32])
+    }
+
+    #[test]
+    fn signs_and_verifies_for_this_session_and_target_only() {
+        let k = key(7);
+        let session = Uuid::new_v4();
+        let at = Utc.with_ymd_and_hms(2026, 10, 23, 12, 0, 0).unwrap();
+        let proof = SourceProof::sign(&k, "ski-1", "CHAIN", session, "laptop--a@acme.test", at);
+
+        let vk = k.verifying_key();
+        assert!(proof
+            .verify_signature(&vk, session, "laptop--a@acme.test")
+            .is_ok());
+        assert!(proof
+            .verify_signature(&vk, Uuid::new_v4(), "laptop--a@acme.test")
+            .is_err());
+        assert!(proof
+            .verify_signature(&vk, session, "other--a@acme.test")
+            .is_err());
+        assert!(proof
+            .verify_signature(&key(8).verifying_key(), session, "laptop--a@acme.test")
+            .is_err());
+
+        // JSON round trip keeps it verifiable.
+        let back: SourceProof =
+            serde_json::from_str(&serde_json::to_string(&proof).unwrap()).unwrap();
+        assert!(back
+            .verify_signature(&vk, session, "laptop--a@acme.test")
+            .is_ok());
+    }
+
+    #[test]
+    fn payload_is_the_documented_text() {
+        let session = Uuid::nil();
+        let at = Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap();
+        assert_eq!(
+            String::from_utf8(SourceProof::signing_payload(session, "h--e.idr.to", at)).unwrap(),
+            "idr-source-proof/v1\n00000000-0000-0000-0000-000000000000\nh--e.idr.to\n2026-01-02T03:04:05.000Z",
+        );
+    }
+
+    #[test]
+    fn presence_signature_covers_the_source_policy() {
+        use crate::webrtc_ice::{IceRelayMode, IceTransportPolicy, StunPolicy};
+        let presence = key(5);
+        let mut offer = WebRtcSessionOffer {
+            version: PROTOCOL_VERSION,
+            message_type: SignalingMessageType::WebRtcSessionOffer,
+            message_id: Uuid::new_v4(),
+            session_id: Uuid::new_v4(),
+            target_fqhn: "t--a@acme.test.idr.to".into(),
+            source: SourceAgentIdentity {
+                auth_mode: SourceAuthMode::Mtls,
+                source_id: Some("member-ski".into()),
+                sdk_version: None,
+                auth_token: None,
+                policy: Some(SourcePolicy {
+                    ski: "member-ski".into(),
+                    zone: Some("zone-a".into()),
+                    allowed_services: vec!["ollama".into()],
+                    policy_version: 2,
+                }),
+            },
+            sdp: SessionDescription {
+                sdp_type: "offer".into(),
+                sdp: "v=0".into(),
+            },
+            ice: SessionIceConfig {
+                relay_mode: IceRelayMode::Platform,
+                stun_policy: StunPolicy::GoogleAndIdr,
+                stun_servers: None,
+                turn: None,
+                byor: None,
+                ice_transport_policy: IceTransportPolicy::All,
+                p2p_only: false,
+            },
+            session_token: "tok".into(),
+            issued_at: Utc::now(),
+            expires_at: Utc::now(),
+            presence_generation: 1,
+            signature: String::new(),
+        };
+        // Presence signs the canonical body without `signature`.
+        let mut body = serde_json::to_value(&offer).unwrap();
+        body.as_object_mut().unwrap().remove("signature");
+        offer.signature = crypto::sign_json_canonical(&body, &presence).unwrap();
+
+        let wire: WebRtcSessionOffer =
+            serde_json::from_str(&serde_json::to_string(&offer).unwrap()).unwrap();
+        assert!(wire
+            .verify_presence_signature(&presence.verifying_key())
+            .is_ok());
+        assert_eq!(
+            wire.source.policy.as_ref().unwrap().allowed_services,
+            vec!["ollama"]
+        );
+
+        let mut widened = wire.clone();
+        widened.source.policy.as_mut().unwrap().allowed_services = vec!["*".into()];
+        assert!(widened
+            .verify_presence_signature(&presence.verifying_key())
+            .is_err());
+        let mut moved = wire.clone();
+        moved.source.policy.as_mut().unwrap().zone = Some("zone-b".into());
+        assert!(moved
+            .verify_presence_signature(&presence.verifying_key())
+            .is_err());
+    }
+
+    #[test]
+    fn requests_without_a_proof_are_unchanged_on_the_wire() {
+        let json = r#"{"version":1,"message_type":"webrtc_session_request","message_id":"00000000-0000-0000-0000-000000000001","session_id":"00000000-0000-0000-0000-000000000002","target_fqhn":"h--e.idr.to","source":{"auth_mode":"bearer"},"source_region":"local","sdp":{"sdp_type":"offer","sdp":"v=0"}}"#;
+        let req: WebRtcSessionRequest = serde_json::from_str(json).unwrap();
+        assert!(req.source_proof.is_none());
+        assert!(!serde_json::to_string(&req)
+            .unwrap()
+            .contains("source_proof"));
     }
 }

@@ -26,16 +26,26 @@ typedef _SignCsrC = Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
     Pointer<Utf8>, Pointer<Pointer<Utf8>>);
 typedef _SignCsrD = int Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
     Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+typedef _SignCsrChainC = Int32 Function(Pointer<Utf8>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+typedef _SignCsrChainD = int Function(Pointer<Utf8>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+typedef _In4Out1C = Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+typedef _In4Out1D = int Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Pointer<Utf8>>);
 
 /// [IdrCrypto] over the `idr_dp_*` C ABI.
 class IdrDpCrypto implements IdrCrypto {
   IdrDpCrypto.fromLibrary(DynamicLibrary lib)
-      : _free = lib.lookupFunction<_FreeC, _FreeD>('idr_dp_string_free'),
+      : _lib = lib,
+        _free = lib.lookupFunction<_FreeC, _FreeD>('idr_dp_string_free'),
         _lastError =
             lib.lookupFunction<_LastErrC, _LastErrD>('idr_dp_last_error'),
         _generate =
             lib.lookupFunction<_Out1C, _Out1D>('idr_dp_generate_ed25519'),
-        _buildCsr = lib.lookupFunction<_In2Out1C, _In2Out1D>('idr_dp_build_csr'),
+        _buildCsr =
+            lib.lookupFunction<_In2Out1C, _In2Out1D>('idr_dp_build_csr'),
         _sign = lib.lookupFunction<_SignC, _SignD>('idr_dp_sign'),
         _signJson =
             lib.lookupFunction<_In2Out1C, _In2Out1D>('idr_dp_sign_json'),
@@ -48,8 +58,8 @@ class IdrDpCrypto implements IdrCrypto {
   ///
   /// Resolution: [libraryPath] → `IDR_DP_LIB` env → next to the executable →
   /// walk up from cwd for `agents_engine/agent/target/{release,debug}`.
-  factory IdrDpCrypto.open({String? libraryPath}) =>
-      IdrDpCrypto.fromLibrary(DynamicLibrary.open(resolveLibraryPath(libraryPath)));
+  factory IdrDpCrypto.open({String? libraryPath}) => IdrDpCrypto.fromLibrary(
+      DynamicLibrary.open(resolveLibraryPath(libraryPath)));
 
   static String get defaultLibraryName => Platform.isWindows
       ? 'idr_dp.dll'
@@ -85,8 +95,17 @@ class IdrDpCrypto implements IdrCrypto {
     return name;
   }
 
+  final DynamicLibrary _lib;
   final _FreeD _free;
   final _LastErrD _lastError;
+
+  // Zone signing symbols resolve on first use, so an older idr_dp without
+  // them still loads for everything else.
+  late final _SignCsrChainD _signCsrChain =
+      _lib.lookupFunction<_SignCsrChainC, _SignCsrChainD>(
+          'idr_dp_sign_csr_with_chain');
+  late final _In4Out1D _signIntermediate =
+      _lib.lookupFunction<_In4Out1C, _In4Out1D>('idr_dp_sign_intermediate_ca');
   final _Out1D _generate;
   final _In2Out1D _buildCsr;
   final _SignD _sign;
@@ -107,9 +126,12 @@ class IdrDpCrypto implements IdrCrypto {
       _withUtf8(publicB64url, (p) => _call((out) => _ski(p, out)));
 
   @override
-  String buildCsr({required String privatePem, required String fqhn}) =>
-      _withUtf8(privatePem, (pem) =>
-          _withUtf8(fqhn, (h) => _call((out) => _buildCsr(pem, h, out))));
+  String buildCsr(
+          {required String privatePem, required String fqhn}) =>
+      _withUtf8(
+          privatePem,
+          (pem) =>
+              _withUtf8(fqhn, (h) => _call((out) => _buildCsr(pem, h, out))));
 
   @override
   String sign({required String privatePem, required List<int> message}) {
@@ -124,17 +146,22 @@ class IdrDpCrypto implements IdrCrypto {
   }
 
   @override
-  String signJson({required String privatePem, required String json}) =>
-      _withUtf8(privatePem, (pem) =>
-          _withUtf8(json, (j) => _call((out) => _signJson(pem, j, out))));
+  String signJson(
+          {required String privatePem, required String json}) =>
+      _withUtf8(
+          privatePem,
+          (pem) =>
+              _withUtf8(json, (j) => _call((out) => _signJson(pem, j, out))));
 
   @override
   String caCertPemFromPrivateJwk({
     required Map<String, dynamic> privateJwk,
     required String commonName,
   }) =>
-      _withUtf8(jsonEncode(privateJwk), (jwk) =>
-          _withUtf8(commonName, (cn) => _call((out) => _caCert(jwk, cn, out))));
+      _withUtf8(
+          jsonEncode(privateJwk),
+          (jwk) => _withUtf8(
+              commonName, (cn) => _call((out) => _caCert(jwk, cn, out))));
 
   @override
   SignedLeaf signCsr({
@@ -142,13 +169,22 @@ class IdrDpCrypto implements IdrCrypto {
     required Map<String, dynamic> caPrivateJwk,
     required String issuerSki,
     String? host,
+    String? issuerChainPem,
   }) {
     final hostPtr = host == null ? nullptr : host.toNativeUtf8();
     try {
-      final json = _withUtf8(csrPem, (csr) =>
-          _withUtf8(jsonEncode(caPrivateJwk), (jwk) =>
-              _withUtf8(issuerSki, (iss) =>
-                  _call((out) => _signCsr(csr, jwk, iss, hostPtr, out)))));
+      final json = _withUtf8(
+          csrPem,
+          (csr) => _withUtf8(
+              jsonEncode(caPrivateJwk),
+              (jwk) => _withUtf8(
+                  issuerSki,
+                  (iss) => issuerChainPem == null
+                      ? _call((out) => _signCsr(csr, jwk, iss, hostPtr, out))
+                      : _withUtf8(
+                          issuerChainPem,
+                          (chain) => _call((out) => _signCsrChain(
+                              csr, jwk, iss, chain, hostPtr, out))))));
       final j = jsonDecode(json) as Map;
       return (
         leafPem: j['leaf_pem'] as String? ?? '',
@@ -158,6 +194,24 @@ class IdrDpCrypto implements IdrCrypto {
       if (hostPtr != nullptr) malloc.free(hostPtr);
     }
   }
+
+  @override
+  String signIntermediateCa({
+    required Map<String, dynamic> childPublicJwk,
+    required String childCommonName,
+    required Map<String, dynamic> parentPrivateJwk,
+    required String parentCommonName,
+  }) =>
+      _withUtf8(
+          jsonEncode(childPublicJwk),
+          (child) => _withUtf8(
+              childCommonName,
+              (childCn) => _withUtf8(
+                  jsonEncode(parentPrivateJwk),
+                  (parent) => _withUtf8(
+                      parentCommonName,
+                      (parentCn) => _call((out) => _signIntermediate(
+                          child, childCn, parent, parentCn, out))))));
 
   T _withUtf8<T>(String s, T Function(Pointer<Utf8>) f) {
     final p = s.toNativeUtf8();

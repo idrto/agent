@@ -79,6 +79,7 @@ fn session_request_and_offer_types_parse() {
             source_id: Some("src-1".into()),
             sdk_version: None,
             auth_token: Some("test-token".into()),
+            policy: None,
         },
         source_region: "us".into(),
         sdp: idr_target::protocol::webrtc_signaling::SessionDescription {
@@ -86,6 +87,7 @@ fn session_request_and_offer_types_parse() {
             sdp: "v=0".into(),
         },
         ice_transport_policy: Default::default(),
+        source_proof: None,
         signature: None,
     };
     let json = serde_json::to_string(&req).unwrap();

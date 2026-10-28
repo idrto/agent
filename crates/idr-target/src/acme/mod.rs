@@ -2,17 +2,22 @@
 //!
 //! Native `*.idr.to` FQHNs use the Relay wildcard certificate (edge terminate).
 //! This manager issues and renews certificates solely for customer CNAME domains
-//! configured in `[acme].domains`. Challenges are served via Relay → Target nginx webroot.
+//! configured in `[acme].domains`. Challenges are answered by the Target
+//! itself: Relay :80 → tunnel → [`http01_key_authorization`] (no nginx needed);
+//! the token file is also written to `webroot` for setups that serve it.
 //!
 //! Design notes (see docs/TLS_PASSTHROUGH.md):
 //! - Persist ACME account credentials (avoid rate-limit burn)
 //! - Renew only when `notAfter - renew_before_days` is reached
-//! - Wait for Relay QUIC readiness before `set_challenge_ready`
+//! - No wait for a Relay connection first: Let's Encrypt's own request makes
+//!   Relay ask Presence to connect this Target (waiting first deadlocks)
 //! - Atomic cert+key install before nginx reload
-//! - Per-domain cert dirs under `cert_dir/<domain>/`
+//! - Per-domain cert dirs under `cert_dir/<domain>/`, each with an
+//!   `acme-status.json` the CLI reads
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -26,22 +31,45 @@ use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
 use crate::config::AcmeConfig;
-use crate::relay::readiness::RelayReadiness;
 use idr_protocol::fqhn;
 
 /// Suffix reserved for IDR native Host-Identity FQHNs (Relay wildcard / edge terminate).
 const NATIVE_FQHN_SUFFIX: &str = ".idr.to";
+
+/// Pending HTTP-01 challenges: token → key authorization.
+// ponytail: process-global map (one ACME manager per agent); pass it through the relay manager if that ever changes.
+fn http01_tokens() -> &'static RwLock<HashMap<String, String>> {
+    static TOKENS: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
+    TOKENS.get_or_init(Default::default)
+}
+
+/// The key authorization for a pending HTTP-01 `token` (the tunnel answers it).
+pub fn http01_key_authorization(token: &str) -> Option<String> {
+    http01_tokens().read().ok()?.get(token).cloned()
+}
+
+/// Removes an order's tokens from the map on every exit path.
+struct TokenGuard(Vec<String>);
+
+impl Drop for TokenGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = http01_tokens().write() {
+            for token in &self.0 {
+                map.remove(token);
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct AcmeManager {
     cfg: AcmeConfig,
     /// Canonical custom domains (never `*.idr.to`).
     domains: Vec<String>,
-    readiness: Arc<RelayReadiness>,
 }
 
 impl AcmeManager {
-    pub fn new(cfg: AcmeConfig, readiness: Arc<RelayReadiness>) -> Result<Self> {
+    pub fn new(cfg: AcmeConfig) -> Result<Self> {
         let domains = validate_custom_domains(&cfg.domains)?;
         if cfg.enabled {
             if domains.is_empty() {
@@ -62,11 +90,7 @@ impl AcmeManager {
                 warn!(email = %cfg.email, "ACME email looks like a placeholder — use staging only");
             }
         }
-        Ok(Self {
-            cfg,
-            domains,
-            readiness,
-        })
+        Ok(Self { cfg, domains })
     }
 
     pub fn spawn(self) {
@@ -103,7 +127,9 @@ impl AcmeManager {
                     Ok(EnsureOutcome::Issued) => any_issued = true,
                     Ok(EnsureOutcome::NotDue) => {}
                     Err(e) => {
-                        warn!(domain = %domain, error = %e, "ACME attempt failed");
+                        warn!(domain = %domain, error = %format!("{e:#}"), "ACME attempt failed");
+                        self.write_status(domain, "failed", Some(format!("{e:#}")))
+                            .await;
                         any_err = Some(e);
                     }
                 }
@@ -125,15 +151,12 @@ impl AcmeManager {
     pub async fn ensure_certificate(&self, domain: &str) -> Result<EnsureOutcome> {
         if !self.certificate_needs_renewal(domain).await? {
             info!(%domain, "ACME: certificate still valid — skip renew");
+            self.write_status(domain, "valid", None).await;
             return Ok(EnsureOutcome::NotDue);
         }
 
-        info!(%domain, "ACME: waiting for Relay QUIC before HTTP-01");
-        if !self.readiness.wait_ready(Duration::from_secs(120)).await {
-            anyhow::bail!("no active Relay QUIC within 120s — cannot serve HTTP-01 via edge");
-        }
-
         info!(%domain, "ACME: requesting certificate for custom domain");
+        self.write_status(domain, "issuing", None).await;
         let directory = if self.cfg.staging {
             LetsEncrypt::Staging.url()
         } else {
@@ -154,7 +177,7 @@ impl AcmeManager {
             .authorizations()
             .await
             .context("fetch authorizations")?;
-        let mut challenge_tokens = Vec::new();
+        let mut challenge_tokens = TokenGuard(Vec::new());
         for authz in &authorizations {
             if authz.status == AuthorizationStatus::Valid {
                 continue;
@@ -168,11 +191,11 @@ impl AcmeManager {
             self.write_http01_token(&challenge.token, key_auth.as_str())
                 .await
                 .context("write http-01 token")?;
-            challenge_tokens.push(challenge.token.clone());
+            challenge_tokens.0.push(challenge.token.clone());
             info!(
                 token = %challenge.token,
                 %domain,
-                "ACME token written — LE validates via Relay:80 → nginx webroot (custom domain Host)"
+                "ACME token ready — LE validates via Relay:80 → tunnel (custom domain Host)"
             );
             order
                 .set_challenge_ready(&challenge.url)
@@ -200,9 +223,10 @@ impl AcmeManager {
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
-        for token in &challenge_tokens {
+        for token in &challenge_tokens.0 {
             self.remove_http01_token(token).await.ok();
         }
+        drop(challenge_tokens);
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
         loop {
@@ -252,6 +276,7 @@ impl AcmeManager {
             "ACME certificate installed"
         );
         self.reload_nginx().await?;
+        self.write_status(domain, "issued", None).await;
         Ok(EnsureOutcome::Issued)
     }
 
@@ -362,6 +387,9 @@ impl AcmeManager {
 
     async fn write_http01_token(&self, token: &str, body: &str) -> Result<()> {
         validate_acme_token(token)?;
+        if let Ok(mut map) = http01_tokens().write() {
+            map.insert(token.to_string(), body.to_string());
+        }
         let dir = self.cfg.webroot.join(".well-known").join("acme-challenge");
         fs::create_dir_all(&dir).await?;
         let path = dir.join(token);
@@ -379,6 +407,35 @@ impl AcmeManager {
             .join(token);
         fs::remove_file(path).await?;
         Ok(())
+    }
+
+    /// `cert_dir/<domain>/acme-status.json`: what the CLI shows for a domain.
+    /// Best effort: a status write never fails issuance.
+    async fn write_status(&self, domain: &str, state: &str, last_error: Option<String>) {
+        let dir = self.domain_cert_dir(domain);
+        let not_after = fs::read(dir.join("fullchain.pem"))
+            .await
+            .ok()
+            .and_then(|pem| leaf_not_after(&pem).ok().flatten());
+        let status = AcmeStatus {
+            domain: domain.to_string(),
+            state: state.to_string(),
+            staging: self.cfg.staging,
+            last_attempt_at: chrono::Utc::now(),
+            last_error,
+            not_after,
+            renew_at: not_after
+                .map(|t| t - chrono::Duration::days(self.cfg.renew_before_days as i64)),
+        };
+        let result = async {
+            fs::create_dir_all(&dir).await?;
+            let json = serde_json::to_vec_pretty(&status)?;
+            atomic_write(&dir.join(STATUS_FILE), &json).await
+        }
+        .await;
+        if let Err(e) = result {
+            warn!(%domain, error = %e, "ACME: could not write status file");
+        }
     }
 
     async fn reload_nginx(&self) -> Result<()> {
@@ -399,6 +456,23 @@ impl AcmeManager {
         }
         Ok(())
     }
+}
+
+/// Per-domain status file name under `cert_dir/<domain>/`.
+pub const STATUS_FILE: &str = "acme-status.json";
+
+/// Contents of [`STATUS_FILE`]. `state`: `issuing` | `issued` | `valid`
+/// (not due for renewal) | `failed`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcmeStatus {
+    pub domain: String,
+    pub state: String,
+    pub staging: bool,
+    pub last_attempt_at: chrono::DateTime<chrono::Utc>,
+    pub last_error: Option<String>,
+    pub not_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub renew_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -653,9 +727,68 @@ mod tests {
         cfg.enabled = true;
         cfg.staging = true;
         cfg.email = "ops@example.com".into();
-        let err = AcmeManager::new(cfg, RelayReadiness::new())
-            .unwrap_err()
-            .to_string();
+        let err = AcmeManager::new(cfg).unwrap_err().to_string();
         assert!(err.contains("custom domains"), "{err}");
+    }
+
+    fn manager(dir: &Path) -> AcmeManager {
+        let mut cfg = AcmeConfig::default();
+        cfg.enabled = true;
+        cfg.staging = true;
+        cfg.email = "ops@customer.test".into();
+        cfg.domains = vec!["app.customer.test".into()];
+        cfg.webroot = dir.join("webroot");
+        cfg.cert_dir = dir.join("certs");
+        AcmeManager::new(cfg).unwrap()
+    }
+
+    #[tokio::test]
+    async fn challenge_tokens_are_served_until_the_order_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = manager(dir.path());
+        {
+            let _guard = TokenGuard(vec!["tok-1".into()]);
+            m.write_http01_token("tok-1", "tok-1.thumb").await.unwrap();
+            assert_eq!(
+                http01_key_authorization("tok-1").as_deref(),
+                Some("tok-1.thumb")
+            );
+            assert!(dir
+                .path()
+                .join("webroot/.well-known/acme-challenge/tok-1")
+                .exists());
+        }
+        assert_eq!(
+            http01_key_authorization("tok-1"),
+            None,
+            "guard clears on drop"
+        );
+    }
+
+    #[tokio::test]
+    async fn writes_a_status_file_per_domain() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = manager(dir.path());
+        m.write_status(
+            "app.customer.test",
+            "failed",
+            Some("ACME authorization invalid".into()),
+        )
+        .await;
+        let raw =
+            std::fs::read_to_string(dir.path().join("certs/app.customer.test").join(STATUS_FILE))
+                .unwrap();
+        let status: AcmeStatus = serde_json::from_str(&raw).unwrap();
+        assert_eq!(status.state, "failed");
+        assert!(status.staging);
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("ACME authorization invalid")
+        );
+        assert_eq!(status.not_after, None, "no certificate yet");
+        assert!(
+            raw.contains("\"lastAttemptAt\""),
+            "camelCase for the CLI: {raw}"
+        );
     }
 }

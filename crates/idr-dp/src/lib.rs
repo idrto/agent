@@ -18,7 +18,8 @@ pub use dp_rust_mtls::{
 
 pub use crypto::{
     build_csr, ca_cert_pem_from_jwk_json, generate_ed25519_json, generate_ed25519_material, sign,
-    sign_csr_with_ca_jwk, sign_csr_with_ca_jwk_json, sign_json, ski, DpCryptoError,
+    sign_csr_with_ca_jwk, sign_csr_with_ca_jwk_json, sign_csr_with_issuer_chain,
+    sign_csr_with_issuer_chain_json, sign_intermediate_ca_json, sign_json, ski, DpCryptoError,
     Ed25519KeyMaterialJson, SignedLeafJson,
 };
 pub use frame::{

@@ -12,8 +12,8 @@ use idr_protocol::signaling::SignalingMessageType;
 use idr_protocol::stream_mux::{StreamFrame, StreamOpenMeta};
 use idr_protocol::webrtc_ice::{build_rtc_ice_servers, IceTransportPolicy};
 use idr_protocol::webrtc_signaling::{
-    SessionDescription, SourceAgentIdentity, SourceAuthMode, WebRtcIceCandidate, WebRtcIceComplete,
-    WebRtcSessionRequest,
+    SessionDescription, SourceAgentIdentity, SourceAuthMode, SourceProof, WebRtcIceCandidate,
+    WebRtcIceComplete, WebRtcSessionRequest,
 };
 use idr_protocol::PROTOCOL_VERSION;
 use idr_signaling::ephemeral::{SignalingMessage, WebRtcSignalingClient};
@@ -44,10 +44,11 @@ pub struct SourceRuntime {
 impl SourceRuntime {
     pub fn new(
         signaling: Box<dyn WebRtcSignalingClient>,
-        #[cfg(not(target_arch = "wasm32"))]
-        peer_factory: impl Fn() -> Box<dyn PeerTransport> + Send + Sync + 'static,
-        #[cfg(target_arch = "wasm32")]
-        peer_factory: impl Fn() -> Box<dyn PeerTransport> + 'static,
+        #[cfg(not(target_arch = "wasm32"))] peer_factory: impl Fn() -> Box<dyn PeerTransport>
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(target_arch = "wasm32")] peer_factory: impl Fn() -> Box<dyn PeerTransport> + 'static,
         source_id: impl Into<String>,
         source_region: impl Into<String>,
     ) -> Self {
@@ -64,10 +65,11 @@ impl SourceRuntime {
     /// Product constructor: requires a non-anonymous auth mode and bearer/device token.
     pub fn with_auth(
         signaling: Box<dyn WebRtcSignalingClient>,
-        #[cfg(not(target_arch = "wasm32"))]
-        peer_factory: impl Fn() -> Box<dyn PeerTransport> + Send + Sync + 'static,
-        #[cfg(target_arch = "wasm32")]
-        peer_factory: impl Fn() -> Box<dyn PeerTransport> + 'static,
+        #[cfg(not(target_arch = "wasm32"))] peer_factory: impl Fn() -> Box<dyn PeerTransport>
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(target_arch = "wasm32")] peer_factory: impl Fn() -> Box<dyn PeerTransport> + 'static,
         source_id: impl Into<String>,
         source_region: impl Into<String>,
         auth_mode: SourceAuthMode,
@@ -113,6 +115,35 @@ impl SourceRuntime {
         self.identity.as_ref()
     }
 
+    /// Proof of the enrolled device key for this session: signed with the
+    /// identity's private key, carrying its certificate chain. None when not
+    /// enrolled (no identity, or no issued certificate yet).
+    #[cfg(feature = "dp")]
+    fn source_proof(&self, session_id: Uuid, target_fqhn: &str) -> Option<SourceProof> {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let id = self.identity.as_ref()?;
+        let chain = id.chain_pem.clone().or_else(|| id.cert_pem.clone())?;
+        let seed: [u8; 32] = URL_SAFE_NO_PAD
+            .decode(id.private_jwk.get("d")?.as_str()?)
+            .ok()?
+            .try_into()
+            .ok()?;
+        let key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        Some(SourceProof::sign(
+            &key,
+            id.ski.clone(),
+            chain,
+            session_id,
+            target_fqhn,
+            chrono::Utc::now(),
+        ))
+    }
+
+    #[cfg(not(feature = "dp"))]
+    fn source_proof(&self, _session_id: Uuid, _target_fqhn: &str) -> Option<SourceProof> {
+        None
+    }
+
     fn source_agent_identity(&self, auth_token: Option<String>) -> SourceAgentIdentity {
         #[cfg(feature = "dp")]
         let auth_mode = if self.identity.is_some() {
@@ -127,6 +158,7 @@ impl SourceRuntime {
             source_id: Some(self.source_id.clone()),
             sdk_version: Some(env!("CARGO_PKG_VERSION").into()),
             auth_token,
+            policy: None,
         }
     }
 
@@ -135,9 +167,8 @@ impl SourceRuntime {
     /// Uses `{host}--{entity}.idr.to` on the wire (`.idr.to` appended if missing).
     /// DEF-encode is applied only inside Presence placement (index selection).
     pub async fn connect(&mut self, target_fqhn: &str) -> Result<SourceSession> {
-        let target_fqhn = idr_protocol::fqhn::canonicalize(target_fqhn).map_err(|e| {
-            IdrError::new(IdrErrorKind::InvalidArgument, e.to_string())
-        })?;
+        let target_fqhn = idr_protocol::fqhn::canonicalize(target_fqhn)
+            .map_err(|e| IdrError::new(IdrErrorKind::InvalidArgument, e.to_string()))?;
         let auth_token = {
             #[cfg(feature = "dp")]
             {
@@ -150,12 +181,16 @@ impl SourceRuntime {
                             "Anonymous Source auth is not allowed; provide bearer or device token",
                         ));
                     }
-                    let token = self.auth_token.as_deref().filter(|t| !t.is_empty()).ok_or_else(|| {
-                        IdrError::new(
-                            IdrErrorKind::AuthenticationFailed,
-                            "auth_token required for Source connect",
-                        )
-                    })?;
+                    let token = self
+                        .auth_token
+                        .as_deref()
+                        .filter(|t| !t.is_empty())
+                        .ok_or_else(|| {
+                            IdrError::new(
+                                IdrErrorKind::AuthenticationFailed,
+                                "auth_token required for Source connect",
+                            )
+                        })?;
                     Some(token.to_string())
                 }
             }
@@ -167,12 +202,16 @@ impl SourceRuntime {
                         "Anonymous Source auth is not allowed; provide bearer or device token",
                     ));
                 }
-                let token = self.auth_token.as_deref().filter(|t| !t.is_empty()).ok_or_else(|| {
-                    IdrError::new(
-                        IdrErrorKind::AuthenticationFailed,
-                        "auth_token required for Source connect",
-                    )
-                })?;
+                let token = self
+                    .auth_token
+                    .as_deref()
+                    .filter(|t| !t.is_empty())
+                    .ok_or_else(|| {
+                        IdrError::new(
+                            IdrErrorKind::AuthenticationFailed,
+                            "auth_token required for Source connect",
+                        )
+                    })?;
                 Some(token.to_string())
             }
         };
@@ -238,6 +277,7 @@ impl SourceRuntime {
                 sdp: local_sdp,
             },
             ice_transport_policy: IceTransportPolicy::All,
+            source_proof: self.source_proof(session_id, &target_fqhn),
             signature: None,
         };
 
@@ -276,8 +316,7 @@ impl SourceRuntime {
         let mut answer_applied = false;
         let mut remote_ice_before_answer: Vec<(String, String)> = Vec::new();
         // Presence waits ~60s for Target; fail slightly sooner with a clear error.
-        let signaling_deadline =
-            crate::time::Instant::now() + std::time::Duration::from_secs(55);
+        let signaling_deadline = crate::time::Instant::now() + std::time::Duration::from_secs(55);
         loop {
             tokio::select! {
                 msg = channel.next_message() => {
@@ -482,8 +521,7 @@ impl SourceSession {
             while let Ok(ev) = self.control_rx.try_recv() {
                 match ev {
                     crate::mux_session::DemuxEvent::ServicesCatalogDetailed { entries } => {
-                        self.named_services =
-                            entries.iter().map(|e| e.name.clone()).collect();
+                        self.named_services = entries.iter().map(|e| e.name.clone()).collect();
                         self.catalog_entries = entries;
                         tracing::info!(
                             count = self.catalog_entries.len(),
@@ -701,10 +739,9 @@ impl SourceSession {
                 stream_id: sid,
                 message,
                 ..
-            } if sid == stream_id => Some(Err(IdrError::new(
-                IdrErrorKind::ConnectionRefused,
-                message,
-            ))),
+            } if sid == stream_id => {
+                Some(Err(IdrError::new(IdrErrorKind::ConnectionRefused, message)))
+            }
             _ => None,
         }
     }

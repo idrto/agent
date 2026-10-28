@@ -91,9 +91,20 @@ idr-c-api = { path = "crates/idr-c-api" }
 idr-wasm = { path = "crates/idr-wasm" }
 idr-target = { path = "crates/idr-target" }
 
+# MSVC: opt-level 0 makes cmake build libdatachannel as Debug (/MDd), which can't
+# link against Rust's release CRT. Any opt-level > 0 selects RelWithDebInfo (/MD).
+[profile.dev.package.datachannel-sys]
+opt-level = 1
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
 
 [profile.bench]
 inherits = "release"
+
+# Dev: build against the local dp-sdk checkout (zone CA signing, not yet on
+# dp-sdk main). Drop once dp-sdk is pushed and Cargo.lock is bumped.
+[patch."https://github.com/2keyapp/dp-sdk.git"]
+dp-rust = { path = "../dp-sdk/packages/dp-rust" }
+dp-rust-mtls = { path = "../dp-sdk/packages/dp-rust-mtls" }
