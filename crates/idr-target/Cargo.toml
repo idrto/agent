@@ -15,6 +15,7 @@ webrtc = ["dep:datachannel"]
 idr-protocol = { workspace = true }
 idr-core = { workspace = true, features = ["net"] }
 idr-dp = { workspace = true }
+idr-transfer = { workspace = true, features = ["native"] }
 anyhow = { workspace = true }
 async-trait = "0.1"
 base64 = { workspace = true }
@@ -62,6 +63,24 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 tokio-test = { workspace = true }
+# Real-WebRTC loopback harness (tests/mux_loopback.rs).
+idr-source = { workspace = true }
+idr-signaling = { workspace = true }
+idr-webrtc = { workspace = true, features = ["native"] }
+cap-std = "3"
+sha2 = { workspace = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Peak memory of the 100k-entry test.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[[test]]
+name = "mux_loopback"
+required-features = ["webrtc"]
+
+[[test]]
+name = "transfer_loopback"
+required-features = ["webrtc"]
 
 [[bench]]
 name = "relay_table"

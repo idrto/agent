@@ -1,7 +1,7 @@
 /// Shared ABI constants and event kinds (mirrors `idr.h`).
 library;
 
-const int idrAbiVersion = 2;
+const int idrAbiVersion = 3;
 
 const int idrAuthBearer = 0;
 const int idrAuthDeviceToken = 1;
@@ -36,3 +36,51 @@ class IdrErrorCode {
   static const int incompatibleVersion = 18;
   static const int internalError = 19;
 }
+
+/// `-(idrTransferErrorBase + kind)` when the transfer layer refuses a call.
+const int idrTransferErrorBase = 100;
+
+// Transfer event kinds (`IDR_TEV_*`).
+const int idrTevOffered = 1;
+const int idrTevAwaitingDecision = 2;
+const int idrTevAccepted = 3;
+const int idrTevProgress = 4;
+const int idrTevEntryFailed = 5;
+const int idrTevRenamed = 6;
+const int idrTevLeaseExpiring = 7;
+const int idrTevPaused = 8;
+const int idrTevResumed = 9;
+const int idrTevFinished = 10;
+const int idrTevInterrupted = 11;
+const int idrTevResync = 12;
+
+// Outcomes of IDR_TEV_FINISHED (`IDR_OUTCOME_*`).
+const int idrOutcomeCompleted = 0;
+const int idrOutcomeCompletedWithErrors = 1;
+const int idrOutcomeFailed = 2;
+const int idrOutcomeCancelled = 3;
+const int idrOutcomeRejected = 4;
+
+/// Stable transfer error names by code (`IDR_TERR_*`), as the CLI prints them.
+const List<String> idrTransferErrorNames = [
+  '',
+  'protocol_violation',
+  'incompatible_version',
+  'manifest_invalid',
+  'limit_exceeded',
+  'rejected',
+  'cancelled',
+  'hash_mismatch',
+  'size_mismatch',
+  'changed_during_transfer',
+  'name_incompatible',
+  'storage_failed',
+  'stalled',
+  'transport_closed',
+  'authorization_expired',
+  'conflicting_manifest',
+  'source_read_failed',
+  'unauthorized',
+  'completed_with_errors',
+  'timeout',
+];

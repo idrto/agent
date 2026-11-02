@@ -56,6 +56,7 @@ pub struct PresenceWebSocketClient {
     webrtc_sessions: Arc<WebRtcSessionManager>,
     connectors: Arc<idr_core::ConnectorRegistry>,
     signaling_outbox: Arc<Mutex<Option<PresenceSignalingOutbox>>>,
+    transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>,
 }
 
 impl PresenceWebSocketClient {
@@ -96,7 +97,14 @@ impl PresenceWebSocketClient {
             webrtc_sessions,
             connectors,
             signaling_outbox: Arc::new(Mutex::new(None)),
+            transfers: None,
         }
+    }
+
+    /// Enable peer binding and file transfer on WebRTC sessions.
+    pub fn with_transfers(mut self, transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>) -> Self {
+        self.transfers = transfers;
+        self
     }
 
     pub async fn run(&self) -> Result<()> {
@@ -131,7 +139,14 @@ impl PresenceWebSocketClient {
             }
             let network = PresenceNetworkCaps::from_detect(&caps);
             match self.connect_with_fallback(role_label, &network).await {
-                Ok(()) => {
+                Ok(true) => {
+                    // Presence drops a closed connection's registration about 1s later,
+                    // keyed by identity only: wait that out so it can't drop the new one.
+                    backoff = self.cfg.reconnect_initial();
+                    sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+                Ok(false) => {
                     if self.shutdown.is_draining() {
                         break;
                     }
@@ -150,11 +165,13 @@ impl PresenceWebSocketClient {
         Ok(())
     }
 
+    /// `Ok(true)`: the entitlement JWT was rotated and the connection closed to
+    /// re-register with it.
     async fn connect_with_fallback(
         &self,
         role_label: &'static str,
         network: &PresenceNetworkCaps,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let attempts = build_transport_attempts(&self.server, network, self.cfg.prefer_quic);
         if attempts.is_empty() {
             anyhow::bail!("no compatible presence transports");
@@ -171,6 +188,7 @@ impl PresenceWebSocketClient {
             &named,
         )?;
         let reg_json = serde_json::to_string(&reg)?;
+        let jwt = reg.entitlement_jwt.as_deref();
 
         let mut last_err = None;
         for (i, choice) in attempts.into_iter().enumerate() {
@@ -185,15 +203,15 @@ impl PresenceWebSocketClient {
             );
             let result = match choice {
                 PresenceTransportChoice::Quic(addr) => {
-                    self.connect_quic_and_serve(role_label, addr, &reg_json)
+                    self.connect_quic_and_serve(role_label, addr, &reg_json, jwt)
                         .await
                 }
                 PresenceTransportChoice::Wss => {
-                    self.connect_wss_and_serve(role_label, &reg_json).await
+                    self.connect_wss_and_serve(role_label, &reg_json, jwt).await
                 }
             };
             match result {
-                Ok(()) => return Ok(()),
+                Ok(rotated) => return Ok(rotated),
                 Err(e) => {
                     warn!(transport = label, error = %e, "presence transport failed");
                     last_err = Some(e);
@@ -208,7 +226,8 @@ impl PresenceWebSocketClient {
         role_label: &'static str,
         addr: std::net::SocketAddr,
         reg_json: &str,
-    ) -> Result<()> {
+        jwt: Option<&str>,
+    ) -> Result<bool> {
         let connection = self
             .quic_client
             .connect_persistent(&self.server, addr, reg_json, self.cfg.connect_timeout())
@@ -253,16 +272,40 @@ impl PresenceWebSocketClient {
                     debug!(?reason, "presence QUIC closed");
                     break;
                 }
+                _ = self.entitlement_rotated(jwt) => {
+                    connection.close(0u32.into(), b"entitlement rotated");
+                    return Ok(true);
+                }
                 _ = shutdown.wait_for_drain() => {
                     self.send_unregister_if_connected().await;
                     break;
                 }
             }
         }
-        Ok(())
+        Ok(false)
     }
 
-    async fn connect_wss_and_serve(&self, role_label: &'static str, reg_json: &str) -> Result<()> {
+    /// Resolves once the entitlement JWT on disk differs from the registered one.
+    /// The app re-mints short-lived JWTs into that file; Presence keeps the claims
+    /// from registration, so the connection must re-register (WebRTC sessions stay up).
+    async fn entitlement_rotated(&self, registered: Option<&str>) {
+        loop {
+            sleep(Duration::from_secs(10)).await;
+            if let Ok(current) = self.reg_cfg.resolve_entitlement_jwt() {
+                if current.as_deref() != registered {
+                    info!("entitlement JWT rotated; re-registering with Presence");
+                    return;
+                }
+            }
+        }
+    }
+
+    async fn connect_wss_and_serve(
+        &self,
+        role_label: &'static str,
+        reg_json: &str,
+        jwt: Option<&str>,
+    ) -> Result<bool> {
         let mut request = self
             .server
             .wss_url
@@ -322,13 +365,18 @@ impl PresenceWebSocketClient {
                         _ => {}
                     }
                 }
+                _ = self.entitlement_rotated(jwt) => {
+                    // Last sender gone: the writer task ends and the socket closes now.
+                    *self.signaling_outbox.lock().await = None;
+                    return Ok(true);
+                }
                 _ = self.shutdown.wait_for_drain() => {
                     self.send_unregister_if_connected().await;
                     break;
                 }
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     async fn send_unregister_if_connected(&self) {
@@ -394,7 +442,8 @@ impl PresenceWebSocketClient {
                 self.reg_cfg.webrtc.policy.clone(),
                 self.connectors.clone(),
                 self.reg_cfg.presence.insecure_dev,
-            ))
+            )
+            .with_transfers(self.transfers.clone()))
         } else {
             None
         };

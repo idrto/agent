@@ -16,7 +16,8 @@ use tokio::sync::mpsc;
 use crate::error::set_last_error;
 use crate::mock_backend;
 
-pub const ABI_VERSION: u32 = 2;
+/// 3: file transfer (`idr_transfer_*`).
+pub const ABI_VERSION: u32 = 3;
 
 /// Auth mode codes for `idr_engine_config_t.auth_mode`.
 pub const IDR_AUTH_BEARER: u32 = 0;
@@ -87,8 +88,12 @@ struct SessionSlot {
 }
 
 pub struct Engine {
-    rt: Runtime,
+    pub(crate) rt: Runtime,
     runtime: Mutex<SourceRuntime>,
+    /// Builds a fresh runtime per transfer-supervisor connection (no identity yet).
+    factory: idr_source::agent::RuntimeFactory,
+    pub(crate) identity: Mutex<Option<idr_dp::DeviceIdentity>>,
+    pub(crate) transfers: Mutex<Option<crate::transfer::Transfers>>,
     sessions: Mutex<HashMap<u64, SessionSlot>>,
     next_session: AtomicU64,
     next_stream_handle: AtomicU64,
@@ -115,8 +120,9 @@ impl Engine {
             IdrError::new(IdrErrorKind::InternalError, format!("tokio runtime: {e}"))
         })?;
 
-        let runtime = if cfg.use_mock != 0 {
-            mock_backend::mock_runtime(&source_id, &region, auth_mode, &auth_token)
+        let factory: idr_source::agent::RuntimeFactory = if cfg.use_mock != 0 {
+            let (id, region, token) = (source_id.clone(), region.clone(), auth_token.clone());
+            std::sync::Arc::new(move || mock_backend::mock_runtime(&id, &region, auth_mode, &token))
         } else {
             #[cfg(feature = "native")]
             {
@@ -127,7 +133,7 @@ impl Engine {
                     )
                 })?;
                 let discovery_key = cstr(cfg.discovery_key).unwrap_or_default();
-                rt.block_on(crate::native_backend::native_runtime(
+                rt.block_on(crate::native_backend::native_factory(
                     crate::native_backend::NativeBackendConfig {
                         source_id: source_id.clone(),
                         source_region: region.clone(),
@@ -148,10 +154,14 @@ impl Engine {
             }
         };
 
+        let runtime = factory();
         let (event_tx, event_rx) = mpsc::channel(256);
         Ok(Self {
             rt,
             runtime: Mutex::new(runtime),
+            factory,
+            identity: Mutex::new(None),
+            transfers: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
             next_session: AtomicU64::new(1),
             next_stream_handle: AtomicU64::new(1),
@@ -290,18 +300,7 @@ impl Engine {
             .get_mut(&session_id)
             .ok_or_else(|| IdrError::new(IdrErrorKind::InvalidArgument, "unknown session"))?;
 
-        // Pump inbound DC frames into stream inboxes before blocking on read.
-        // `timeout` must be created inside `block_on` (needs the Tokio reactor).
-        for _ in 0..64 {
-            match self.rt.block_on(async {
-                tokio::time::timeout(Duration::from_millis(25), slot.session.pump_once()).await
-            }) {
-                Ok(Ok(())) => {}
-                Ok(Err(_)) => break,
-                Err(_) => break, // no peer event this slice
-            }
-        }
-
+        // The session's driver task delivers inbound frames; no pumping here.
         let stream = slot
             .streams
             .get_mut(&stream_id)
@@ -358,12 +357,32 @@ impl Engine {
         let identity = idr_dp::device_identity_from_json(json).map_err(|e| {
             IdrError::new(IdrErrorKind::InvalidArgument, format!("dp identity: {e}"))
         })?;
-        self.runtime.lock().set_identity(identity);
+        self.runtime.lock().set_identity(identity.clone());
+        *self.identity.lock() = Some(identity);
         Ok(())
+    }
+
+    /// Runtimes for transfer supervisors: the engine's backend plus the DP identity.
+    pub(crate) fn runtime_factory(&self) -> idr_source::agent::RuntimeFactory {
+        let (base, identity) = (self.factory.clone(), self.identity.lock().clone());
+        std::sync::Arc::new(move || {
+            let mut rt = base();
+            if let Some(id) = &identity {
+                rt.set_identity(id.clone());
+            }
+            rt
+        })
     }
 }
 
-fn cstr(ptr: *const std::os::raw::c_char) -> Option<String> {
+impl Drop for Engine {
+    fn drop(&mut self) {
+        // Stop transfers resumably before the runtime (and its tasks) goes away.
+        self.shutdown_transfers();
+    }
+}
+
+pub(crate) fn cstr(ptr: *const std::os::raw::c_char) -> Option<String> {
     if ptr.is_null() {
         return None;
     }

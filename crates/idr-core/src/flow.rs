@@ -1,6 +1,9 @@
 //! Per-stream and connection flow-control windows.
 
-use idr_protocol::stream_mux::{INITIAL_CONN_WINDOW, INITIAL_STREAM_WINDOW};
+use std::sync::Arc;
+
+use idr_protocol::stream_mux::{INITIAL_CONN_WINDOW, INITIAL_STREAM_WINDOW, MAX_SEND_CREDIT};
+use tokio::sync::Semaphore;
 
 use crate::error::{IdrError, IdrErrorKind, Result};
 
@@ -87,6 +90,57 @@ impl FlowController {
     }
 }
 
+/// Send credit granted by the peer for one stream or the whole connection
+/// (`flow_credit_v1`). Shared between the writer and the demux that applies
+/// `WindowUpdate`s.
+#[derive(Debug, Clone)]
+pub struct SendCredit(Arc<Semaphore>);
+
+impl SendCredit {
+    pub fn new(initial: u32) -> Self {
+        Self(Arc::new(Semaphore::new(initial.min(MAX_SEND_CREDIT) as usize)))
+    }
+
+    /// Apply a peer `WindowUpdate`. Credit beyond [`MAX_SEND_CREDIT`] is dropped.
+    pub fn grant(&self, credit: u32) {
+        let room = (MAX_SEND_CREDIT as usize).saturating_sub(self.0.available_permits());
+        self.0.add_permits((credit as usize).min(room));
+    }
+
+    pub fn available(&self) -> u32 {
+        self.0.available_permits() as u32
+    }
+
+    /// Take `n` credit without waiting.
+    pub fn try_take(&self, n: u32) -> bool {
+        match self.0.try_acquire_many(n) {
+            Ok(p) => {
+                p.forget();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Wait for `n` credit. Errors once [`close`](Self::close)d.
+    pub async fn take(&self, n: u32) -> Result<()> {
+        self.0
+            .acquire_many(n)
+            .await
+            .map(|p| p.forget())
+            .map_err(|_| IdrError::new(IdrErrorKind::StreamReset, "stream closed"))
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.0.is_closed()
+    }
+
+    /// Wake and fail every waiter (stream reset).
+    pub fn close(&self) {
+        self.0.close();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +152,16 @@ mod tests {
         assert!(fc.consume_send(1).is_err());
         fc.credit_send_stream(4);
         fc.consume_send(4).unwrap();
+    }
+
+    #[test]
+    fn send_credit_caps_grants() {
+        let c = SendCredit::new(10);
+        assert!(c.try_take(10));
+        assert!(!c.try_take(1));
+        c.grant(u32::MAX);
+        c.grant(u32::MAX);
+        assert_eq!(c.available(), MAX_SEND_CREDIT);
     }
 
     #[test]

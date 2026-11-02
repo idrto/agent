@@ -35,6 +35,40 @@ pub struct Config {
     /// Generic named services (HTTP/TCP gateway). Replaces app-specific plugins.
     #[serde(default)]
     pub services: Vec<GatewayServiceConfig>,
+    /// File transfer with verified Sources. Off unless enabled.
+    #[serde(default)]
+    pub file_transfer: FileTransferConfig,
+}
+
+/// File transfer on this Target. Headless by default: an offer is denied unless
+/// a peer rule (keyed by the Source's verified device SKI) auto-accepts it.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FileTransferConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub receive_dir: Option<PathBuf>,
+    /// Holds the transfer outbox and the CLI's IPC endpoint. Default: `target-agent-data`.
+    pub data_dir: Option<PathBuf>,
+    /// PEM of the entity root CA. Default: the root at the end of this device's chain.
+    pub entity_root_path: Option<PathBuf>,
+    /// Ask the local user (`transfer accept` / `reject`) for offers no rule auto-accepts.
+    #[serde(default)]
+    pub interactive: bool,
+    /// Directories `transfer accept --out` may choose (besides `receive_dir`).
+    #[serde(default)]
+    pub permitted_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub peers: Vec<FileTransferPeer>,
+    /// Authorization lease for a transfer, minutes (default 15, at least 5).
+    pub lease_minutes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileTransferPeer {
+    pub ski: String,
+    #[serde(default)]
+    pub auto_accept: bool,
+    pub auto_accept_max_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

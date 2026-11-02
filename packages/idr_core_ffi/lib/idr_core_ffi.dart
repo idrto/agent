@@ -3,4 +3,5 @@ library idr_core_ffi;
 
 export 'src/bindings.dart';
 export 'src/loader.dart';
+export 'src/transfer_bindings.dart';
 export 'src/types.dart';

@@ -8,6 +8,7 @@ import 'events.dart';
 import 'ffi_isolate.dart';
 import 'session.dart';
 import 'catalog.dart';
+import 'transfer.dart';
 
 void _idrLog(String message) {
   developer.log(message, name: 'idr_client');
@@ -15,10 +16,13 @@ void _idrLog(String message) {
 
 /// Embedded Source runtime (owns the native engine on a background isolate).
 class IdrRuntime {
-  IdrRuntime._(this._ffi);
+  IdrRuntime._(this._ffi) : transfers = IdrTransfers(_ffi);
 
   final IdrFfiIsolate _ffi;
   bool _disposed = false;
+
+  /// File transfer (call `transfers.enable` after [setDpIdentity]).
+  final IdrTransfers transfers;
 
   /// Create a runtime. Product path: [authToken] required, [useMock]=false.
   ///

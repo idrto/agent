@@ -1,11 +1,7 @@
 //! WebRTC responder session: SDP/ICE signaling + DataChannel mux bridge.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::OwnedWriteHalf;
-use tokio::sync::mpsc;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -13,11 +9,14 @@ use crate::config::{NginxConfig, WebRtcPolicyConfig};
 use crate::identity::TargetIdentity;
 use crate::presence::outbox::PresenceSignalingOutbox;
 use crate::webrtc::mux::{decode_datachannel_message, encode_datachannel_message};
+use crate::webrtc::local::{is_local_service, IoStream, LocalStream, SessionLocal, TransferEndpoint};
+use crate::webrtc::mux_streams::MuxStreams;
 use crate::webrtc::peer::{NativePeerSession, PeerConfig, PeerEvent};
 use crate::webrtc::session_manager::{
     PeerIceInbox, RemoteIceMsg, SessionState, WebRtcSessionManager,
 };
 use idr_core::error::IdrErrorKind;
+use idr_core::{StreamPriority, BULK_LOW_WATER};
 use idr_protocol::signaling::SignalingMessageType;
 use idr_protocol::stream_mux::{OpenErrorCode, StreamFrame, StreamKind, StreamOpenMeta};
 use idr_protocol::webrtc_ice::IceServer;
@@ -26,11 +25,6 @@ use idr_protocol::webrtc_signaling::{
     WebRtcSessionAck, WebRtcSessionOffer, WebRtcSessionResultCode,
 };
 use idr_protocol::PROTOCOL_VERSION;
-
-enum Outbound {
-    Frame(Vec<u8>),
-    Stop,
-}
 
 pub struct SessionRuntime {
     pub offer: WebRtcSessionOffer,
@@ -43,9 +37,13 @@ pub struct SessionRuntime {
     pub policy: WebRtcPolicyConfig,
     pub fqhn: String,
     pub connectors: Arc<idr_core::ConnectorRegistry>,
+    /// Peer binding and file transfer; None disables both (`idr.bind` /
+    /// `idr.transfer` opens are refused).
+    pub transfers: Option<Arc<TransferEndpoint>>,
 }
 
 pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
+    let rt = Arc::new(rt);
     let session_id = rt.offer.session_id;
     tracing::info!(
         %session_id,
@@ -115,14 +113,19 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
     rt.sessions
         .set_state(session_id, SessionState::IceConnecting);
 
-    let (out_tx, mut out_rx) = mpsc::channel::<Outbound>(128);
-    let mut writers: HashMap<u32, OwnedWriteHalf> = HashMap::new();
+    let (out, mut out_rx) = idr_core::mux_out(128);
+    let mut streams = MuxStreams::new(out);
     let mut dc_open = false;
+    let mut answer_sdp = String::new();
+    let mut local: Option<SessionLocal> = None;
     let mut answered = false;
     let answer_deadline =
         tokio::time::Instant::now() + std::time::Duration::from_secs(15);
 
     let result = loop {
+        // Bulk waits while the DataChannel holds more than the low-water mark;
+        // BufferedAmountLow (or the poll below) re-opens it.
+        let bulk_open = peer.buffered_amount() < BULK_LOW_WATER;
         tokio::select! {
             event = peer.next_event() => {
                 match event? {
@@ -131,6 +134,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                             continue;
                         }
                         answered = true;
+                        answer_sdp = desc.sdp.clone();
                         tracing::info!(
                             %session_id,
                             sdp_type = %desc.sdp_type,
@@ -177,6 +181,18 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                     }
                     PeerEvent::DataChannelOpen => {
                         dc_open = true;
+                        if let Some(ep) = &rt.transfers {
+                            let fp = idr_protocol::peer_bind::sdp_fingerprint;
+                            let ctx = idr_protocol::peer_bind::BindContext {
+                                session_id: session_id.to_string(),
+                                target_fqhn: rt.fqhn.clone(),
+                                offerer_fingerprint: fp(&rt.offer.sdp.sdp).unwrap_or_default(),
+                                answerer_fingerprint: fp(&answer_sdp).unwrap_or_default(),
+                                path: peer.ice_path(),
+                            };
+                            let attested = rt.offer.source.policy.as_ref().map(|p| p.ski.clone());
+                            local = Some(ep.start_session(ctx, attested));
+                        }
                         rt.sessions.set_state(session_id, SessionState::DataChannelOpen);
                         if let Some((path, local_type, remote_type)) = peer.selected_ice_summary() {
                             let via = match path.as_str() {
@@ -208,18 +224,26 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                         .await?;
                     }
                     PeerEvent::BinaryMessage(bytes) => {
-                        if let Err(e) = handle_mux_message(
-                            &bytes,
-                            &rt,
-                            session_id,
-                            &mut writers,
-                            out_tx.clone(),
-                        )
-                        .await
+                        match handle_mux_message(&bytes, &rt, session_id, &mut streams, local.as_ref()).await
                         {
-                            warn!(error = %e, %session_id, "mux frame handling failed");
+                            Ok(replies) => {
+                                for frame in replies {
+                                    match encode_datachannel_message(&frame) {
+                                        Ok(b) => {
+                                            if let Err(e) = peer.send_binary(&b) {
+                                                warn!(error = %e, "dc send failed");
+                                            }
+                                        }
+                                        Err(e) => warn!(error = %e, "encode reply failed"),
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!(error = %e, %session_id, "mux frame handling failed");
+                            }
                         }
                     }
+                    PeerEvent::BufferedAmountLow => {}
                     PeerEvent::DataChannelClosed => {
                         if dc_open {
                             tracing::info!(%session_id, "WebRTC data channel closed");
@@ -238,6 +262,29 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                     }
                 }
             }
+            // Target-initiated stream (e.g. sending a file to the Source).
+            Some((service, priority, reply)) = async {
+                match local.as_mut() {
+                    Some(l) => l.opens.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                match streams.open_local(&service, priority).await {
+                    Ok(pending) => {
+                        tokio::spawn(async move {
+                            let r = match pending.await {
+                                Ok(Ok(io)) => Ok(IoStream::new(0, io)),
+                                Ok(Err(m)) => Err(m),
+                                Err(_) => Err("session closed".to_string()),
+                            };
+                            let _ = reply.send(r);
+                        });
+                    }
+                    Err(m) => {
+                        let _ = reply.send(Err(m.to_string()));
+                    }
+                }
+            }
             ice = ice_rx.recv() => {
                 match ice {
                     Some(RemoteIceMsg::Candidate { candidate, mid }) => {
@@ -248,22 +295,19 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                     Some(RemoteIceMsg::End) | None => {}
                 }
             }
-            outbound = out_rx.recv() => {
+            outbound = out_rx.next(bulk_open) => {
                 match outbound {
-                    Some(Outbound::Frame(bytes)) => {
+                    Some(bytes) => {
                         if let Err(e) = peer.send_binary(&bytes) {
                             warn!(error = %e, "dc send failed");
                         } else {
                             rt.sessions.touch(session_id);
                         }
                     }
-                    Some(Outbound::Stop) | None => {
-                        if outbound.is_none() {
-                            break Err(anyhow::anyhow!("outbound channel closed"));
-                        }
-                    }
+                    None => break Err(anyhow::anyhow!("outbound channel closed")),
                 }
             }
+            _ = tokio::time::sleep(std::time::Duration::from_millis(5)), if !bulk_open => {}
             _ = tokio::time::sleep_until(answer_deadline), if !answered => {
                 break Err(anyhow::anyhow!(
                     "timed out waiting for local WebRTC answer SDP (create_answer produced no on_description)"
@@ -272,7 +316,10 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
         }
     };
 
-    writers.clear();
+    drop(streams);
+    if let (Some(ep), Some(_)) = (&rt.transfers, &local) {
+        ep.end_session(session_id);
+    }
     peer.close();
     rt.sessions.clear_ice_inbox(session_id);
     rt.sessions.end_session(session_id);
@@ -311,11 +358,11 @@ async fn send_session_ack(
 
 async fn handle_mux_message(
     bytes: &[u8],
-    rt: &SessionRuntime,
+    rt: &Arc<SessionRuntime>,
     session_id: Uuid,
-    writers: &mut HashMap<u32, OwnedWriteHalf>,
-    out_tx: mpsc::Sender<Outbound>,
-) -> anyhow::Result<()> {
+    streams: &mut MuxStreams,
+    local: Option<&SessionLocal>,
+) -> anyhow::Result<Vec<StreamFrame>> {
     let frame = decode_datachannel_message(bytes)?;
     match frame {
         StreamFrame::Open {
@@ -323,146 +370,84 @@ async fn handle_mux_message(
             kind,
             meta,
         } => {
-            if writers.contains_key(&stream_id) {
-                anyhow::bail!("duplicate stream_id {stream_id}");
+            if let Err((code, message)) = streams.admit_open(stream_id) {
+                warn!(%session_id, stream_id, ?code, %message, "OPEN refused");
+                return Ok(vec![StreamFrame::OpenError {
+                    stream_id,
+                    code: code as u16,
+                    message,
+                }]);
             }
-            let open_result = open_via_registry(rt, kind, &meta).await;
-            let tcp = match open_result {
-                Ok(tcp) => tcp,
-                Err((code, message)) => {
-                    // Log full detail on Target only; Source must not see secrets.
-                    warn!(
-                        %session_id,
-                        stream_id,
-                        ?code,
-                        error = %message,
-                        "OPEN failed (detail stays on Target)"
-                    );
-                    let err = StreamFrame::OpenError {
-                        stream_id,
-                        code: code as u16,
-                        message: sanitize_open_error_for_source(code, &message),
-                    };
-                    if let Ok(bytes) = encode_datachannel_message(&err) {
-                        let _ = out_tx.send(Outbound::Frame(bytes)).await;
+            if let Some(service) = meta.service_name.as_deref().filter(|s| is_local_service(s)) {
+                return Ok(open_local_service(rt, stream_id, service, &meta, streams, local));
+            }
+            // Connect off the session loop; DATA is buffered until it completes.
+            let rt2 = rt.clone();
+            let connect = async move {
+                match open_via_registry(&rt2, kind, &meta).await {
+                    Ok(tcp) => {
+                        rt2.sessions.stream_opened(session_id);
+                        rt2.sessions.set_state(session_id, SessionState::Active);
+                        debug!(%session_id, stream_id, ?kind, service = ?meta.service_name, "webrtc mux stream opened");
+                        Ok(tcp)
                     }
-                    return Ok(());
+                    Err((code, message)) => {
+                        // Log full detail on Target only; Source must not see secrets.
+                        warn!(
+                            %session_id,
+                            stream_id,
+                            ?code,
+                            error = %message,
+                            "OPEN failed (detail stays on Target)"
+                        );
+                        Err((code, sanitize_open_error_for_source(code, &message)))
+                    }
                 }
             };
-            let (mut read_half, write_half) = tcp.into_split();
-            writers.insert(stream_id, write_half);
-            rt.sessions.stream_opened(session_id);
-            rt.sessions.set_state(session_id, SessionState::Active);
-            debug!(%session_id, stream_id, ?kind, service = ?meta.service_name, "webrtc mux stream opened");
-            tracing::info!(
-                %session_id,
-                stream_id,
-                service = ?meta.service_name,
-                "mux stream OpenOk → Source"
-            );
-            let out_tx_reader = out_tx.clone();
             let sessions = rt.sessions.clone();
-            tokio::spawn(async move {
-                let mut buf = vec![0u8; 16 * 1024];
-                loop {
-                    match read_half.read(&mut buf).await {
-                        Ok(0) => {
-                            let frame = StreamFrame::HalfClose { stream_id };
-                            if let Ok(bytes) = encode_datachannel_message(&frame) {
-                                let _ = out_tx_reader.send(Outbound::Frame(bytes)).await;
-                            }
-                            break;
-                        }
-                        Ok(n) => {
-                            let frame = StreamFrame::Data {
-                                stream_id,
-                                bytes: buf[..n].to_vec(),
-                            };
-                            match encode_datachannel_message(&frame) {
-                                Ok(bytes) => {
-                                    if out_tx_reader.send(Outbound::Frame(bytes)).await.is_err() {
-                                        break;
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!(error = %e, "encode data frame failed");
-                                    break;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!(error = %e, stream_id, "tcp read failed");
-                            let frame = StreamFrame::Reset {
-                                stream_id,
-                                reason: 1,
-                            };
-                            if let Ok(bytes) = encode_datachannel_message(&frame) {
-                                let _ = out_tx_reader.send(Outbound::Frame(bytes)).await;
-                            }
-                            break;
-                        }
-                    }
-                }
-                sessions.stream_closed(session_id);
+            streams.open_with(stream_id, StreamPriority::Interactive, connect, move || {
+                sessions.stream_closed(session_id)
             });
-            let ok = StreamFrame::OpenOk {
-                stream_id,
-                initial_window: idr_protocol::stream_mux::INITIAL_STREAM_WINDOW,
-            };
-            if let Ok(bytes) = encode_datachannel_message(&ok) {
-                let _ = out_tx.send(Outbound::Frame(bytes)).await;
-            }
         }
         StreamFrame::Data { stream_id, bytes } => {
-            if let Some(w) = writers.get_mut(&stream_id) {
-                w.write_all(&bytes).await?;
-                rt.sessions.touch(session_id);
-            }
+            rt.sessions.touch(session_id);
+            return Ok(streams.on_data(stream_id, bytes).await);
         }
         StreamFrame::HalfClose { stream_id } => {
-            if let Some(mut w) = writers.remove(&stream_id) {
-                let _ = w.shutdown().await;
+            if streams.on_half_close(stream_id) {
                 rt.sessions.stream_closed(session_id);
             }
         }
         StreamFrame::Reset { stream_id, .. } => {
-            writers.remove(&stream_id);
+            streams.on_reset(stream_id);
             rt.sessions.stream_closed(session_id);
         }
-        StreamFrame::WindowUpdate { .. } => {
-            // Credit applied when Target enforces read pacing (Phase 4 basic: accept/ignore).
+        StreamFrame::WindowUpdate { stream_id, credit } => {
+            streams.on_window_update(stream_id, credit);
             rt.sessions.touch(session_id);
         }
-        StreamFrame::Ping { opaque } => {
-            let pong = StreamFrame::Pong { opaque };
-            if let Ok(bytes) = encode_datachannel_message(&pong) {
-                let _ = out_tx.send(Outbound::Frame(bytes)).await;
-            }
-        }
+        StreamFrame::Ping { opaque } => return Ok(vec![StreamFrame::Pong { opaque }]),
         StreamFrame::Pong { .. } => {
             rt.sessions.touch(session_id);
         }
         StreamFrame::GoAway { .. } => {
             debug!(%session_id, "peer sent GoAway");
         }
-        StreamFrame::OpenOk { .. } | StreamFrame::OpenError { .. } => {
-            // Source→Target open acks are not expected on the answerer path.
-        }
+        // Replies to Target-initiated opens.
+        StreamFrame::OpenOk {
+            stream_id,
+            initial_window,
+        } => streams.on_open_ok(stream_id, initial_window),
+        StreamFrame::OpenError {
+            stream_id, message, ..
+        } => streams.on_open_error(stream_id, message),
         StreamFrame::AuthRefresh { .. } => {}
         StreamFrame::Hello {
             version,
             features,
             conn_window,
         } => {
-            let ack = StreamFrame::HelloAck {
-                version: version.min(idr_protocol::stream_mux::STREAM_MUX_VERSION),
-                features: idr_protocol::stream_mux::MuxProfile::from_features(&features)
-                    .advertised_features(),
-                conn_window: conn_window.min(idr_protocol::stream_mux::INITIAL_CONN_WINDOW),
-            };
-            if let Ok(bytes) = encode_datachannel_message(&ack) {
-                let _ = out_tx.send(Outbound::Frame(bytes)).await;
-            }
+            return Ok(vec![streams.on_hello(version, &features, conn_window)]);
         }
         StreamFrame::HelloAck { .. } => {}
         StreamFrame::ServicesCatalogRequest => {
@@ -483,20 +468,63 @@ async fn handle_mux_message(
                 rt.connectors.catalog_entries(),
                 |e| e.name.as_str(),
             );
-            let catalog = StreamFrame::ServicesCatalog { services };
-            if let Ok(bytes) = encode_datachannel_message(&catalog) {
-                let _ = out_tx.send(Outbound::Frame(bytes)).await;
-            }
-            let detailed = StreamFrame::ServicesCatalogDetailed { entries };
-            if let Ok(bytes) = encode_datachannel_message(&detailed) {
-                let _ = out_tx.send(Outbound::Frame(bytes)).await;
-            }
+            return Ok(vec![
+                StreamFrame::ServicesCatalog { services },
+                StreamFrame::ServicesCatalogDetailed { entries },
+            ]);
         }
         StreamFrame::ServicesCatalog { .. } | StreamFrame::ServicesCatalogDetailed { .. } => {
             // Source→Target catalogs are not expected.
         }
     }
-    Ok(())
+    Ok(Vec::new())
+}
+
+/// Accept a stream for `idr.bind` / `idr.transfer` into this Target's endpoint.
+fn open_local_service(
+    rt: &SessionRuntime,
+    stream_id: u32,
+    service: &str,
+    meta: &StreamOpenMeta,
+    streams: &mut MuxStreams,
+    local: Option<&SessionLocal>,
+) -> Vec<StreamFrame> {
+    let refuse = |code: OpenErrorCode, message: &str| {
+        vec![StreamFrame::OpenError {
+            stream_id,
+            code: code as u16,
+            message: message.into(),
+        }]
+    };
+    let claimed = idr_protocol::fqhn::canonicalize(&meta.target_fqhn)
+        .unwrap_or_else(|_| meta.target_fqhn.to_ascii_lowercase());
+    if claimed != rt.fqhn {
+        return refuse(OpenErrorCode::FqhnMismatch, "StreamOpen FQHN mismatch");
+    }
+    let Some(local) = local else {
+        return refuse(OpenErrorCode::ServiceNotFound, "file transfer not enabled");
+    };
+    let transfer = service == idr_protocol::transfer::TRANSFER_SERVICE;
+    if transfer && local.peer.borrow().is_none() {
+        return refuse(OpenErrorCode::Unauthorized, "peer identity not verified");
+    }
+    if !transfer && rt.offer.source.policy.is_none() {
+        return refuse(OpenErrorCode::Unauthorized, "Source identity not attested");
+    }
+    let priority = if transfer { StreamPriority::Bulk } else { StreamPriority::Interactive };
+    let (mine, theirs) = tokio::io::duplex(64 * 1024);
+    if local
+        .streams
+        .try_send(LocalStream {
+            service: service.to_string(),
+            stream: IoStream::new(stream_id, mine),
+        })
+        .is_err()
+    {
+        return refuse(OpenErrorCode::ResourceExhausted, "busy");
+    }
+    streams.open_with(stream_id, priority, async { Ok(theirs) }, || {});
+    Vec::new()
 }
 
 async fn open_via_registry(

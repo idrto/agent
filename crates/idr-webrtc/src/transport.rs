@@ -25,6 +25,8 @@ pub enum PeerEvent {
     DataChannelOpen,
     DataChannelClosed,
     BinaryMessage(Vec<u8>),
+    /// The send buffer drained below its low-water mark; bulk sends may resume.
+    BufferedAmountLow,
     ConnectionFailed,
     Closed,
 }
@@ -52,6 +54,16 @@ pub trait PeerTransport: Send {
     fn set_ice_servers_json(&mut self, _json: &str) -> Result<()> {
         Ok(())
     }
+
+    /// Bytes queued in the DataChannel but not yet sent. 0 when unknown.
+    /// The selected ICE pair as `(local, remote)` candidate lines, once connected.
+    fn selected_candidate_pair(&self) -> Option<(String, String)> {
+        None
+    }
+
+    fn buffered_amount(&self) -> usize {
+        0
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -73,5 +85,14 @@ pub trait PeerTransport {
 
     fn set_ice_servers_json(&mut self, _json: &str) -> Result<()> {
         Ok(())
+    }
+
+    /// The selected ICE pair as `(local, remote)` candidate lines, once connected.
+    fn selected_candidate_pair(&self) -> Option<(String, String)> {
+        None
+    }
+
+    fn buffered_amount(&self) -> usize {
+        0
     }
 }

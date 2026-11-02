@@ -10,6 +10,49 @@ pub struct SourceConfig {
     pub presence: PresenceSection,
     #[serde(default)]
     pub dp: DpSection,
+    #[serde(default)]
+    pub daemon: DaemonSection,
+    #[serde(default)]
+    pub file_transfer: FileTransferSection,
+}
+
+/// `source-agent run`: which Targets to keep sessions with, and where state lives.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct DaemonSection {
+    /// Holds the transfer outbox. Default: `./source-agent-data`.
+    pub data_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub targets: Vec<String>,
+}
+
+/// File transfer on this Source. Off unless enabled; incoming offers are denied
+/// unless a peer rule (keyed by the Target's verified SKI) auto-accepts them.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FileTransferSection {
+    #[serde(default)]
+    pub enabled: bool,
+    pub receive_dir: Option<PathBuf>,
+    /// PEM of the entity root CA. Default: the root at the end of this device's chain.
+    pub entity_root_path: Option<PathBuf>,
+    /// Ask the local user (`transfer accept` / `reject`) for offers no rule
+    /// auto-accepts. False (headless): such offers are denied.
+    #[serde(default)]
+    pub interactive: bool,
+    /// Directories `transfer accept --out` may choose (besides `receive_dir`).
+    #[serde(default)]
+    pub permitted_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub peers: Vec<PeerSection>,
+    /// Authorization lease for a transfer, minutes (default 15, at least 5).
+    pub lease_minutes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeerSection {
+    pub ski: String,
+    #[serde(default)]
+    pub auto_accept: bool,
+    pub auto_accept_max_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -58,4 +101,26 @@ impl SourceConfig {
         let cfg: Self = toml::from_str(&raw).context("parse source config TOML")?;
         Ok(cfg)
     }
+}
+
+/// This device's DP identity as a binding identity (key + chain).
+pub fn local_identity(id: &dp_rust_mtls::DeviceIdentity) -> Result<idr_transfer::bind::LocalIdentity> {
+    let d = id.private_jwk.get("d").and_then(|v| v.as_str()).context("identity has no private key")?;
+    let chain = id
+        .chain_pem
+        .as_deref()
+        .or(id.cert_pem.as_deref())
+        .context("identity has no issued certificate (enroll first)")?;
+    idr_transfer::bind::LocalIdentity::from_jwk(d, &id.ski, chain).context("identity private key is not Ed25519")
+}
+
+/// Entity root(s) Targets must chain to: the configured PEM, else the root at
+/// the end of this device's own chain (root-issued devices).
+pub fn entity_roots(ft: &FileTransferSection, me: &idr_transfer::bind::LocalIdentity) -> Result<Vec<Vec<u8>>> {
+    let pem = match &ft.entity_root_path {
+        Some(p) => Some(fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?),
+        None => None,
+    };
+    idr_transfer::bind::entity_roots(pem.as_deref(), &me.chain_pem)
+        .context("no entity root: set [file_transfer].entity_root_path")
 }

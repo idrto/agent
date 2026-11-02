@@ -30,6 +30,7 @@ pub struct WebRtcSignalingHandler {
     policy: WebRtcPolicyConfig,
     connectors: Arc<ConnectorRegistry>,
     insecure_dev: bool,
+    transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>,
 }
 
 impl WebRtcSignalingHandler {
@@ -54,7 +55,14 @@ impl WebRtcSignalingHandler {
             policy,
             connectors,
             insecure_dev,
+            transfers: None,
         }
+    }
+
+    /// Enable peer binding and file transfer on sessions this handler starts.
+    pub fn with_transfers(mut self, transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>) -> Self {
+        self.transfers = transfers;
+        self
     }
 
     pub async fn handle_offer(
@@ -216,6 +224,7 @@ impl WebRtcSignalingHandler {
                 policy: self.policy.clone(),
                 fqhn: self.fqhn.clone(),
                 connectors: self.connectors.clone(),
+                transfers: self.transfers.clone(),
             };
             guard.keep_alive();
             tokio::spawn(async move {

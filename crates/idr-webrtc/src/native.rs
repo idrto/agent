@@ -20,6 +20,7 @@ use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_protocol::webrtc_ice::{
     IceServer, IceTransportPolicy, STUN_GOOGLE, WEBRTC_DC_LABEL, WEBRTC_DC_PROTOCOL,
 };
+use idr_protocol::stream_mux::DC_EVENT_QUEUE_CAPACITY;
 use idr_protocol::{MAX_FRAME_BYTES, MAX_ICE_CANDIDATE_BYTES, MAX_SDP_BYTES};
 
 use crate::transport::{PeerConnectRequest, PeerEvent, PeerRole, PeerTransport};
@@ -95,6 +96,7 @@ enum InternalEvent {
     DataChannelOpen,
     DataChannelClosed,
     BinaryMessage(Vec<u8>),
+    BufferedAmountLow,
     ConnectionFailed,
     Closed,
 }
@@ -148,6 +150,10 @@ impl DataChannelHandler for ChannelHandler {
             self.sink
                 .public(InternalEvent::BinaryMessage(message.to_vec()));
         }
+    }
+
+    fn on_buffered_amount_low(&mut self) {
+        self.sink.public(InternalEvent::BufferedAmountLow);
     }
 }
 
@@ -294,11 +300,11 @@ impl Default for NativePeerConfig {
     fn default() -> Self {
         Self {
             ice_transport_policy: IceTransportPolicy::All,
-            event_queue_capacity: 256,
+            event_queue_capacity: DC_EVENT_QUEUE_CAPACITY,
             max_sdp_bytes: MAX_SDP_BYTES,
             max_candidate_bytes: MAX_ICE_CANDIDATE_BYTES,
             max_message_bytes: MAX_FRAME_BYTES,
-            buffered_amount_low_threshold: 256 * 1024,
+            buffered_amount_low_threshold: idr_core::BULK_LOW_WATER,
         }
     }
 }
@@ -381,6 +387,7 @@ impl NativePeer {
             InternalEvent::DataChannelOpen => PeerEvent::DataChannelOpen,
             InternalEvent::DataChannelClosed => PeerEvent::DataChannelClosed,
             InternalEvent::BinaryMessage(bytes) => PeerEvent::BinaryMessage(bytes),
+            InternalEvent::BufferedAmountLow => PeerEvent::BufferedAmountLow,
             InternalEvent::ConnectionFailed => PeerEvent::ConnectionFailed,
             InternalEvent::Closed => PeerEvent::Closed,
         }
@@ -551,6 +558,15 @@ impl PeerTransport for NativePeer {
             })
     }
 
+    fn buffered_amount(&self) -> usize {
+        self.channel.as_ref().map_or(0, |c| c.buffered_amount())
+    }
+
+    fn selected_candidate_pair(&self) -> Option<(String, String)> {
+        let pair = self.peer.as_deref()?.selected_candidate_pair()?;
+        Some((pair.local, pair.remote))
+    }
+
     fn send_binary(&mut self, message: &[u8]) -> Result<()> {
         if message.len() > self.config.max_message_bytes {
             return Err(IdrError::new(
@@ -625,5 +641,27 @@ impl PeerTransport for NativePeer {
                     format!("gather ICE candidates: {e}"),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use idr_protocol::stream_mux::{CREDIT_CONN_WINDOW, DC_CONTROL_HEADROOM, MIN_DATA_CHARGE};
+
+    use super::*;
+
+    /// B3: a full credit window of DATA plus control frames must fit the callback queue.
+    #[test]
+    fn default_queue_holds_a_full_credit_window() {
+        let needed = (CREDIT_CONN_WINDOW / MIN_DATA_CHARGE) as usize + DC_CONTROL_HEADROOM;
+        assert!(NativePeerConfig::default().event_queue_capacity >= needed);
+    }
+
+    /// Overflow already ends the Source session; keep it that way.
+    #[tokio::test]
+    async fn queue_overflow_is_fatal() {
+        let mut peer = NativePeer::new(NativePeerConfig::default()).unwrap();
+        peer.dropped.store(1, Ordering::Release);
+        assert!(matches!(peer.next_event().await.unwrap(), PeerEvent::ConnectionFailed));
     }
 }

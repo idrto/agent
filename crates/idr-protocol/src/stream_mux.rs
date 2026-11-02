@@ -28,6 +28,50 @@ pub const INITIAL_CONN_WINDOW: u32 = 16 * 1024 * 1024;
 pub const FEATURE_FLOW_CONTROL: &str = "flow_control_v1";
 pub const FEATURE_OPEN_ACK: &str = "open_ack";
 pub const FEATURE_PING: &str = "ping";
+/// Credit flow control enforced in both directions, negotiated with `Hello`/`HelloAck`.
+/// Every DATA frame costs [`data_charge`] against the stream and connection windows;
+/// `WindowUpdate { stream_id: 0 }` returns connection credit. Peers that do not
+/// negotiate it keep the pre-credit behavior.
+pub const FEATURE_FLOW_CREDIT: &str = "flow_credit_v1";
+
+/// The peer accepts `Open` from the other side (Target-initiated, even stream ids)
+/// for the services it chooses; others get `OpenError`. Negotiated in `Hello`.
+pub const FEATURE_PEER_OPEN: &str = "peer_open_v1";
+
+/// Minimum credit one DATA frame costs under [`FEATURE_FLOW_CREDIT`]. Bounds the
+/// number of in-flight messages, not just bytes, so tiny frames can't overflow
+/// the receiver's DataChannel callback queue.
+pub const MIN_DATA_CHARGE: u32 = 8 * 1024;
+
+/// Connection receive window advertised under [`FEATURE_FLOW_CREDIT`].
+pub const CREDIT_CONN_WINDOW: u32 = 4 * 1024 * 1024;
+
+/// DataChannel callback queue slots. Sized so a full credit window plus control
+/// frames always fits: overflow means the peer broke the protocol.
+pub const DC_EVENT_QUEUE_CAPACITY: usize = 1024;
+/// Queue slots kept for non-DATA frames (window updates, pings, opens).
+pub const DC_CONTROL_HEADROOM: usize = 512;
+const _: () = assert!(
+    (CREDIT_CONN_WINDOW / MIN_DATA_CHARGE) as usize + DC_CONTROL_HEADROOM
+        <= DC_EVENT_QUEUE_CAPACITY
+);
+
+/// Largest DATA payload that still encodes within [`MAX_FRAME_BYTES`].
+pub const MAX_DATA_PAYLOAD: usize = MAX_FRAME_BYTES - 16;
+
+/// Concurrent streams one peer may have open on a session (both directions count).
+pub const MAX_STREAMS_PER_SESSION: usize = 256;
+
+/// `Reset.reason` when a peer sends past the window it was granted.
+pub const RESET_FLOW_CONTROL: u16 = 2;
+
+/// Upper bound on send credit a peer may grant; `WindowUpdate`s beyond it are ignored.
+pub const MAX_SEND_CREDIT: u32 = 64 * 1024 * 1024;
+
+/// Credit one DATA frame of `len` payload bytes costs under [`FEATURE_FLOW_CREDIT`].
+pub fn data_charge(len: usize) -> u32 {
+    (len as u32).max(MIN_DATA_CHARGE)
+}
 
 /// Who authenticates to the upstream service (Target-configured).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -402,6 +446,15 @@ mod tests {
         };
         let payload = postcard::to_allocvec(&open).unwrap();
         assert_eq!(payload[0], 0, "Open must stay postcard variant index 0");
+    }
+
+    #[test]
+    fn max_data_payload_fits_one_frame() {
+        let frame = StreamFrame::Data {
+            stream_id: u32::MAX,
+            bytes: vec![0; MAX_DATA_PAYLOAD],
+        };
+        frame.encode().unwrap();
     }
 
     #[test]

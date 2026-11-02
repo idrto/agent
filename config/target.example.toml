@@ -86,3 +86,18 @@ idle_timeout_seconds = 300
 [webrtc.policy]
 deny_private_ips = true
 allowed_tcp_connect_suffixes = []
+
+# File transfer with verified Sources (needs [webrtc] and a DP identity).
+# Headless by default: an offer is denied unless a peer rule auto-accepts it.
+[file_transfer]
+enabled = false
+# receive_dir = "/var/lib/idr/inbox"
+# data_dir = "target-agent-data"           # transfer outbox and the CLI's IPC endpoint
+# entity_root_path = "entity-root.pem"     # default: root at the end of this device's chain
+# interactive = false
+# permitted_dirs = []
+# lease_minutes = 15
+# [[file_transfer.peers]]
+# ski = "source-device-ski"
+# auto_accept = true
+# auto_accept_max_bytes = 1073741824

@@ -1,15 +1,20 @@
 //! Source runtime and session orchestration.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_core::session::{OpenStreamRequest, PeerSession};
-use idr_core::stream::LogicalStream;
+use idr_core::stream::{LogicalStream, StreamId};
 #[cfg(feature = "dp")]
 use idr_dp::DeviceIdentity;
 use idr_protocol::signaling::SignalingMessageType;
-use idr_protocol::stream_mux::{StreamFrame, StreamOpenMeta};
+use idr_core::{MuxOut, MuxOutRx, StreamPriority, BULK_LOW_WATER};
+use idr_protocol::stream_mux::{
+    MuxProfile, StreamFrame, StreamOpenMeta, CREDIT_CONN_WINDOW, FEATURE_FLOW_CREDIT,
+    FEATURE_PEER_OPEN, STREAM_MUX_VERSION,
+};
 use idr_protocol::webrtc_ice::{build_rtc_ice_servers, IceTransportPolicy};
 use idr_protocol::webrtc_signaling::{
     SessionDescription, SourceAgentIdentity, SourceAuthMode, SourceProof, WebRtcIceCandidate,
@@ -21,7 +26,10 @@ use idr_webrtc::transport::{PeerConnectRequest, PeerEvent, PeerRole, PeerTranspo
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::mux_session::{MuxLogicalStream, StreamDemux, StreamIdAllocator};
+use crate::mux_session::{IncomingStream, MuxLogicalStream, StreamDemux, STREAM_INBOX_FRAMES};
+
+/// Frames each outbound priority queue holds before writers wait.
+const OUT_QUEUE_FRAMES: usize = 64;
 use crate::service_map::default_service_kind;
 
 /// Entry point for embedded / mobile / desktop Source usage.
@@ -264,6 +272,8 @@ impl SourceRuntime {
         }
 
         let session_id = Uuid::new_v4();
+        let offer_sdp = local_sdp.clone();
+        let mut remote_sdp = String::new();
         let request = WebRtcSessionRequest {
             version: PROTOCOL_VERSION,
             message_type: SignalingMessageType::WebRtcSessionRequest,
@@ -356,6 +366,7 @@ impl SourceRuntime {
                             }
                         }
                         SignalingMessage::Answer(ans) => {
+                            remote_sdp = ans.sdp.sdp.clone();
                             peer.set_remote_description("answer", &ans.sdp.sdp).await?;
                             answer_applied = true;
                             for (candidate, mid) in remote_ice_before_answer.drain(..) {
@@ -424,7 +435,9 @@ impl SourceRuntime {
                                 let _ = channel.send_json(&json).await;
                             }
                         }
-                        PeerEvent::BinaryMessage(_) | PeerEvent::LocalDescription { .. } => {}
+                        PeerEvent::BinaryMessage(_)
+                        | PeerEvent::LocalDescription { .. }
+                        | PeerEvent::BufferedAmountLow => {}
                         PeerEvent::ConnectionFailed => {
                             return Err(IdrError::new(
                                 IdrErrorKind::IceFailed,
@@ -460,18 +473,34 @@ impl SourceRuntime {
         }
 
         let _ = channel.close().await;
-        let (control_tx, control_rx) = tokio::sync::mpsc::channel(64);
-        let mut session = SourceSession {
+        let path = peer
+            .selected_candidate_pair()
+            .and_then(|(l, r)| idr_protocol::webrtc_ice::IcePath::of_pair(&l, &r));
+        tracing::info!(%session_id, path = path.map_or("unknown", |p| p.as_str()), "selected ICE path");
+        let mut session = SourceSession::start(target_fqhn.to_string(), peer);
+        session.bind_ctx = idr_protocol::peer_bind::BindContext {
+            session_id: session_id.to_string(),
             target_fqhn: target_fqhn.to_string(),
-            peer: Arc::new(Mutex::new(peer)),
-            demux: StreamDemux::with_control(32, control_tx),
-            control_rx,
-            ids: StreamIdAllocator::default(),
-            pump_started: false,
-            prefer_flow_control: true,
-            named_services: Vec::new(),
-            catalog_entries: Vec::new(),
+            offerer_fingerprint: idr_protocol::peer_bind::sdp_fingerprint(&offer_sdp)
+                .unwrap_or_default(),
+            answerer_fingerprint: idr_protocol::peer_bind::sdp_fingerprint(&remote_sdp)
+                .unwrap_or_default(),
+            path,
         };
+        // Offer credit flow control and Target-initiated streams first; the HelloAck is
+        // ingested while the catalog reply is awaited. Any Target that serves the
+        // catalog request decodes Hello; one that doesn't ack a feature keeps the
+        // pre-feature behavior.
+        let mut features = MuxProfile::FlowControlV1.advertised_features();
+        features.push(FEATURE_FLOW_CREDIT.into());
+        features.push(FEATURE_PEER_OPEN.into());
+        session
+            .send_control(&StreamFrame::Hello {
+                version: STREAM_MUX_VERSION,
+                features,
+                conn_window: CREDIT_CONN_WINDOW,
+            })
+            .await?;
         // Catalog rides the DataChannel (or future relay pipe), not Presence.
         if let Err(e) = session.refresh_named_services().await {
             tracing::warn!(error = %e, "Target services catalog unavailable after connect");
@@ -480,15 +509,68 @@ impl SourceRuntime {
     }
 }
 
+/// Owns the transport for the life of the session: routes inbound frames through
+/// the demux and sends queued frames, control first and bulk only while the
+/// DataChannel buffer is below its low-water mark.
+async fn drive(
+    mut peer: Box<dyn PeerTransport>,
+    demux: Arc<Mutex<StreamDemux>>,
+    mut out: MuxOutRx,
+    mut stop: tokio::sync::oneshot::Receiver<()>,
+    closed: tokio::sync::watch::Sender<bool>,
+) {
+    loop {
+        let bulk_open = peer.buffered_amount() < BULK_LOW_WATER;
+        tokio::select! {
+            biased;
+            _ = &mut stop => break,
+            event = peer.next_event() => match event {
+                Ok(PeerEvent::BinaryMessage(bytes)) => {
+                    let frame = match StreamFrame::decode(&bytes) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "undecodable mux frame");
+                            continue;
+                        }
+                    };
+                    let replies = demux.lock().await.handle_frame(frame).await;
+                    let Ok(replies) = replies else { break };
+                    if replies
+                        .iter()
+                        .filter_map(|f| f.encode().ok())
+                        .any(|b| peer.send_binary(&b).is_err())
+                    {
+                        break;
+                    }
+                }
+                Ok(PeerEvent::Closed | PeerEvent::DataChannelClosed | PeerEvent::ConnectionFailed)
+                | Err(_) => break,
+                Ok(_) => {}
+            },
+            frame = out.next(bulk_open) => match frame {
+                Some(bytes) if peer.send_binary(&bytes).is_ok() => {}
+                _ => break,
+            },
+            _ = crate::time::sleep(std::time::Duration::from_millis(5)), if !bulk_open => {}
+        }
+    }
+    peer.close();
+    demux.lock().await.close_all();
+    let _ = closed.send(true);
+    tracing::info!("source session driver stopped");
+}
+
 pub struct SourceSession {
     target_fqhn: String,
-    peer: Arc<Mutex<Box<dyn PeerTransport>>>,
-    demux: StreamDemux,
+    out: MuxOut,
+    demux: Arc<Mutex<StreamDemux>>,
     control_rx: tokio::sync::mpsc::Receiver<crate::mux_session::DemuxEvent>,
-    ids: StreamIdAllocator,
-    pump_started: bool,
-    /// When true, wait briefly for OpenOk before falling back to legacy.
-    prefer_flow_control: bool,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    opener: SessionOpener,
+    /// Becomes true when the DataChannel is gone.
+    closed: tokio::sync::watch::Receiver<bool>,
+    /// Session facts for the peer-binding exchange.
+    bind_ctx: idr_protocol::peer_bind::BindContext,
     /// Services last advertised by Target on this session.
     named_services: Vec<String>,
     /// Structured catalog (credential mode / TLS). Empty when Target is names-only.
@@ -496,6 +578,63 @@ pub struct SourceSession {
 }
 
 impl SourceSession {
+    /// Hand the open DataChannel to a background driver task.
+    fn start(target_fqhn: String, peer: Box<dyn PeerTransport>) -> Self {
+        let (control_tx, control_rx) = tokio::sync::mpsc::channel(64);
+        let (out, out_rx) = idr_core::mux_out(OUT_QUEUE_FRAMES);
+        let demux = Arc::new(Mutex::new(StreamDemux::new(
+            STREAM_INBOX_FRAMES,
+            out.clone(),
+            control_tx,
+        )));
+        let (stop, stop_rx) = tokio::sync::oneshot::channel();
+        let (closed_tx, closed) = tokio::sync::watch::channel(false);
+        crate::time::spawn(drive(peer, demux.clone(), out_rx, stop_rx, closed_tx));
+        let opener = SessionOpener {
+            target_fqhn: target_fqhn.clone(),
+            out: out.clone(),
+            demux: demux.clone(),
+            next_id: Arc::new(AtomicU32::new(1)),
+        };
+        Self {
+            bind_ctx: idr_protocol::peer_bind::BindContext {
+                session_id: String::new(),
+                target_fqhn: target_fqhn.clone(),
+                offerer_fingerprint: String::new(),
+                answerer_fingerprint: String::new(),
+                path: None,
+            },
+            target_fqhn,
+            out,
+            demux,
+            control_rx,
+            stop: Some(stop),
+            opener,
+            closed,
+            named_services: Vec::new(),
+            catalog_entries: Vec::new(),
+        }
+    }
+
+    /// Resolves once the session has ended (peer closed, connection failed, or `close`).
+    pub fn closed(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let mut rx = self.closed.clone();
+        async move {
+            let _ = rx.wait_for(|c| *c).await;
+        }
+    }
+
+    /// A handle that opens streams on this session concurrently (e.g. a
+    /// transfer's control and data streams), usable from other tasks.
+    pub fn opener(&self) -> SessionOpener {
+        self.opener.clone()
+    }
+
+    /// Session id, Target FQHN and both DTLS fingerprints, for `peer_bind`.
+    pub fn bind_context(&self) -> &idr_protocol::peer_bind::BindContext {
+        &self.bind_ctx
+    }
+
     /// Named services last received from Target over the mux (may be empty).
     pub fn named_services(&self) -> &[String] {
         &self.named_services
@@ -506,110 +645,108 @@ impl SourceSession {
         &self.catalog_entries
     }
 
-    /// Ask Target for its live `openStream` catalog over the DataChannel / relay path.
-    pub async fn refresh_named_services(&mut self) -> Result<()> {
-        let req = StreamFrame::ServicesCatalogRequest;
-        let enc = req.encode()?;
-        {
-            let mut peer = self.peer.lock().await;
-            peer.send_binary(&enc)?;
-        }
-        let deadline = crate::time::Instant::now() + std::time::Duration::from_secs(5);
-        let mut got_names = false;
-        let mut detailed_deadline: Option<crate::time::Instant> = None;
-        loop {
-            while let Ok(ev) = self.control_rx.try_recv() {
-                match ev {
-                    crate::mux_session::DemuxEvent::ServicesCatalogDetailed { entries } => {
-                        self.named_services = entries.iter().map(|e| e.name.clone()).collect();
-                        self.catalog_entries = entries;
-                        tracing::info!(
-                            count = self.catalog_entries.len(),
-                            "received Target services catalog (detailed)"
-                        );
-                        return Ok(());
-                    }
-                    crate::mux_session::DemuxEvent::ServicesCatalog { services } => {
-                        self.named_services = services.clone();
-                        if self.catalog_entries.is_empty() {
-                            self.catalog_entries = services
-                                .into_iter()
-                                .map(idr_protocol::stream_mux::ServiceCatalogEntry::name_only)
-                                .collect();
-                        }
-                        got_names = true;
-                        // Target may also send ServicesCatalogDetailed; wait briefly.
-                        detailed_deadline = Some(
-                            crate::time::Instant::now() + std::time::Duration::from_millis(50),
-                        );
-                        tracing::info!(
-                            count = self.named_services.len(),
-                            "received Target services catalog (names)"
-                        );
-                    }
-                    _ => {}
-                }
-            }
-            if let Some(d) = detailed_deadline {
-                if crate::time::Instant::now() >= d {
-                    return Ok(());
-                }
-            }
-            let left = deadline.saturating_duration_since(crate::time::Instant::now());
-            if left.is_zero() {
-                if got_names {
-                    return Ok(());
-                }
-                return Err(IdrError::new(
-                    IdrErrorKind::Timeout,
-                    "timed out waiting for Target ServicesCatalog",
-                ));
-            }
-            let slice = left.min(std::time::Duration::from_millis(50));
-            match crate::time::timeout(slice, self.drive_until_data()).await {
-                Ok(Ok(Some(bytes))) => self.ingest_dc_frame(bytes).await?,
-                Ok(Ok(None)) => {}
-                Ok(Err(e)) => return Err(e),
-                Err(_) => {}
-            }
+    async fn send_control(&self, frame: &StreamFrame) -> Result<()> {
+        if self.out.control(frame.encode()?).await {
+            Ok(())
+        } else {
+            Err(IdrError::new(IdrErrorKind::TransportClosed, "session closed"))
         }
     }
 
-    fn ensure_pump(&mut self) {
-        if self.pump_started {
-            return;
-        }
-        self.pump_started = true;
-        // Pump is driven opportunistically from open_stream/read paths in v1 mock tests
-        // via `poll_incoming`. Native builds will spawn a background task.
-    }
-
-    /// Drain inbound DC messages into stream inboxes (call periodically or from tests).
-    pub async fn poll_incoming(&mut self) -> Result<()> {
-        self.pump_once().await
-    }
-
-    /// Pull one peer event and feed stream demux when it is a binary frame.
-    pub async fn pump_once(&mut self) -> Result<()> {
-        if let Some(bytes) = self.drive_until_data().await? {
-            self.ingest_dc_frame(bytes).await?;
-        }
-        Ok(())
-    }
-
-    async fn drive_until_data(&mut self) -> Result<Option<Vec<u8>>> {
-        let mut peer = self.peer.lock().await;
-        match peer.next_event().await? {
-            PeerEvent::BinaryMessage(bytes) => Ok(Some(bytes)),
-            PeerEvent::Closed | PeerEvent::DataChannelClosed => Err(IdrError::new(
+    async fn next_control(
+        &mut self,
+        deadline: crate::time::Instant,
+    ) -> Result<Option<crate::mux_session::DemuxEvent>> {
+        let left = deadline.saturating_duration_since(crate::time::Instant::now());
+        match crate::time::timeout(left, self.control_rx.recv()).await {
+            Ok(Some(ev)) => Ok(Some(ev)),
+            Ok(None) => Err(IdrError::new(
                 IdrErrorKind::TransportClosed,
                 "datachannel closed",
             )),
-            _ => Ok(None),
+            Err(_) => Ok(None),
         }
     }
 
+    /// Ask Target for its live `openStream` catalog over the DataChannel / relay path.
+    pub async fn refresh_named_services(&mut self) -> Result<()> {
+        self.send_control(&StreamFrame::ServicesCatalogRequest).await?;
+        let mut deadline = crate::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut got_names = false;
+        loop {
+            match self.next_control(deadline).await? {
+                Some(crate::mux_session::DemuxEvent::ServicesCatalogDetailed { entries }) => {
+                    self.named_services = entries.iter().map(|e| e.name.clone()).collect();
+                    self.catalog_entries = entries;
+                    tracing::info!(
+                        count = self.catalog_entries.len(),
+                        "received Target services catalog (detailed)"
+                    );
+                    return Ok(());
+                }
+                Some(crate::mux_session::DemuxEvent::ServicesCatalog { services }) => {
+                    self.named_services = services.clone();
+                    if self.catalog_entries.is_empty() {
+                        self.catalog_entries = services
+                            .into_iter()
+                            .map(idr_protocol::stream_mux::ServiceCatalogEntry::name_only)
+                            .collect();
+                    }
+                    got_names = true;
+                    // Target may also send ServicesCatalogDetailed; wait briefly.
+                    deadline = crate::time::Instant::now() + std::time::Duration::from_millis(50);
+                    tracing::info!(
+                        count = self.named_services.len(),
+                        "received Target services catalog (names)"
+                    );
+                }
+                Some(_) => {}
+                None if got_names => return Ok(()),
+                None => {
+                    return Err(IdrError::new(
+                        IdrErrorKind::Timeout,
+                        "timed out waiting for Target ServicesCatalog",
+                    ))
+                }
+            }
+        }
+    }
+
+    /// The background driver now delivers frames; kept for callers that used to
+    /// pump the session by hand.
+    pub async fn poll_incoming(&mut self) -> Result<()> {
+        crate::time::sleep(std::time::Duration::from_millis(1)).await;
+        Ok(())
+    }
+
+    /// See [`poll_incoming`](Self::poll_incoming).
+    pub async fn pump_once(&mut self) -> Result<()> {
+        self.poll_incoming().await
+    }
+
+    /// Accept Target-initiated streams (`peer_open_v1`) for `services`. Opens for
+    /// any other service are refused. Replaces an earlier registration.
+    pub async fn accept_streams(
+        &mut self,
+        services: &[&str],
+    ) -> tokio::sync::mpsc::Receiver<IncomingStream> {
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        let services = services.iter().map(|s| s.to_string()).collect();
+        self.demux.lock().await.accept(services, tx);
+        rx
+    }
+
     pub async fn open_named_stream(&mut self, service: &str) -> Result<Box<dyn LogicalStream>> {
+        self.open_named_stream_with(service, StreamPriority::Interactive)
+            .await
+    }
+
+    /// Open `service` with an explicit scheduling class (bulk for file transfer).
+    pub async fn open_named_stream_with(
+        &mut self,
+        service: &str,
+        priority: StreamPriority,
+    ) -> Result<Box<dyn LogicalStream>> {
         let kind = default_service_kind(service).ok_or_else(|| {
             IdrError::new(
                 IdrErrorKind::ServiceNotFound,
@@ -626,7 +763,94 @@ impl SourceSession {
                 port: None,
             },
         };
-        self.open_stream(request).await
+        self.open_with(request, priority).await
+    }
+
+    async fn open_with(
+        &mut self,
+        request: OpenStreamRequest,
+        priority: StreamPriority,
+    ) -> Result<Box<dyn LogicalStream>> {
+        self.opener.open_request(request, priority).await
+    }
+}
+
+/// Opens streams on a live [`SourceSession`]; cheap to clone, safe to use concurrently.
+#[derive(Clone)]
+pub struct SessionOpener {
+    target_fqhn: String,
+    out: MuxOut,
+    demux: Arc<Mutex<StreamDemux>>,
+    /// Source-initiated stream ids are odd.
+    next_id: Arc<AtomicU32>,
+}
+
+impl SessionOpener {
+    pub async fn open(&self, service: &str, priority: StreamPriority) -> Result<Box<dyn LogicalStream>> {
+        let kind = default_service_kind(service).ok_or_else(|| {
+            IdrError::new(IdrErrorKind::ServiceNotFound, format!("unknown service '{service}'"))
+        })?;
+        self.open_request(
+            OpenStreamRequest {
+                service: service.into(),
+                kind,
+                meta: StreamOpenMeta {
+                    target_fqhn: self.target_fqhn.clone(),
+                    service_name: Some(service.into()),
+                    host: None,
+                    port: None,
+                },
+            },
+            priority,
+        )
+        .await
+    }
+
+    async fn open_request(
+        &self,
+        request: OpenStreamRequest,
+        priority: StreamPriority,
+    ) -> Result<Box<dyn LogicalStream>> {
+        let stream_id = StreamId(self.next_id.fetch_add(2, Ordering::Relaxed));
+        let (rx, answer) = {
+            let mut d = self.demux.lock().await;
+            (d.register(stream_id.0), d.expect_open(stream_id.0))
+        };
+        let open = StreamFrame::Open {
+            stream_id: stream_id.0,
+            kind: request.kind,
+            meta: request.meta,
+        };
+        if !self.out.control(open.encode()?).await {
+            return Err(IdrError::new(IdrErrorKind::TransportClosed, "session closed"));
+        }
+        tracing::info!(stream_id = stream_id.0, "sent StreamFrame::Open");
+        let profile = match crate::time::timeout(std::time::Duration::from_secs(10), answer).await {
+            Ok(Ok(Ok(()))) => MuxProfile::FlowControlV1,
+            Ok(Ok(Err(message))) => {
+                return Err(IdrError::new(IdrErrorKind::ConnectionRefused, message))
+            }
+            Ok(Err(_)) => {
+                return Err(IdrError::new(IdrErrorKind::TransportClosed, "datachannel closed"))
+            }
+            Err(_) => {
+                self.demux.lock().await.forget_open(stream_id.0);
+                tracing::warn!(stream_id = stream_id.0, "OpenOk not received in time; continuing with legacy mux");
+                MuxProfile::Legacy
+            }
+        };
+        let credit = match profile {
+            MuxProfile::FlowControlV1 => self.demux.lock().await.credit_for(stream_id.0),
+            MuxProfile::Legacy => None,
+        };
+        Ok(Box::new(MuxLogicalStream::new(
+            stream_id,
+            self.out.clone(),
+            priority,
+            rx,
+            profile,
+            credit,
+        )))
     }
 }
 
@@ -638,116 +862,21 @@ impl PeerSession for SourceSession {
     }
 
     async fn open_stream(&mut self, request: OpenStreamRequest) -> Result<Box<dyn LogicalStream>> {
-        self.ensure_pump();
-        let stream_id = self.ids.next();
-        let rx = self.demux.register(stream_id.0);
-        let frame = StreamFrame::Open {
-            stream_id: stream_id.0,
-            kind: request.kind,
-            meta: request.meta,
-        };
-        let enc = frame.encode()?;
-        {
-            let mut peer = self.peer.lock().await;
-            peer.send_binary(&enc)?;
-        }
-        tracing::info!(stream_id = stream_id.0, "sent StreamFrame::Open");
-
-        let (profile, initial_window) = if self.prefer_flow_control {
-            // Do NOT block forever on the next peer event — after DC open the peer may be
-            // quiet until Target answers. Pump with a deadline while waiting for OpenOk.
-            self.wait_for_open_handshake(stream_id.0, std::time::Duration::from_secs(10))
-                .await?
-        } else {
-            (
-                idr_protocol::stream_mux::MuxProfile::Legacy,
-                idr_protocol::stream_mux::INITIAL_STREAM_WINDOW,
-            )
-        };
-
-        Ok(Box::new(MuxLogicalStream::new(
-            stream_id,
-            self.peer.clone(),
-            rx,
-            profile,
-            initial_window,
-        )))
+        self.open_with(request, StreamPriority::Interactive).await
     }
 
     async fn close(&mut self) -> Result<()> {
-        let mut peer = self.peer.lock().await;
-        peer.close();
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
         Ok(())
     }
 }
 
-impl SourceSession {
-    /// Pump peer events into demux until OpenOk/OpenError for `stream_id`, or fall back to Legacy.
-    async fn wait_for_open_handshake(
-        &mut self,
-        stream_id: u32,
-        timeout: std::time::Duration,
-    ) -> Result<(idr_protocol::stream_mux::MuxProfile, u32)> {
-        let deadline = crate::time::Instant::now() + timeout;
-        loop {
-            if let Ok(ev) = self.control_rx.try_recv() {
-                if let Some(result) = Self::open_result_from_control(ev, stream_id) {
-                    return result;
-                }
-            }
-
-            let left = deadline.saturating_duration_since(crate::time::Instant::now());
-            if left.is_zero() {
-                tracing::warn!(
-                    stream_id,
-                    "OpenOk not received in time; continuing with legacy mux"
-                );
-                return Ok((
-                    idr_protocol::stream_mux::MuxProfile::Legacy,
-                    idr_protocol::stream_mux::INITIAL_STREAM_WINDOW,
-                ));
-            }
-
-            // Cap each peer wait so a quiet DataChannel cannot stall openStream forever.
-            let slice = left.min(std::time::Duration::from_millis(200));
-            match crate::time::timeout(slice, self.drive_until_data()).await {
-                Ok(Ok(Some(bytes))) => {
-                    self.ingest_dc_frame(bytes).await?;
-                }
-                Ok(Ok(None)) => {}
-                Ok(Err(e)) => return Err(e),
-                Err(_) => {
-                    // No peer event this slice — keep waiting until overall deadline.
-                }
-            }
+impl Drop for SourceSession {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
         }
-    }
-
-    fn open_result_from_control(
-        ev: crate::mux_session::DemuxEvent,
-        stream_id: u32,
-    ) -> Option<Result<(idr_protocol::stream_mux::MuxProfile, u32)>> {
-        match ev {
-            crate::mux_session::DemuxEvent::OpenOk {
-                stream_id: sid,
-                initial_window,
-            } if sid == stream_id => Some(Ok((
-                idr_protocol::stream_mux::MuxProfile::FlowControlV1,
-                initial_window,
-            ))),
-            crate::mux_session::DemuxEvent::OpenError {
-                stream_id: sid,
-                message,
-                ..
-            } if sid == stream_id => {
-                Some(Err(IdrError::new(IdrErrorKind::ConnectionRefused, message)))
-            }
-            _ => None,
-        }
-    }
-
-    async fn ingest_dc_frame(&mut self, bytes: Vec<u8>) -> Result<()> {
-        let frame = StreamFrame::decode(&bytes)?;
-        self.demux.handle_frame(frame).await
     }
 }

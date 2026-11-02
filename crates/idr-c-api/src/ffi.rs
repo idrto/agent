@@ -215,7 +215,7 @@ pub unsafe extern "C" fn idr_session_named_service_catalog(
     }
 }
 
-unsafe fn copy_json_to_buf(json: String, buf: *mut c_char, capacity: usize) -> c_int {
+pub(crate) unsafe fn copy_json_to_buf(json: String, buf: *mut c_char, capacity: usize) -> c_int {
     let cstr = CString::new(json.replace('\0', "")).unwrap_or_default();
     let bytes = cstr.as_bytes_with_nul();
     let n = bytes.len().min(capacity);

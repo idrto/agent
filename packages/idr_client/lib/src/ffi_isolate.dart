@@ -9,6 +9,7 @@ import 'package:idr_core_ffi/idr_core_ffi.dart';
 
 import 'errors.dart';
 import 'catalog.dart';
+import 'transfer.dart' show IdrTransferException;
 
 /// Owns all `idr_c_api` FFI calls on a background isolate so the UI never
 /// blocks on Rust `block_on` (connect / engine create).
@@ -21,8 +22,18 @@ class IdrFfiIsolate {
   final ReceivePort _responses;
   late final StreamSubscription<dynamic> _sub;
   final Map<int, Completer<Object?>> _pending = {};
+  final StreamController<Map<dynamic, dynamic>> _tev = StreamController.broadcast();
   int _nextId = 1;
   bool _closed = false;
+
+  /// Transfer events drained on the FFI isolate (see `IdrTransfers.events`).
+  Stream<Map<dynamic, dynamic>> get transferEvents => _tev.stream;
+
+  /// One `idr_transfer_*` operation on the FFI isolate. `id` is the request id; name a transfer `tid`.
+  Future<Object?> transfer(String op, Map<String, Object?> args) {
+    assert(!args.containsKey('id') && !args.containsKey('op'));
+    return _request({...args, 'op': op});
+  }
 
   static Future<IdrFfiIsolate> spawn() async {
     final ready = ReceivePort();
@@ -127,6 +138,7 @@ class IdrFfiIsolate {
     } catch (_) {}
     await _sub.cancel();
     _responses.close();
+    await _tev.close();
     for (final c in _pending.values) {
       if (!c.isCompleted) {
         c.completeError(
@@ -152,6 +164,13 @@ class IdrFfiIsolate {
 
   void _onResponse(dynamic msg) {
     if (msg is! Map) return;
+    final tev = msg['tev'];
+    if (tev is List) {
+      for (final e in tev) {
+        _tev.add(e as Map);
+      }
+      return;
+    }
     final id = msg['id'] as int?;
     if (id == null) return;
     final c = _pending.remove(id);
@@ -159,11 +178,12 @@ class IdrFfiIsolate {
     if (msg['ok'] == true) {
       c.complete(msg['value']);
     } else {
+      final code = msg['code'] as int? ?? IdrErrorCode.internalError;
+      final error = msg['error'] as String? ?? 'native error';
       c.completeError(
-        IdrException(
-          msg['code'] as int? ?? IdrErrorCode.internalError,
-          msg['error'] as String? ?? 'native error',
-        ),
+        code >= idrTransferErrorBase
+            ? IdrTransferException(code - idrTransferErrorBase, error)
+            : IdrException(code, error),
       );
     }
   }
@@ -176,6 +196,8 @@ void _main(SendPort ready) {
 
   SendPort? replies;
   IdrBindings? bindings;
+  IdrTransferBindings? tb;
+  Timer? poller;
   Pointer<Void>? engine;
 
   attach.listen((msg) {
@@ -198,10 +220,10 @@ void _main(SendPort ready) {
             err(IdrErrorCode.invalidArgument, 'engine already created');
             return;
           }
-          bindings = openIdrBindings(
-            libraryPath: msg['libraryPath'] as String?,
-          );
+          final lib = loadIdrLibrary(path: msg['libraryPath'] as String?);
+          bindings = IdrBindings(lib);
           bindings!.ensureAbiCompatible();
+          tb = IdrTransferBindings(lib);
           engine = _createEngine(bindings!, msg);
           ok();
           return;
@@ -282,7 +304,46 @@ void _main(SendPort ready) {
           );
           ok();
           return;
+        case 'transferEnable':
+          _transferEnable(bindings!, tb!, engine!, msg);
+          // Drain on this isolate; the UI isolate only receives batches.
+          poller ??= Timer.periodic(const Duration(milliseconds: 200), (_) {
+            final e = engine;
+            if (e == null) return;
+            final batch = _transferPoll(tb!, e);
+            if (batch.isNotEmpty) replies?.send({'tev': batch});
+          });
+          ok();
+          return;
+        case 'transferSend':
+          ok(_transferSend(bindings!, tb!, engine!, msg['target'] as String,
+              (msg['paths'] as List).cast<String>()));
+          return;
+        case 'transferSendSelection':
+          ok(_transferSendSelection(bindings!, tb!, engine!, msg['target'] as String,
+              msg['folder'] as String, (msg['selected'] as List).cast<String>()));
+          return;
+        case 'transferCmd':
+          _transferCmd(bindings!, tb!, engine!, msg['cmd'] as String, msg['tid'] as String,
+              msg['outDir'] as String?);
+          ok();
+          return;
+        case 'transferList':
+          ok(_json(bindings!, (b, n) => tb!.list(engine!, b, n)));
+          return;
+        case 'transferStatus':
+          ok(_withId(msg['tid'] as String,
+              (id) => _json(bindings!, (b, n) => tb!.status(engine!, id, b, n))));
+          return;
+        case 'transferEntries':
+          ok(_withId(
+              msg['tid'] as String,
+              (id) => _json(bindings!,
+                  (b, n) => tb!.entries(engine!, id, msg['first'] as int, msg['max'] as int, b, n))));
+          return;
         case 'dispose':
+          poller?.cancel();
+          poller = null;
           if (engine != null && bindings != null) {
             bindings!.engineDestroy(engine!);
           }
@@ -474,4 +535,147 @@ String _lastError(IdrBindings bindings) {
   final msg = buf.cast<Utf8>().toDartString();
   calloc.free(buf);
   return msg;
+}
+
+// ---- File transfer (runs on the FFI isolate) ---------------------------------
+
+void _trc(IdrBindings bindings, int rc) {
+  if (rc == 0) return;
+  if (rc <= -idrTransferErrorBase) {
+    // Transfer refusal: carry the code so the UI side maps it to IdrTransferException.
+    throw IdrException(-rc, _lastError(bindings));
+  }
+  throw IdrException(bindings.lastErrorCode(), _lastError(bindings));
+}
+
+void _transferEnable(
+    IdrBindings bindings, IdrTransferBindings tb, Pointer<Void> engine, Map<String, Object?> msg) {
+  using((arena) {
+    final cfg = arena<IdrTransferConfigNative>();
+    final pem = msg['entityRootPem'] as String?;
+    cfg.ref
+      ..abiVersion = idrAbiVersion
+      ..structSize = sizeOf<IdrTransferConfigNative>()
+      ..dataDir = (msg['dataDir'] as String).toNativeUtf8(allocator: arena)
+      ..receiveDir = (msg['receiveDir'] as String).toNativeUtf8(allocator: arena)
+      ..entityRootPem = pem == null ? nullptr : pem.toNativeUtf8(allocator: arena)
+      ..interactive = (msg['interactive'] as bool) ? 1 : 0
+      ..anyDestination = (msg['anyDestination'] as bool) ? 1 : 0
+      ..leaseMinutes = msg['leaseMinutes'] as int
+      ..offerExpirySeconds = msg['offerExpirySeconds'] as int;
+    _trc(bindings, tb.enable(engine, cfg));
+  });
+}
+
+Pointer<Pointer<Utf8>> _strings(Arena arena, List<String> items) {
+  final p = arena<Pointer<Utf8>>(items.isEmpty ? 1 : items.length);
+  for (var i = 0; i < items.length; i++) {
+    p[i] = items[i].toNativeUtf8(allocator: arena);
+  }
+  return p;
+}
+
+String _hex(Pointer<Uint8> id) =>
+    List.generate(16, (i) => id[i].toRadixString(16).padLeft(2, '0')).join();
+
+Pointer<Uint8> _idBuf(Arena arena, String hex) {
+  if (hex.length != 32) {
+    throw IdrException(IdrErrorCode.invalidArgument, 'transfer id must be 32 hex digits');
+  }
+  final p = arena<Uint8>(16);
+  for (var i = 0; i < 16; i++) {
+    final b = int.tryParse(hex.substring(2 * i, 2 * i + 2), radix: 16);
+    if (b == null) {
+      throw IdrException(IdrErrorCode.invalidArgument, 'transfer id must be 32 hex digits');
+    }
+    p[i] = b;
+  }
+  return p;
+}
+
+T _withId<T>(String hex, T Function(Pointer<Uint8>) f) => using((arena) => f(_idBuf(arena, hex)));
+
+String _transferSend(IdrBindings bindings, IdrTransferBindings tb, Pointer<Void> engine,
+        String target, List<String> paths) =>
+    using((arena) {
+      final out = arena<Uint8>(16);
+      _trc(
+          bindings,
+          tb.send(engine, target.toNativeUtf8(allocator: arena), _strings(arena, paths),
+              paths.length, out));
+      return _hex(out);
+    });
+
+String _transferSendSelection(IdrBindings bindings, IdrTransferBindings tb, Pointer<Void> engine,
+        String target, String folder, List<String> selected) =>
+    using((arena) {
+      final out = arena<Uint8>(16);
+      _trc(
+          bindings,
+          tb.sendSelection(engine, target.toNativeUtf8(allocator: arena),
+              folder.toNativeUtf8(allocator: arena), _strings(arena, selected), selected.length, out));
+      return _hex(out);
+    });
+
+void _transferCmd(IdrBindings bindings, IdrTransferBindings tb, Pointer<Void> engine, String cmd,
+    String id, String? outDir) {
+  using((arena) {
+    final p = _idBuf(arena, id);
+    final rc = switch (cmd) {
+      'accept' => tb.accept(engine, p, outDir == null ? nullptr : outDir.toNativeUtf8(allocator: arena)),
+      'reject' => tb.reject(engine, p),
+      'pause' => tb.pause(engine, p),
+      'resume' => tb.resume(engine, p),
+      'cancel' => tb.cancel(engine, p),
+      'retryFailed' => tb.retryFailed(engine, p),
+      _ => throw IdrException(IdrErrorCode.invalidArgument, 'unknown transfer command'),
+    };
+    _trc(bindings, rc);
+  });
+}
+
+/// Call a JSON-returning function, growing the buffer while it is too small.
+Object? _json(IdrBindings bindings, int Function(Pointer<Utf8>, int) call) {
+  for (var cap = 64 * 1024; cap <= 64 * 1024 * 1024; cap *= 4) {
+    final buf = calloc<Uint8>(cap);
+    try {
+      final rc = call(buf.cast<Utf8>(), cap);
+      if (rc == -IdrErrorCode.resourceExhausted) continue;
+      _trc(bindings, rc < 0 ? rc : 0);
+      return jsonDecode(buf.cast<Utf8>().toDartString(length: rc));
+    } finally {
+      calloc.free(buf);
+    }
+  }
+  throw IdrException(IdrErrorCode.resourceExhausted, 'transfer JSON too large');
+}
+
+List<Map<String, Object>> _transferPoll(IdrTransferBindings tb, Pointer<Void> engine) {
+  const max = 64;
+  final out = <Map<String, Object>>[];
+  using((arena) {
+    final buf = arena<IdrTransferEventNative>(max);
+    final count = arena<IntPtr>();
+    while (true) {
+      if (tb.pollEvents(engine, buf, max, count) != 0) return;
+      final n = count.value;
+      for (var i = 0; i < n; i++) {
+        final e = buf[i];
+        out.add({
+          'kind': e.kind,
+          'code': e.code,
+          'id': List.generate(16, (j) => e.transferId[j].toRadixString(16).padLeft(2, '0')).join(),
+          'entry': e.entry,
+          'filesDone': e.filesDone,
+          'filesTotal': e.filesTotal,
+          'filesFailed': e.filesFailed,
+          'bytesDone': e.bytesDone,
+          'bytesTotal': e.bytesTotal,
+          'bytesPerSec': e.bytesPerSec,
+        });
+      }
+      if (n < max) return;
+    }
+  });
+  return out;
 }

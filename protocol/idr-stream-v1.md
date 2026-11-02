@@ -72,6 +72,52 @@ Feature tokens: `flow_control_v1`, `open_ack`, `ping`.
 Negotiation (preferred): advertise features in WebRTC signaling capabilities.  
 Optional mux `Hello`/`HelloAck` may confirm windows; do **not** send `Hello` to unknown legacy Targets (decode failure).
 
+### Credit flow control (`flow_credit_v1`)
+
+Negotiated in-band: right after the DataChannel opens, the Source sends `Hello` with
+`flow_control_v1`, `open_ack`, `ping`, `flow_credit_v1` and its connection receive window
+(`CREDIT_CONN_WINDOW`, 4 MiB). A Target that supports it answers `HelloAck` listing
+`flow_credit_v1` and its own connection receive window. Every Target that serves
+`ServicesCatalogRequest` (which Sources already send on connect) decodes `Hello`.
+
+When both sides list it:
+
+- Each DATA frame costs `max(payload, MIN_DATA_CHARGE)` (8 KiB) against the stream window
+  (initially 256 KiB, `OpenOk.initial_window` for Source→Target) **and** the connection window.
+  The minimum charge bounds in-flight *messages*, so a full window always fits the receiver's
+  DataChannel callback queue (`DC_EVENT_QUEUE_CAPACITY` = 1024 ≥ 4 MiB / 8 KiB + 512 control).
+- Receivers return stream credit with `WindowUpdate { stream_id }` after the application consumes
+  the data, and connection credit with `WindowUpdate { stream_id: 0 }` as soon as a frame leaves
+  the DataChannel queue.
+- A receiver never waits on one stream's reader. A peer that sends past a stream's window gets
+  that stream `Reset { reason: RESET_FLOW_CONTROL }`; other streams are unaffected.
+- Credit beyond `MAX_SEND_CREDIT` (64 MiB) is ignored.
+
+Version skew: if either side doesn't list `flow_credit_v1` (older SDK or Target, or no
+`HelloAck`), neither side enforces windows or relies on credit. That is the pre-credit behavior,
+except that a new Source no longer stops at 256 KiB toward an old Target (which never returned
+credit). Callback-queue overflow ends the session on both sides in every mode: a dropped message
+is lost stream data.
+
+### Target-initiated streams (`peer_open_v1`)
+
+The Source lists `peer_open_v1` in `Hello` (only together with `flow_credit_v1`); the Target
+echoes it in `HelloAck` and only then may send `Open` with an **even** stream id. The Source
+answers `OpenOk { initial_window }` for services it has registered to accept, and
+`OpenError` (`service_not_found`, `invalid_argument`, `resource_exhausted`) otherwise. Before
+this feature, Sources ignored inbound `Open`.
+
+### Scheduling and admission (implementation, not wire)
+
+- Each side sends control frames (`WindowUpdate`, `Open*`, `Reset`, `Ping/Pong`, `Hello*`,
+  catalog) before interactive stream data, and bulk data only while the DataChannel's
+  `bufferedAmount` is below 256 KiB. A stream's `HalfClose` is queued behind its own data.
+- The Target admits a Source `Open` only if the id is odd and unused, fewer than
+  `MAX_STREAMS_PER_SESSION` (256) streams are open, fewer than 16 upstream connects are in
+  flight, and the per-session open rate (32/s, burst 64) allows it; otherwise `OpenError
+  resource_exhausted` / `invalid_argument`. Upstream connects run off the session loop; DATA for
+  a stream still connecting is buffered within its window.
+
 ## Frame semantics
 
 ### Open

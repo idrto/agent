@@ -10,3 +10,4 @@ export 'src/events.dart';
 export 'src/runtime.dart';
 export 'src/session.dart';
 export 'src/stream.dart';
+export 'src/transfer.dart';

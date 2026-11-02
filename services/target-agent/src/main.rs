@@ -57,6 +57,138 @@ enum Commands {
     Version,
     /// Validate config + optional DP identity (no private key dump).
     Doctor,
+    /// Manage file transfers on the running agent.
+    Transfer {
+        /// Print JSON instead of text.
+        #[arg(long)]
+        json: bool,
+        #[command(subcommand)]
+        cmd: TransferCmd,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum TransferCmd {
+    /// Send files (repeat --file) or one folder (--dir) to a bound Source,
+    /// named by its verified device SKI.
+    Send {
+        #[arg(long)]
+        target: String,
+        #[arg(long = "file")]
+        files: Vec<PathBuf>,
+        #[arg(long = "dir")]
+        dirs: Vec<PathBuf>,
+    },
+    /// Transfers and pending offers.
+    List,
+    Status { id: String },
+    /// Accept a pending incoming offer, optionally into a permitted directory.
+    Accept {
+        id: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    Reject { id: String },
+    Pause { id: String },
+    Resume { id: String },
+    Cancel { id: String },
+    /// Re-send the entries that failed.
+    RetryFailed { id: String },
+    /// Peers with a bound session now (who `send --target` can reach).
+    Peers,
+}
+
+impl TransferCmd {
+    fn request(self) -> Result<idr_transfer::native::ipc::Request> {
+        use idr_transfer::native::ipc::Request;
+        let abs = |p: PathBuf| std::fs::canonicalize(&p).with_context(|| format!("{}", p.display()));
+        Ok(match self {
+            TransferCmd::Send { target, files, dirs } => Request::Send {
+                target,
+                paths: files.into_iter().chain(dirs).map(abs).collect::<Result<_>>()?,
+            },
+            TransferCmd::List => Request::List,
+            TransferCmd::Status { id } => Request::Status { id },
+            TransferCmd::Accept { id, out } => Request::Accept { id, out: out.map(abs).transpose()? },
+            TransferCmd::Reject { id } => Request::Reject { id },
+            TransferCmd::Pause { id } => Request::Pause { id },
+            TransferCmd::Resume { id } => Request::Resume { id },
+            TransferCmd::Cancel { id } => Request::Cancel { id },
+            TransferCmd::RetryFailed { id } => Request::RetryFailed { id },
+            TransferCmd::Peers => Request::Peers,
+        })
+    }
+}
+
+fn transfer_data_dir(cfg: &Config) -> Result<PathBuf> {
+    let dir = cfg.file_transfer.data_dir.clone().unwrap_or_else(|| "target-agent-data".into());
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    Ok(dir)
+}
+
+/// Start file transfer when `[file_transfer]` is enabled: the transfer manager,
+/// local policy, the WebRTC endpoint and the CLI's IPC server.
+fn start_transfers(
+    cfg: &Config,
+    dp: Option<&idr_dp::DeviceIdentity>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<Option<Arc<idr_target::webrtc::local::TransferEndpoint>>> {
+    use idr_transfer::policy::{PeerRule, PolicyEngine, ReceivePolicy};
+    let ft = &cfg.file_transfer;
+    if !ft.enabled {
+        return Ok(None);
+    }
+    let id = dp.context("[file_transfer] needs a DP identity ([dp].identity_path)")?;
+    let d = id.private_jwk.get("d").and_then(|v| v.as_str()).context("DP identity has no private key")?;
+    let chain = id
+        .chain_pem
+        .as_deref()
+        .or(id.cert_pem.as_deref())
+        .context("DP identity has no issued certificate")?;
+    let me = idr_transfer::bind::LocalIdentity::from_jwk(d, &id.ski, chain).context("DP key is not Ed25519")?;
+    let root_pem = match &ft.entity_root_path {
+        Some(p) => Some(std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?),
+        None => None,
+    };
+    let roots = idr_transfer::bind::entity_roots(root_pem.as_deref(), &me.chain_pem)
+        .context("no entity root: set [file_transfer].entity_root_path")?;
+    let receive_dir = ft.receive_dir.clone().context("[file_transfer].receive_dir is required")?;
+    let data_dir = transfer_data_dir(cfg)?;
+    let manager = idr_transfer::native::manager::Manager::open(&data_dir, Default::default(), Default::default())
+        .context("open transfer outbox")?;
+    let mut policy = if ft.interactive { ReceivePolicy::interactive() } else { ReceivePolicy::headless() };
+    policy.lease = idr_transfer::policy::lease_from_minutes(ft.lease_minutes);
+    for p in &ft.peers {
+        policy.peers.insert(p.ski.clone(), PeerRule {
+            auto_accept: p.auto_accept,
+            auto_accept_max_bytes: p.auto_accept_max_bytes,
+            ..Default::default()
+        });
+    }
+    let dest = receive_dir.clone();
+    let engine = PolicyEngine::new(policy, Some(Arc::new(move || idr_transfer::native::free_space(&dest))));
+    let (endpoint, mut events) = idr_target::webrtc::local::TransferEndpoint::new(idr_target::webrtc::local::TransferConfig {
+        identity: me,
+        roots,
+        policy: engine,
+        receive_dir: receive_dir.clone(),
+        limits: Default::default(),
+        bind_timeout: std::time::Duration::from_secs(10),
+        manager: Some(manager.clone()),
+        offer_expiry: ft.interactive.then(|| std::time::Duration::from_secs(300)),
+    });
+    tokio::spawn(async move { while events.recv().await.is_some() {} });
+    let mut permitted = ft.permitted_dirs.clone();
+    permitted.push(receive_dir);
+    let addr = idr_transfer::native::ipc::IpcAddr::for_agent("target-agent", &data_dir)?;
+    let control = Arc::new(idr_transfer::native::control::Control { manager, permitted });
+    tokio::spawn(async move {
+        if let Err(e) = idr_transfer::native::ipc::serve(addr, control, shutdown).await {
+            warn!(error = %e, "local IPC unavailable");
+        }
+    });
+    info!("file transfer enabled");
+    Ok(Some(endpoint))
 }
 
 #[tokio::main]
@@ -95,6 +227,17 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Run => run_service(cli.config, cli.identity).await,
+        Commands::Transfer { json, cmd } => {
+            let cfg = Config::load(&cli.config).context("load configuration")?;
+            let addr = idr_transfer::native::ipc::IpcAddr::for_agent("target-agent", &transfer_data_dir(&cfg)?)?;
+            let ok = idr_transfer::native::control::run_cli(&addr, "target-agent", cmd.request()?, json)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            if !ok {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -171,20 +314,25 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     let bind: SocketAddr = quic_bind_addr(network_caps);
 
     let dp_path = identity_override.or_else(|| cfg.dp.identity_path.clone());
-    let mtls_material = if let Some(path) = dp_path {
-        match FileSecretStore::new(&path).load_identity()? {
-            Some(id) => {
-                info!(ski = %id.ski, "loaded DP identity for Presence mTLS");
-                Some(materialize_mtls_client(&id).context("materialize DP mTLS")?)
-            }
-            None => {
+    let dp_identity = match dp_path {
+        Some(path) => {
+            let id = FileSecretStore::new(&path).load_identity()?;
+            if id.is_none() {
                 warn!(path = %path.display(), "DP identity file missing");
-                None
             }
+            id
         }
-    } else {
-        None
+        None => None,
     };
+    let mtls_material = match &dp_identity {
+        Some(id) => {
+            info!(ski = %id.ski, "loaded DP identity for Presence mTLS");
+            Some(materialize_mtls_client(id).context("materialize DP mTLS")?)
+        }
+        None => None,
+    };
+    let (transfers_stop, transfers_stop_rx) = tokio::sync::watch::channel(false);
+    let transfers = start_transfers(&cfg, dp_identity.as_ref(), transfers_stop_rx)?;
 
     let quic = Arc::new(QuicClient::new(
         bind,
@@ -269,7 +417,8 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
         presence_quic.clone(),
         webrtc_sessions.clone(),
         connectors.clone(),
-    );
+    )
+    .with_transfers(transfers.clone());
 
     let mut tasks = vec![tokio::spawn(async move { primary_client.run().await })];
 
@@ -292,7 +441,8 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
             presence_quic,
             webrtc_sessions,
             connectors,
-        );
+        )
+        .with_transfers(transfers);
         tasks.push(tokio::spawn(async move { secondary_client.run().await }));
     }
 
@@ -305,6 +455,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     });
 
     signal::ctrl_c().await?;
+    let _ = transfers_stop.send(true);
     shutdown.begin_drain();
     shutdown
         .wait_grace_period(cfg.shutdown.grace_period())

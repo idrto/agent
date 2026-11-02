@@ -19,7 +19,8 @@ pub struct NativeBackendConfig {
     pub insecure_dev: bool,
 }
 
-pub async fn native_runtime(cfg: NativeBackendConfig) -> idr_core::Result<SourceRuntime> {
+/// Discovery once; then each call builds a fresh runtime on those Presence servers.
+pub async fn native_factory(cfg: NativeBackendConfig) -> idr_core::Result<idr_source::agent::RuntimeFactory> {
     let mut discovery = DiscoveryClient::new(DiscoveryConfig {
         discovery_url: cfg.discovery_url,
         discovery_key_b64: cfg.discovery_key_b64,
@@ -40,16 +41,15 @@ pub async fn native_runtime(cfg: NativeBackendConfig) -> idr_core::Result<Source
         insecure_dev: cfg.insecure_dev,
         ..PepClientConfig::default()
     };
-    let pep = PepClient::new(doc.presence_servers, pep_cfg);
-
-    Ok(SourceRuntime::with_auth(
-        Box::new(pep),
-        || {
-            Box::new(NativePeer::new(NativePeerConfig::default()).expect("NativePeer::new"))
-        },
-        cfg.source_id,
-        cfg.source_region,
-        cfg.auth_mode,
-        Some(cfg.auth_token),
-    ))
+    let servers = doc.presence_servers;
+    Ok(std::sync::Arc::new(move || {
+        SourceRuntime::with_auth(
+            Box::new(PepClient::new(servers.clone(), pep_cfg.clone())),
+            || Box::new(NativePeer::new(NativePeerConfig::default()).expect("NativePeer::new")),
+            cfg.source_id.clone(),
+            cfg.source_region.clone(),
+            cfg.auth_mode,
+            Some(cfg.auth_token.clone()),
+        )
+    }))
 }

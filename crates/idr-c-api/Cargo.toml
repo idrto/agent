@@ -24,7 +24,9 @@ async-trait = "0.1"
 idr-core = { workspace = true, features = ["net"] }
 idr-protocol = { workspace = true }
 idr-signaling = { workspace = true, features = ["native"] }
-idr-source = { workspace = true, features = ["dp", "native-signaling"] }
+idr-source = { workspace = true, features = ["dp", "native-signaling", "transfer"] }
+idr-transfer = { workspace = true, features = ["native"] }
+serde_json = { workspace = true }
 idr-webrtc = { workspace = true }
 idr-dp = { workspace = true }
 bytes = { workspace = true }
@@ -36,3 +38,12 @@ rustls = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# transfer_ffi: real WebRTC against an in-process Target (tests/common of idr-target).
+idr-target = { workspace = true, features = ["webrtc"] }
+idr-webrtc = { workspace = true, features = ["native"] }
+chrono = { workspace = true }
+ed25519-dalek = { workspace = true }
+rcgen = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+uuid = { workspace = true }

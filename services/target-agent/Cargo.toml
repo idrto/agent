@@ -18,6 +18,7 @@ webrtc = ["idr-target/webrtc"]
 [dependencies]
 idr-target = { workspace = true }
 idr-dp = { workspace = true }
+idr-transfer = { workspace = true, features = ["native"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
 prometheus = { workspace = true }

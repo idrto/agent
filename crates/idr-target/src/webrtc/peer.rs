@@ -43,6 +43,8 @@ pub enum PeerEvent {
     DataChannelOpen,
     DataChannelClosed,
     BinaryMessage(Vec<u8>),
+    /// The send buffer drained below its low-water mark; bulk sends may resume.
+    BufferedAmountLow,
     ConnectionFailed(String),
     Error(String),
 }
@@ -102,6 +104,10 @@ impl DataChannelHandler for ChannelHandler {
         } else {
             self.sink.public(PeerEvent::BinaryMessage(message.to_vec()));
         }
+    }
+
+    fn on_buffered_amount_low(&mut self) {
+        self.sink.public(PeerEvent::BufferedAmountLow);
     }
 }
 
@@ -246,11 +252,11 @@ impl Default for PeerConfig {
         Self {
             ice_servers: Vec::new(),
             ice_transport_policy: IceTransportPolicy::All,
-            event_queue_capacity: 256,
+            event_queue_capacity: idr_protocol::stream_mux::DC_EVENT_QUEUE_CAPACITY,
             max_sdp_bytes: MAX_SDP_BYTES,
             max_candidate_bytes: MAX_ICE_CANDIDATE_BYTES,
             max_message_bytes: MAX_FRAME_BYTES,
-            buffered_amount_low_threshold: 256 * 1024,
+            buffered_amount_low_threshold: idr_core::BULK_LOW_WATER,
         }
     }
 }
@@ -349,6 +355,11 @@ impl NativePeerSession {
             .map_err(|e| anyhow::anyhow!("add_remote_candidate: {e}"))
     }
 
+    /// Bytes queued in the DataChannel but not yet sent.
+    pub fn buffered_amount(&self) -> usize {
+        self.channel.as_ref().map_or(0, |c| c.buffered_amount())
+    }
+
     pub fn send_binary(&mut self, message: &[u8]) -> anyhow::Result<()> {
         if message.len() > self.max_message_bytes {
             anyhow::bail!("outbound message too large");
@@ -367,8 +378,10 @@ impl NativePeerSession {
         loop {
             let dropped = self.dropped.swap(0, Ordering::AcqRel);
             if dropped != 0 {
+                // A dropped message is lost stream data: end the session. With
+                // flow_credit_v1 a compliant peer can't get here (queue sizing).
                 warn!(dropped, "WebRTC callback queue overflow");
-                return Ok(PeerEvent::Error(format!(
+                return Ok(PeerEvent::ConnectionFailed(format!(
                     "callback queue overflow dropped={dropped}"
                 )));
             }
@@ -389,14 +402,20 @@ impl NativePeerSession {
     }
 
     pub fn selected_ice_summary(&self) -> Option<(String, String, String)> {
+        use idr_protocol::webrtc_ice::{ice_candidate_type, IcePath};
         let pair = self.peer.as_deref()?.selected_candidate_pair()?;
-        let local_type = ice_candidate_type(&pair.local);
-        let remote_type = ice_candidate_type(&pair.remote);
+        let path = IcePath::of_pair(&pair.local, &pair.remote).map_or("unknown", IcePath::as_str);
         Some((
-            ice_pair_path(local_type, remote_type).to_string(),
-            local_type.to_string(),
-            remote_type.to_string(),
+            path.to_string(),
+            ice_candidate_type(&pair.local).to_string(),
+            ice_candidate_type(&pair.remote).to_string(),
         ))
+    }
+
+    /// Direct (host / stun) or relayed (turn), from the selected ICE pair.
+    pub fn ice_path(&self) -> Option<idr_protocol::webrtc_ice::IcePath> {
+        let pair = self.peer.as_deref()?.selected_candidate_pair()?;
+        idr_protocol::webrtc_ice::IcePath::of_pair(&pair.local, &pair.remote)
     }
 
     pub fn close(&mut self) {
@@ -412,34 +431,6 @@ impl NativePeerSession {
     }
 }
 
-fn ice_candidate_type(candidate: &str) -> &'static str {
-    let lower = candidate.to_ascii_lowercase();
-    let kind = lower
-        .split(" typ ")
-        .nth(1)
-        .and_then(|rest| rest.split_whitespace().next())
-        .unwrap_or("");
-    match kind {
-        "host" => "host",
-        "srflx" => "srflx",
-        "prflx" => "prflx",
-        "relay" => "relay",
-        _ => "unknown",
-    }
-}
-
-fn ice_pair_path(local: &str, remote: &str) -> &'static str {
-    if local == "relay" || remote == "relay" {
-        "turn"
-    } else if local == "srflx" || remote == "srflx" {
-        "stun"
-    } else if matches!(local, "host" | "prflx") && matches!(remote, "host" | "prflx") {
-        "host"
-    } else {
-        "unknown"
-    }
-}
-
 fn truncate(value: &str, max_bytes: usize) -> String {
     if value.len() <= max_bytes {
         return value.to_owned();
@@ -449,4 +440,27 @@ fn truncate(value: &str, max_bytes: usize) -> String {
         end -= 1;
     }
     value[..end].to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use idr_protocol::stream_mux::{CREDIT_CONN_WINDOW, DC_CONTROL_HEADROOM, MIN_DATA_CHARGE};
+
+    use super::*;
+
+    /// B3: a full credit window of DATA plus control frames must fit the callback queue.
+    #[test]
+    fn default_queue_holds_a_full_credit_window() {
+        let needed = (CREDIT_CONN_WINDOW / MIN_DATA_CHARGE) as usize + DC_CONTROL_HEADROOM;
+        assert!(PeerConfig::default().event_queue_capacity >= needed);
+    }
+
+    /// B3: a dropped callback event must end the session, never be skipped silently.
+    #[tokio::test]
+    async fn queue_overflow_is_fatal() {
+        let mut peer = NativePeerSession::new(PeerConfig::default()).unwrap();
+        peer.dropped.store(1, Ordering::Release);
+        let ev = peer.next_event().await.unwrap();
+        assert!(matches!(ev, PeerEvent::ConnectionFailed(_)), "got {ev:?}");
+    }
 }

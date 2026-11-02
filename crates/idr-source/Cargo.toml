@@ -13,6 +13,8 @@ default = ["dp", "native-signaling"]
 dp = ["dep:idr-dp", "dep:ed25519-dalek", "dep:base64", "dep:chrono"]
 # Presence HTTP/QUIC/WSS client stack (off for browser WASM).
 native-signaling = ["idr-signaling/native"]
+# Agent-owned file transfer (`agent::Daemon`): supervisor, binding, outbox. Native only.
+transfer = ["dep:idr-transfer", "dep:anyhow"]
 
 [dependencies]
 idr-core = { workspace = true }
@@ -30,9 +32,12 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
+idr-transfer = { workspace = true, features = ["native"], optional = true }
+anyhow = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasmtimer = { version = "0.4", default-features = false, features = ["tokio"] }
+wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
 idr-signaling = { workspace = true, features = ["native"] }

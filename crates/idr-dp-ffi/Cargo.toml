@@ -11,6 +11,9 @@ repository.workspace = true
 name = "idr_dp"
 crate-type = ["cdylib", "staticlib", "rlib"]
 path = "src/lib.rs"
+# The lib shares its name with its `idr-dp` dependency, which rustdoc cannot
+# resolve; there are no doctests.
+doctest = false
 
 [dependencies]
 idr-dp = { workspace = true }

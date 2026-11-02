@@ -2,7 +2,9 @@ pub mod probe;
 
 pub mod bridge;
 pub mod ice;
+pub mod local;
 pub mod mux;
+pub mod mux_streams;
 #[cfg(feature = "webrtc")]
 pub mod peer;
 #[cfg(feature = "webrtc")]

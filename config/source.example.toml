@@ -14,3 +14,23 @@ connect_timeout_seconds = 10
 # headless Windows/macOS/Linux service hosts that inject identity at start.
 [dp]
 # identity_path = "identity.dp.json"
+
+# `source-agent run` as a daemon: keeps sessions with these Targets and owns
+# file transfers (they survive the CLI exiting, reconnects and restarts).
+[daemon]
+# data_dir = "source-agent-data"   # transfer outbox (transfers.db)
+# targets = ["laptop--acme.idr.to"]
+
+# File transfer. Off unless enabled. Incoming offers are denied unless a peer
+# rule, keyed by the Target's verified device SKI, auto-accepts them.
+[file_transfer]
+enabled = false
+# receive_dir = "C:/Users/me/Downloads/idr"
+# entity_root_path = "entity-root.pem"   # default: root at the end of this device's chain
+# interactive = false        # true: offers no rule auto-accepts wait for `transfer accept`/`reject`
+# permitted_dirs = []        # extra directories `transfer accept --out` may choose
+# lease_minutes = 15         # authorization lease; renewed automatically, minimum 5
+# [[file_transfer.peers]]
+# ski = "target-device-ski"
+# auto_accept = true
+# auto_accept_max_bytes = 1073741824

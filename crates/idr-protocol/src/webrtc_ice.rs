@@ -452,3 +452,102 @@ mod tests {
             .all(|s| s.urls.iter().all(|u| u.starts_with("stun:"))));
     }
 }
+
+/// How the selected ICE pair reaches the peer: `Host` and `Stun` are direct
+/// (LAN / NAT traversal), `Turn` goes through a relay server. "Unknown" is
+/// `None` from [`IcePath::of_pair`], never a guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IcePath {
+    Host,
+    Stun,
+    Turn,
+}
+
+impl IcePath {
+    /// Classify a selected pair from both of its `a=candidate` lines (this
+    /// peer's and the remote's), so both peers reach the same answer:
+    /// - either side `relay` → `Turn` (relayed, whatever the other side is);
+    /// - otherwise either side unparseable → `None` (unknown, not "direct");
+    /// - both `host` → `Host` (direct on the local network);
+    /// - any `srflx` / `prflx` → `Stun` (direct through NAT). A peer-reflexive
+    ///   candidate is an address learned from connectivity checks: direct, but
+    ///   seen through a NAT, so it is not reported as LAN.
+    pub fn of_pair(local: &str, remote: &str) -> Option<Self> {
+        match (ice_candidate_type(local), ice_candidate_type(remote)) {
+            ("relay", _) | (_, "relay") => Some(Self::Turn),
+            ("unknown", _) | (_, "unknown") => None,
+            ("host", "host") => Some(Self::Host),
+            _ => Some(Self::Stun),
+        }
+    }
+
+    /// `direct`, `relayed` or `unknown` (for `None`).
+    pub fn connection(path: Option<Self>) -> &'static str {
+        match path {
+            Some(Self::Turn) => "relayed",
+            Some(_) => "direct",
+            None => "unknown",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Host => "host",
+            Self::Stun => "stun",
+            Self::Turn => "turn",
+        }
+    }
+
+    pub fn is_relayed(self) -> bool {
+        self == Self::Turn
+    }
+}
+
+/// `host`, `srflx`, `prflx`, `relay` or `unknown` from an ICE candidate line.
+pub fn ice_candidate_type(candidate: &str) -> &'static str {
+    let lower = candidate.to_ascii_lowercase();
+    match lower.split(" typ ").nth(1).and_then(|rest| rest.split_whitespace().next()).unwrap_or("") {
+        "host" => "host",
+        "srflx" => "srflx",
+        "prflx" => "prflx",
+        "relay" => "relay",
+        _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod ice_path_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_selected_pairs() {
+        let c = |t: &str| format!("a=candidate:1 1 UDP 2122317823 10.0.0.2 50000 typ {t}");
+        let all = ["host", "srflx", "prflx", "relay", "bogus"];
+        // Every combination, and the same answer from both peers' view (swapped).
+        for l in all {
+            for r in all {
+                let want = if l == "relay" || r == "relay" {
+                    Some(IcePath::Turn)
+                } else if l == "bogus" || r == "bogus" {
+                    None
+                } else if l == "host" && r == "host" {
+                    Some(IcePath::Host)
+                } else {
+                    Some(IcePath::Stun)
+                };
+                assert_eq!(IcePath::of_pair(&c(l), &c(r)), want, "{l}/{r}");
+                assert_eq!(IcePath::of_pair(&c(r), &c(l)), want, "{r}/{l} (other peer)");
+            }
+        }
+        // libdatachannel's pair strings, with extensions after the type.
+        let ext = "a=candidate:2 1 UDP 1686052607 203.0.113.9 61000 typ prflx raddr 0.0.0.0 rport 0 generation 0";
+        assert_eq!(IcePath::of_pair(ext, &c("host")), Some(IcePath::Stun));
+        assert_eq!(IcePath::of_pair("", ""), None);
+        assert_eq!(IcePath::connection(None), "unknown");
+        assert_eq!(IcePath::connection(Some(IcePath::Host)), "direct");
+        assert_eq!(IcePath::connection(Some(IcePath::Stun)), "direct");
+        assert_eq!(IcePath::connection(Some(IcePath::Turn)), "relayed");
+        assert!(IcePath::Turn.is_relayed() && !IcePath::Stun.is_relayed());
+    }
+}

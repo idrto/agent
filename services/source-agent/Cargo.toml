@@ -7,6 +7,9 @@ license.workspace = true
 description = "IDR Source Agent desktop service + CLI"
 repository.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "source-agent"
 path = "src/main.rs"
@@ -14,10 +17,17 @@ path = "src/main.rs"
 [dependencies]
 idr-core = { workspace = true, features = ["net"] }
 idr-dp = { workspace = true }
+dp-rust-mtls = { workspace = true }
 idr-protocol = { workspace = true }
 idr-signaling = { workspace = true, features = ["native"] }
-idr-source = { workspace = true, features = ["dp", "native-signaling"] }
-idr-webrtc = { workspace = true }
+idr-source = { workspace = true, features = ["dp", "native-signaling", "transfer"] }
+idr-webrtc = { workspace = true, features = ["native"] }
+idr-transfer = { workspace = true, features = ["native"] }
+async-trait = "0.1"
+base64 = { workspace = true }
+cap-std = "3"
+rustls = { workspace = true }
+ed25519-dalek = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
@@ -26,3 +36,13 @@ tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "ma
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+idr-target = { workspace = true, features = ["webrtc"] }
+idr-signaling = { workspace = true, features = ["native"] }
+chrono = { workspace = true }
+rcgen = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+uuid = { workspace = true }
