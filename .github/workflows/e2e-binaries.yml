@@ -109,6 +109,12 @@ jobs:
         working-directory: agent
         run: cargo build -p target-agent --release --features webrtc
 
+      # idr_dp: machine keys / CSRs / certificates for the Dart apps (idrt
+      # registration, idr enroll). Shipped next to both Source and Target.
+      - name: Build idr_dp (certificates FFI)
+        working-directory: agent
+        run: cargo build -p idr-dp-ffi --release
+
       - name: Stage desktop artifacts
         working-directory: agent
         run: bash scripts/ci-stage-desktop.sh ${{ matrix.name }}
@@ -323,6 +329,7 @@ jobs:
             echo
             echo "### Source (all platforms)"
             echo "- desktop: \`source/{linux-x64,windows-x64,macos-arm64}/\` (\`source-agent\` + \`libidr_c_api\`)"
+            echo "- desktop also: \`idr_dp\` (certificates FFI) in source/ and target/; on Windows the OpenSSL DLLs + VC++ runtime"
             echo "- android: \`source/android/{arm64-v8a,armeabi-v7a,x86_64}/libidr_c_api.so\`"
             echo "- ios: \`source/ios/{aarch64-apple-ios,aarch64-apple-ios-sim}/libidr_c_api.a\`"
           } >> "${GITHUB_STEP_SUMMARY}"
