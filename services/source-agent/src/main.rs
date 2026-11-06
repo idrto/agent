@@ -262,13 +262,16 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Logs go to stdout, or to `IDR_LOG_FILE` (truncated at start, no colors) when
+/// set: `idr` starts the agent in the background with no console to read.
 fn init_tracing(level: &str) {
     let filter = tracing_subscriber::EnvFilter::try_new(level)
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .init();
+    let fmt = tracing_subscriber::fmt().with_env_filter(filter).with_target(false);
+    match std::env::var_os("IDR_LOG_FILE").map(std::fs::File::create) {
+        Some(Ok(file)) => fmt.with_ansi(false).with_writer(std::sync::Mutex::new(file)).init(),
+        _ => fmt.init(),
+    }
 }
 
 fn load_config(path: Option<&std::path::Path>) -> Result<SourceConfig> {
