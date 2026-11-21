@@ -55,7 +55,9 @@ impl IdleScheduler {
                             }
                         }
                     }
-                    expired = queue.next() => {
+                    // An empty DelayQueue returns Ready(None), not Pending.
+                    // Polling it unconditionally spins and monopolizes a worker.
+                    expired = queue.next(), if !queue.is_empty() => {
                         if let Some(entry) = expired {
                             let handle = entry.into_inner();
                             keys.remove(&handle.raw());
@@ -124,4 +126,65 @@ pub fn idle_deadline_from(
     idle_timeout: Duration,
 ) -> std::time::Instant {
     last_activity + idle_timeout
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc as std_mpsc;
+
+    fn assert_empty_queue_yields(cancel_scheduled: bool) {
+        let (scheduler_tx, scheduler_rx) = std_mpsc::channel();
+        let (heartbeat_tx, heartbeat_rx) = std_mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    let scheduler = IdleScheduler::new(Metrics::new());
+                    if cancel_scheduled {
+                        let handle = GenerationalHandle::encode(1, 1);
+                        scheduler.schedule(handle, Duration::from_secs(30));
+                        scheduler.cancel(handle);
+                    }
+                    scheduler_tx.send(scheduler).unwrap();
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    let _ = heartbeat_tx.send(());
+                });
+        });
+        let scheduler = scheduler_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let progress = heartbeat_rx.recv_timeout(Duration::from_secs(2));
+        // Closing the command channel releases even a regressed spinning worker,
+        // so the regression test itself does not hang the test runner.
+        drop(scheduler);
+        worker.join().unwrap();
+        assert!(
+            progress.is_ok(),
+            "empty idle queue starved the runtime timer"
+        );
+    }
+
+    #[test]
+    fn empty_queue_does_not_starve_other_tasks() {
+        assert_empty_queue_yields(false);
+    }
+
+    #[test]
+    fn canceling_last_timer_does_not_starve_other_tasks() {
+        assert_empty_queue_yields(true);
+    }
+
+    #[tokio::test]
+    async fn scheduled_timer_still_expires() {
+        let scheduler = IdleScheduler::new(Metrics::new());
+        let handle = GenerationalHandle::encode(1, 1);
+        let mut expired = scheduler.expired_tx.subscribe();
+        scheduler.schedule(handle, Duration::from_millis(1));
+        let actual = tokio::time::timeout(Duration::from_secs(2), expired.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, handle);
+    }
 }
