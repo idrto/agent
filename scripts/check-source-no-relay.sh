@@ -5,11 +5,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 check_crate() {
   local crate="$1"
   local toml="$ROOT/crates/$crate/Cargo.toml"
-  if grep -E '^\s*idr-target\s*=' "$toml"; then
+  # Shipped dependencies only: a [dev-dependencies] entry (e.g. idr-c-api's loopback test against an
+  # in-process Target) is not linked into the Source library.
+  if awk '/^\[/ { in_dev = ($0 ~ /dev-dependencies/) } !in_dev && /^[[:space:]]*idr-target[[:space:]]*=/' "$toml" | grep .; then
     echo "ERROR: $crate must not depend on idr-target" >&2
     exit 1
   fi
-  if grep -RInE 'use[[:space:]]+idr_target|extern[[:space:]]+crate[[:space:]]+idr_target' "$ROOT/crates/$crate" 2>/dev/null; then
+  if grep -RInE 'use[[:space:]]+idr_target|extern[[:space:]]+crate[[:space:]]+idr_target' "$ROOT/crates/$crate/src" 2>/dev/null; then
     echo "ERROR: $crate sources must not import idr_target" >&2
     exit 1
   fi
