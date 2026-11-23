@@ -12,18 +12,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::{SessionOpener, SourceRuntime, SourceSession};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use idr_core::{LogicalStream, StreamPriority};
 use idr_protocol::peer_bind::{BindRole, TrustPolicy, VerifiedPeer, BIND_SERVICE};
 use idr_protocol::transfer::{TransferId, TRANSFER_SERVICE};
-use crate::{SessionOpener, SourceRuntime, SourceSession};
 use idr_transfer::bind::{bind_peer, LocalIdentity};
 use idr_transfer::io::Framed;
 use idr_transfer::native::control::Control;
+use idr_transfer::native::free_space;
 use idr_transfer::native::ipc::{self, IpcAddr};
 use idr_transfer::native::manager::{DeferredSink, Link, Manager};
-use idr_transfer::native::free_space;
 use idr_transfer::policy::{PolicyEngine, ReceivePolicy, SendPolicy};
 use idr_transfer::storage::StreamOpener;
 use idr_transfer::{Limits, Routed, Router};
@@ -76,12 +76,18 @@ impl Daemon {
         let manager = Manager::open(&cfg.data_dir, cfg.limits.clone(), cfg.send_policy.clone())
             .context("open transfer outbox")?;
         let dest = cfg.receive_dir.clone();
-        let engine = PolicyEngine::new(cfg.receive_policy.clone(), Some(Arc::new(move || free_space(&dest))));
+        let engine = PolicyEngine::new(
+            cfg.receive_policy.clone(),
+            Some(Arc::new(move || free_space(&dest))),
+        );
         let (shutdown, _) = watch::channel(false);
         if let Some(addr) = cfg.ipc.clone() {
             let mut permitted = cfg.permitted_dirs.clone();
             permitted.push(cfg.receive_dir.clone());
-            let handler = Arc::new(Control { manager: manager.clone(), permitted });
+            let handler = Arc::new(Control {
+                manager: manager.clone(),
+                permitted,
+            });
             let rx = shutdown.subscribe();
             tokio::spawn(async move {
                 if let Err(e) = ipc::serve(addr, handler, rx).await {
@@ -103,7 +109,9 @@ impl Daemon {
         }
         // Restored transfers whose Target isn't configured still need a session.
         for info in daemon.manager.list() {
-            if info.direction == idr_transfer::native::manager::Direction::Outgoing && !info.state.is_done() {
+            if info.direction == idr_transfer::native::manager::Direction::Outgoing
+                && !info.state.is_done()
+            {
                 daemon.add_target(&info.peer);
             }
         }
@@ -142,7 +150,12 @@ impl Daemon {
     }
 
     /// Queue a selection inside `folder` (see [`queue_selection`]).
-    pub fn send_selection(&self, target: &str, folder: &Path, selected: &[String]) -> Result<TransferId> {
+    pub fn send_selection(
+        &self,
+        target: &str,
+        folder: &Path,
+        selected: &[String],
+    ) -> Result<TransferId> {
         let id = queue_selection(&self.manager, target, folder, selected)?;
         self.add_target(target);
         Ok(id)
@@ -152,7 +165,13 @@ impl Daemon {
     /// next start.
     pub async fn shutdown(self) {
         let _ = self.shutdown.send(true);
-        let sups: Vec<_> = self.supervisors.lock().unwrap().drain().map(|(_, t)| t).collect();
+        let sups: Vec<_> = self
+            .supervisors
+            .lock()
+            .unwrap()
+            .drain()
+            .map(|(_, t)| t)
+            .collect();
         for s in sups {
             let _ = tokio::time::timeout(Duration::from_secs(5), s).await;
         }
@@ -197,7 +216,11 @@ fn unix_now() -> i64 {
 
 /// Prove this device to the Target and verify the Target names `fqhn`.
 async fn bind(session: &SourceSession, cfg: &DaemonConfig, fqhn: &str) -> Option<VerifiedPeer> {
-    let stream = match session.opener().open(BIND_SERVICE, StreamPriority::Interactive).await {
+    let stream = match session
+        .opener()
+        .open(BIND_SERVICE, StreamPriority::Interactive)
+        .await
+    {
         Ok(s) => s,
         Err(e) => {
             warn!(event = "session.peer_binding_failed", target.fqhn = %fqhn, error.type = "peer_binding_refused", error.message = %e, "transfers disabled on this session");
@@ -210,7 +233,16 @@ async fn bind(session: &SourceSession, cfg: &DaemonConfig, fqhn: &str) -> Option
         require_dns: Some(fqhn.to_string()),
         now: unix_now(),
     };
-    match bind_peer(&mut Framed::new(stream), BindRole::Offerer, session.bind_context(), &cfg.identity, &trust, cfg.limits.step_timeout).await {
+    match bind_peer(
+        &mut Framed::new(stream),
+        BindRole::Offerer,
+        session.bind_context(),
+        &cfg.identity,
+        &trust,
+        cfg.limits.step_timeout,
+    )
+    .await
+    {
         Ok(p) => Some(p),
         Err(code) => {
             warn!(event = "session.peer_unverified", target.fqhn = %fqhn, error.type = code.as_str(), "transfers disabled on this session");
@@ -253,7 +285,9 @@ async fn supervise(
         info!(event = "session.state_changed", target.fqhn = %fqhn, from = "connecting", to = "connected");
         let mut lease: Option<Duration> = None;
         if let Some(peer) = bind(&session, &cfg, &fqhn).await {
-            lease = Some(Duration::from_secs((engine.lease_until(&peer) - unix_now()).max(1) as u64));
+            lease = Some(Duration::from_secs(
+                (engine.lease_until(&peer) - unix_now()).max(1) as u64,
+            ));
             generation += 1;
             let _ = link.send(Some(Arc::new(SourceLink {
                 opener: session.opener(),
@@ -261,21 +295,38 @@ async fn supervise(
                 generation,
             })));
             let mut incoming = session.accept_streams(&[TRANSFER_SERVICE]).await;
-            let (manager, engine, fqhn2, dir) = (manager.clone(), engine.clone(), fqhn.clone(), cfg.receive_dir.clone());
+            let (manager, engine, fqhn2, dir) = (
+                manager.clone(),
+                engine.clone(),
+                fqhn.clone(),
+                cfg.receive_dir.clone(),
+            );
             let step = cfg.limits.step_timeout;
             let (interactive, expiry) = (cfg.receive_policy.interactive, cfg.offer_expiry);
             tokio::spawn(async move {
                 let router = Router::default();
                 while let Some(inc) = incoming.recv().await {
-                    if let Routed::Control { header, stream } = router.route(inc.stream, step).await {
-                        let (manager, router, fqhn, dir) = (manager.clone(), router.clone(), fqhn2.clone(), dir.clone());
+                    if let Routed::Control { header, stream } = router.route(inc.stream, step).await
+                    {
+                        let (manager, router, fqhn, dir) =
+                            (manager.clone(), router.clone(), fqhn2.clone(), dir.clone());
                         // Interactive endpoints park offers for `transfer accept`; headless never asks.
                         let prompt = interactive.then(|| manager.prompt(expiry));
                         let mut consent = engine.consent(Some(peer.clone()), prompt);
                         let peer_path = peer.path;
                         tokio::spawn(async move {
                             let sink = DeferredSink::new(manager.clone(), dir);
-                            manager.receive(&fqhn, peer_path, &router, header, stream, sink, &mut consent).await;
+                            manager
+                                .receive(
+                                    &fqhn,
+                                    peer_path,
+                                    &router,
+                                    header,
+                                    stream,
+                                    sink,
+                                    &mut consent,
+                                )
+                                .await;
                         });
                     }
                 }

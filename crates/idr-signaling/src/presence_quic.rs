@@ -8,9 +8,7 @@ use async_trait::async_trait;
 use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_protocol::discovery::PresenceServer;
 use idr_protocol::signaling_json;
-use idr_protocol::webrtc_signaling::{
-    WebRtcAnswer, WebRtcIceCandidate, WebRtcSessionRequest,
-};
+use idr_protocol::webrtc_signaling::{WebRtcAnswer, WebRtcIceCandidate, WebRtcSessionRequest};
 use idr_protocol::ALPN_IDR_PRESENCE_V1;
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream};
 use rustls::pki_types::ServerName;
@@ -94,7 +92,10 @@ impl WebRtcSignalingClient for PresenceQuicSignalingClient {
             .map_err(|e| IdrError::new(IdrErrorKind::SignalingFailed, format!("handshake: {e}")))?;
 
         let json = serde_json::to_string(&request).map_err(|e| {
-            IdrError::new(IdrErrorKind::ProtocolError, format!("serialize request: {e}"))
+            IdrError::new(
+                IdrErrorKind::ProtocolError,
+                format!("serialize request: {e}"),
+            )
         })?;
         let frame = signaling_json::encode_webrtc_json_frame(json.as_bytes()).map_err(|e| {
             IdrError::new(IdrErrorKind::ProtocolError, format!("encode frame: {e}"))
@@ -146,9 +147,8 @@ impl EphemeralSignaling for PresenceEphemeral {
     }
 
     async fn send_json(&mut self, json: &str) -> Result<()> {
-        let frame = signaling_json::encode_webrtc_json_frame(json.as_bytes()).map_err(|e| {
-            IdrError::new(IdrErrorKind::ProtocolError, format!("encode: {e}"))
-        })?;
+        let frame = signaling_json::encode_webrtc_json_frame(json.as_bytes())
+            .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("encode: {e}")))?;
         self.send
             .write_all(&frame)
             .await
@@ -181,38 +181,33 @@ async fn read_signaling_json(recv: &mut RecvStream) -> Result<String> {
         .map_err(|e| IdrError::new(IdrErrorKind::SignalingFailed, format!("read body: {e}")))?;
     let mut frame = len_buf.to_vec();
     frame.extend_from_slice(&payload);
-    let json_bytes = signaling_json::decode_json_frame(&frame).map_err(|e| {
-        IdrError::new(IdrErrorKind::ProtocolError, format!("decode frame: {e}"))
-    })?;
+    let json_bytes = signaling_json::decode_json_frame(&frame)
+        .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("decode frame: {e}")))?;
     String::from_utf8(json_bytes)
         .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("utf8: {e}")))
 }
 
 fn parse_signaling_json(json: &str, session_id: Uuid) -> Result<SignalingMessage> {
-    let value: Value = serde_json::from_str(json).map_err(|e| {
-        IdrError::new(IdrErrorKind::ProtocolError, format!("parse json: {e}"))
-    })?;
+    let value: Value = serde_json::from_str(json)
+        .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("parse json: {e}")))?;
     let msg_type = value
         .get("message_type")
         .and_then(|v| v.as_str())
         .unwrap_or("");
     match msg_type {
         "session_pending" | "webrtc_session_pending" => {
-            let pending: SessionPending = serde_json::from_str(json).map_err(|e| {
-                IdrError::new(IdrErrorKind::ProtocolError, format!("pending: {e}"))
-            })?;
+            let pending: SessionPending = serde_json::from_str(json)
+                .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("pending: {e}")))?;
             Ok(SignalingMessage::Pending(pending))
         }
         "webrtc_answer" => {
-            let ans: WebRtcAnswer = serde_json::from_str(json).map_err(|e| {
-                IdrError::new(IdrErrorKind::ProtocolError, format!("answer: {e}"))
-            })?;
+            let ans: WebRtcAnswer = serde_json::from_str(json)
+                .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("answer: {e}")))?;
             Ok(SignalingMessage::Answer(ans))
         }
         "webrtc_ice_candidate" => {
-            let c: WebRtcIceCandidate = serde_json::from_str(json).map_err(|e| {
-                IdrError::new(IdrErrorKind::ProtocolError, format!("ice: {e}"))
-            })?;
+            let c: WebRtcIceCandidate = serde_json::from_str(json)
+                .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("ice: {e}")))?;
             Ok(SignalingMessage::IceCandidate(c))
         }
         "webrtc_ice_complete" => Ok(SignalingMessage::IceComplete { session_id }),
@@ -224,9 +219,8 @@ fn parse_signaling_json(json: &str, session_id: Uuid) -> Result<SignalingMessage
                 #[serde(default)]
                 detail: Option<String>,
             }
-            let ack: AckCompat = serde_json::from_str(json).map_err(|e| {
-                IdrError::new(IdrErrorKind::ProtocolError, format!("ack: {e}"))
-            })?;
+            let ack: AckCompat = serde_json::from_str(json)
+                .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("ack: {e}")))?;
             Ok(SignalingMessage::SessionAck {
                 session_id: ack.session_id,
                 result: ack.result,

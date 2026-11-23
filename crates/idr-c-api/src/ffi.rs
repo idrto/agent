@@ -538,7 +538,10 @@ pub(crate) unsafe fn ctx_span(ffi_fn: &'static str, ctx_json: *const c_char) -> 
     };
     let (ctx, invalid) = idr_telemetry::LocalContext::parse(text);
     if !invalid.is_empty() {
-        tracing::debug!(event = "telemetry.context.invalid", field = invalid.join(","));
+        tracing::debug!(
+            event = "telemetry.context.invalid",
+            field = invalid.join(",")
+        );
     }
     let traceparent = ctx.trace.map(|t| t.to_traceparent());
     tracing::info_span!(

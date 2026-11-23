@@ -11,7 +11,9 @@ pub enum Outcome {
     /// Every entry verified and committed.
     Completed,
     /// Some entries failed; verified ones are kept (folders stay staged).
-    CompletedWithErrors { failed: u32 },
+    CompletedWithErrors {
+        failed: u32,
+    },
     /// Unrecoverable for this attempt (e.g. protocol violation).
     Failed(TransferErrorKind),
     Cancelled,
@@ -48,17 +50,31 @@ pub struct Progress {
 pub enum TransferEvent {
     Offered(OfferSummary),
     /// `approval` is known on the receiving side only.
-    Accepted { approval: Option<Approval> },
+    Accepted {
+        approval: Option<Approval>,
+    },
     Progress(Progress),
-    EntryFailed { entry: u32, code: TransferErrorKind },
+    EntryFailed {
+        entry: u32,
+        code: TransferErrorKind,
+    },
     /// Stored under another name (`to` is the stored relative path).
-    Renamed { entry: u32, to: String },
+    Renamed {
+        entry: u32,
+        to: String,
+    },
     /// The authorization lease ends soon; renewal is being attempted.
-    LeaseExpiring { secs_left: u64 },
+    LeaseExpiring {
+        secs_left: u64,
+    },
     /// An incoming offer waits for the local user (`accept` / `reject`).
     AwaitingDecision,
-    Paused { by_peer: bool },
-    Resumed { by_peer: bool },
+    Paused {
+        by_peer: bool,
+    },
+    Resumed {
+        by_peer: bool,
+    },
     Finished(Outcome),
 }
 
@@ -214,7 +230,8 @@ mod outcome_log_tests {
 
     #[test]
     fn each_outcome_is_one_registered_event_with_a_uuid_transfer_id() {
-        let root = std::env::temp_dir().join(format!("idr-transfer-log-{}", idr_telemetry::new_id()));
+        let root =
+            std::env::temp_dir().join(format!("idr-transfer-log-{}", idr_telemetry::new_id()));
         let mut cfg = idr_telemetry::Config::new("idr-transfer-test", "0");
         cfg.log_root = Some(root.clone());
         cfg.stdout = idr_telemetry::StdoutFormat::Off;
@@ -241,7 +258,10 @@ mod outcome_log_tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        let events: Vec<&str> = records.iter().map(|r| r["event"].as_str().unwrap()).collect();
+        let events: Vec<&str> = records
+            .iter()
+            .map(|r| r["event"].as_str().unwrap())
+            .collect();
         for want in [
             "transfer.completed",
             "transfer.completed_with_errors",
@@ -252,12 +272,24 @@ mod outcome_log_tests {
         ] {
             assert!(events.contains(&want), "{want} missing in {events:?}");
         }
-        let stalled = records.iter().find(|r| r["event"] == "transfer.interrupted").unwrap();
+        let stalled = records
+            .iter()
+            .find(|r| r["event"] == "transfer.interrupted")
+            .unwrap();
         assert_eq!(stalled["error"]["type"], "stalled");
         assert_eq!(stalled["level"], "WARN");
-        assert_eq!(stalled["transfer_id"], "07070707-0707-0707-0707-070707070707");
-        let failed = records.iter().find(|r| r["event"] == "transfer.failed").unwrap();
-        assert_eq!((failed["level"].as_str(), failed["error"]["type"].as_str()), (Some("ERROR"), Some("hash_mismatch")));
+        assert_eq!(
+            stalled["transfer_id"],
+            "07070707-0707-0707-0707-070707070707"
+        );
+        let failed = records
+            .iter()
+            .find(|r| r["event"] == "transfer.failed")
+            .unwrap();
+        assert_eq!(
+            (failed["level"].as_str(), failed["error"]["type"].as_str()),
+            (Some("ERROR"), Some("hash_mismatch"))
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

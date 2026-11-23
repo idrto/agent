@@ -46,7 +46,12 @@ fn single_component(name: &str) -> Result<(), RenameError> {
 
 /// Move `from` in `from_dir` to `to` in `to_dir` (same volume). Fails with
 /// [`RenameError::Exists`] instead of replacing.
-pub fn rename_noreplace(from_dir: &Dir, from: &str, to_dir: &Dir, to: &str) -> Result<(), RenameError> {
+pub fn rename_noreplace(
+    from_dir: &Dir,
+    from: &str,
+    to_dir: &Dir,
+    to: &str,
+) -> Result<(), RenameError> {
     single_component(from)?;
     single_component(to)?;
     imp::rename(from_dir, from, to_dir, to)
@@ -180,14 +185,23 @@ mod tests {
         let (_t, d) = dirs();
         d.write("new", b"new").unwrap();
         d.write("old", b"old").unwrap();
-        assert!(matches!(rename_noreplace(&d, "new", &d, "old"), Err(RenameError::Exists)));
+        assert!(matches!(
+            rename_noreplace(&d, "new", &d, "old"),
+            Err(RenameError::Exists)
+        ));
         assert_eq!(d.read("old").unwrap(), b"old");
         assert_eq!(d.read("new").unwrap(), b"new");
 
         d.create_dir("src").unwrap();
         d.create_dir("empty").unwrap();
-        assert!(matches!(rename_noreplace(&d, "src", &d, "empty"), Err(RenameError::Exists)));
-        assert!(matches!(rename_noreplace(&d, "src", &d, "old"), Err(RenameError::Exists)));
+        assert!(matches!(
+            rename_noreplace(&d, "src", &d, "empty"),
+            Err(RenameError::Exists)
+        ));
+        assert!(matches!(
+            rename_noreplace(&d, "src", &d, "old"),
+            Err(RenameError::Exists)
+        ));
         assert!(d.is_dir("src"));
     }
 
@@ -195,7 +209,13 @@ mod tests {
     fn rejects_multi_component_names() {
         let (_t, d) = dirs();
         d.write("f", b"").unwrap();
-        assert!(matches!(rename_noreplace(&d, "f", &d, "../escape"), Err(RenameError::Io(_))));
-        assert!(matches!(rename_noreplace(&d, "f", &d, "a\\b"), Err(RenameError::Io(_))));
+        assert!(matches!(
+            rename_noreplace(&d, "f", &d, "../escape"),
+            Err(RenameError::Io(_))
+        ));
+        assert!(matches!(
+            rename_noreplace(&d, "f", &d, "a\\b"),
+            Err(RenameError::Io(_))
+        ));
     }
 }

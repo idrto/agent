@@ -23,9 +23,8 @@ impl TargetIdentity {
                     let pem = std::str::from_utf8(&bytes).with_context(|| {
                         format!("identity key {} is not valid UTF-8 PEM", path.display())
                     })?;
-                    let signing_key = SigningKey::from_pkcs8_pem(pem.trim()).with_context(|| {
-                        format!("parse identity PEM {}", path.display())
-                    })?;
+                    let signing_key = SigningKey::from_pkcs8_pem(pem.trim())
+                        .with_context(|| format!("parse identity PEM {}", path.display()))?;
                     let verifying_key = signing_key.verifying_key();
                     KeyPair {
                         signing_key,

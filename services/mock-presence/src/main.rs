@@ -27,7 +27,11 @@ async fn main() -> Result<()> {
     let _telemetry = idr_telemetry::init_binary(
         "mock-presence",
         env!("CARGO_PKG_VERSION"),
-        idr_telemetry::BinaryDefaults { filter: "info", json_stdout: true, files: false },
+        idr_telemetry::BinaryDefaults {
+            filter: "info",
+            json_stdout: true,
+            files: false,
+        },
     )?;
 
     let listen = env::var("MOCK_PRESENCE_LISTEN").unwrap_or_else(|_| "127.0.0.1:8081".into());

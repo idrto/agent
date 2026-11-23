@@ -20,7 +20,11 @@ impl NetworkCapabilities {
     pub fn detect() -> Self {
         let ipv4 = probe_udp(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let ipv6 = probe_udp(IpAddr::V6(Ipv6Addr::UNSPECIFIED));
-        debug!(event = "target.detected_network_capabilities", ipv4 = ipv4, ipv6 = ipv6);
+        debug!(
+            event = "target.detected_network_capabilities",
+            ipv4 = ipv4,
+            ipv6 = ipv6
+        );
         Self { ipv4, ipv6 }
     }
 

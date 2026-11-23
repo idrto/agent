@@ -19,11 +19,16 @@ pub unsafe extern "C" fn idr_telemetry_init(config_json: *const c_char) -> c_int
         if config_json.is_null() {
             return -1;
         }
-        let Ok(text) = CStr::from_ptr(config_json).to_str() else { return -1 };
-        let Ok(j) = serde_json::from_str::<serde_json::Value>(text) else { return -1 };
+        let Ok(text) = CStr::from_ptr(config_json).to_str() else {
+            return -1;
+        };
+        let Ok(j) = serde_json::from_str::<serde_json::Value>(text) else {
+            return -1;
+        };
         let field = |k: &str| j.get(k).and_then(|v| v.as_str()).map(String::from);
         // service: the host's directory (shared by both producers); app_session_id: the host's id.
-        let (Some(service), Some(app_session_id)) = (field("service"), field("app_session_id")) else {
+        let (Some(service), Some(app_session_id)) = (field("service"), field("app_session_id"))
+        else {
             return -1;
         };
         let mut cfg = Config::new("idr-c-api", env!("CARGO_PKG_VERSION"));

@@ -176,7 +176,10 @@ impl MuxStreams {
             return refuse(OpenErrorCode::ResourceExhausted, "too many open streams");
         }
         if self.connecting.load(Ordering::Acquire) >= MAX_PENDING_OPENS {
-            return refuse(OpenErrorCode::ResourceExhausted, "too many opens in progress");
+            return refuse(
+                OpenErrorCode::ResourceExhausted,
+                "too many opens in progress",
+            );
         }
         if !self.opens.take(now) {
             return refuse(OpenErrorCode::ResourceExhausted, "open rate limit");
@@ -325,7 +328,10 @@ impl MuxStreams {
         match self.streams.get(&stream_id) {
             Some(slot) if slot.send_credit.is_some() => {
                 if let Err(mpsc::error::TrySendError::Full(_)) = slot.inbound.try_send(bytes) {
-                    warn!(event = "webrtc.source_overran_stream_window_resetting_stream", stream_id = stream_id);
+                    warn!(
+                        event = "webrtc.source_overran_stream_window_resetting_stream",
+                        stream_id = stream_id
+                    );
                     self.on_reset(stream_id);
                     replies.push(StreamFrame::Reset {
                         stream_id,
@@ -375,7 +381,11 @@ impl MuxStreams {
     pub fn on_window_update(&mut self, stream_id: u32, credit: u32) {
         if stream_id == 0 {
             self.conn_send.grant(credit);
-        } else if let Some(c) = self.streams.get(&stream_id).and_then(|s| s.send_credit.as_ref()) {
+        } else if let Some(c) = self
+            .streams
+            .get(&stream_id)
+            .and_then(|s| s.send_credit.as_ref())
+        {
             c.grant(credit);
         }
     }
@@ -421,7 +431,14 @@ impl Pipe {
                 if let Err(e) = write_half.write_all(&bytes).await {
                     warn!(event = "webrtc.upstream_write_failed", error.message = %e, stream_id = stream_id);
                     dead.store(true, Ordering::Release);
-                    send_control(&out, &StreamFrame::Reset { stream_id, reason: 1 }).await;
+                    send_control(
+                        &out,
+                        &StreamFrame::Reset {
+                            stream_id,
+                            reason: 1,
+                        },
+                    )
+                    .await;
                     continue;
                 }
                 if credit {
@@ -463,7 +480,11 @@ impl Pipe {
                 }
                 Err(e) => {
                     warn!(event = "webrtc.upstream_read_failed", error.message = %e, stream_id = stream_id);
-                    self.control(&StreamFrame::Reset { stream_id, reason: 1 }).await;
+                    self.control(&StreamFrame::Reset {
+                        stream_id,
+                        reason: 1,
+                    })
+                    .await;
                     break;
                 }
             };
@@ -499,10 +520,10 @@ async fn send_data(out: &MuxOut, priority: StreamPriority, frame: &StreamFrame) 
 mod tests {
     use std::time::Duration;
 
+    use idr_core::{mux_out, MuxOutRx};
     use idr_protocol::stream_mux::{
         CREDIT_CONN_WINDOW, FEATURE_FLOW_CONTROL, FEATURE_FLOW_CREDIT, INITIAL_STREAM_WINDOW,
     };
-    use idr_core::{mux_out, MuxOutRx};
     use tokio::time::timeout;
 
     use super::*;
@@ -581,7 +602,10 @@ mod tests {
                 more += bytes.len();
             }
         }
-        assert!(more > 0 && more <= 128 * 1024, "credit 128 KiB released {more} bytes");
+        assert!(
+            more > 0 && more <= 128 * 1024,
+            "credit 128 KiB released {more} bytes"
+        );
     }
 
     /// B1 (Target half): consumed DATA must be credited back, per stream and per connection.
@@ -600,15 +624,25 @@ mod tests {
         for round in 0..10 {
             for _ in 0..4 {
                 for f in streams.on_data(1, vec![1; CHUNK]).await {
-                    if let StreamFrame::WindowUpdate { stream_id: 0, credit } = f {
+                    if let StreamFrame::WindowUpdate {
+                        stream_id: 0,
+                        credit,
+                    } = f
+                    {
                         conn_credit += credit as u64;
                     }
                 }
             }
             let got = loop {
                 match next_frame(&mut rx, Duration::from_secs(2)).await {
-                    Some(StreamFrame::WindowUpdate { stream_id: 1, credit }) => break credit,
-                    Some(StreamFrame::WindowUpdate { stream_id: 0, credit }) => {
+                    Some(StreamFrame::WindowUpdate {
+                        stream_id: 1,
+                        credit,
+                    }) => break credit,
+                    Some(StreamFrame::WindowUpdate {
+                        stream_id: 0,
+                        credit,
+                    }) => {
                         conn_credit += credit as u64;
                     }
                     Some(_) => {}
@@ -630,7 +664,10 @@ mod tests {
     async fn opens_are_admitted_within_limits() {
         let (mut streams, _rx) = credit_streams();
         let t0 = Instant::now();
-        assert_eq!(refused(streams.admit_open_at(2, t0)), OpenErrorCode::InvalidArgument);
+        assert_eq!(
+            refused(streams.admit_open_at(2, t0)),
+            OpenErrorCode::InvalidArgument
+        );
 
         // Burst, then the rate limit.
         let mut id = 1;
@@ -638,7 +675,10 @@ mod tests {
             streams.admit_open_at(id, t0).unwrap();
             id += 2;
         }
-        assert_eq!(refused(streams.admit_open_at(id, t0)), OpenErrorCode::ResourceExhausted);
+        assert_eq!(
+            refused(streams.admit_open_at(id, t0)),
+            OpenErrorCode::ResourceExhausted
+        );
         let later = t0 + Duration::from_secs(1);
         streams.admit_open_at(id, later).unwrap();
 
@@ -672,7 +712,12 @@ mod tests {
         for i in 0..MAX_STREAMS_PER_SESSION as u32 {
             let (a, b) = tokio::io::duplex(64);
             keep.push(b);
-            streams.open_with(1 + 2 * i, StreamPriority::Interactive, async { Ok(a) }, || {});
+            streams.open_with(
+                1 + 2 * i,
+                StreamPriority::Interactive,
+                async { Ok(a) },
+                || {},
+            );
         }
         let later = Instant::now() + Duration::from_secs(60);
         assert_eq!(
@@ -704,7 +749,10 @@ mod tests {
         loop {
             match next_frame(&mut rx, Duration::from_secs(2)).await {
                 Some(StreamFrame::OpenOk { stream_id: 1, .. }) => saw_ok = true,
-                Some(StreamFrame::Data { stream_id: 1, bytes }) => {
+                Some(StreamFrame::Data {
+                    stream_id: 1,
+                    bytes,
+                }) => {
                     assert!(saw_ok, "data before OpenOk");
                     assert_eq!(bytes, b"early");
                     return;
@@ -739,7 +787,10 @@ mod tests {
         let (out, mut rx) = mux_out(128);
         let mut old_source = MuxStreams::new(out.clone());
         old_source.on_hello(1, &[FEATURE_FLOW_CREDIT.into()], CREDIT_CONN_WINDOW);
-        assert!(old_source.open_local("idr.test", StreamPriority::Bulk).await.is_err());
+        assert!(old_source
+            .open_local("idr.test", StreamPriority::Bulk)
+            .await
+            .is_err());
 
         let mut streams = MuxStreams::new(out);
         let ack = streams.on_hello(
@@ -749,9 +800,14 @@ mod tests {
         );
         assert!(matches!(ack, StreamFrame::HelloAck { ref features, .. }
             if features.iter().any(|f| f == FEATURE_PEER_OPEN)));
-        let pending = streams.open_local("idr.test", StreamPriority::Bulk).await.unwrap();
+        let pending = streams
+            .open_local("idr.test", StreamPriority::Bulk)
+            .await
+            .unwrap();
         let id = match next_frame(&mut rx, Duration::from_secs(1)).await {
-            Some(StreamFrame::Open { stream_id, meta, .. }) => {
+            Some(StreamFrame::Open {
+                stream_id, meta, ..
+            }) => {
                 assert_eq!(stream_id % 2, 0, "Target-initiated ids are even");
                 assert_eq!(meta.service_name.as_deref(), Some("idr.test"));
                 stream_id
@@ -759,7 +815,11 @@ mod tests {
             other => panic!("expected Open, got {other:?}"),
         };
         streams.on_open_ok(id, INITIAL_STREAM_WINDOW);
-        let mut local = timeout(Duration::from_secs(1), pending).await.unwrap().unwrap().unwrap();
+        let mut local = timeout(Duration::from_secs(1), pending)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
 
         local.write_all(b"to-source").await.unwrap();
         match next_frame(&mut rx, Duration::from_secs(1)).await {
@@ -770,16 +830,26 @@ mod tests {
         }
         streams.on_data(id, b"to-target".to_vec()).await;
         let mut buf = [0u8; 16];
-        let n = timeout(Duration::from_secs(1), local.read(&mut buf)).await.unwrap().unwrap();
+        let n = timeout(Duration::from_secs(1), local.read(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(&buf[..n], b"to-target");
 
-        let refused = streams.open_local("nope", StreamPriority::Bulk).await.unwrap();
+        let refused = streams
+            .open_local("nope", StreamPriority::Bulk)
+            .await
+            .unwrap();
         let id2 = match next_frame(&mut rx, Duration::from_secs(1)).await {
             Some(StreamFrame::Open { stream_id, .. }) => stream_id,
             other => panic!("expected Open, got {other:?}"),
         };
         streams.on_open_error(id2, "service not offered".into());
-        assert!(timeout(Duration::from_secs(1), refused).await.unwrap().unwrap().is_err());
+        assert!(timeout(Duration::from_secs(1), refused)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
     }
 
     /// B5: credit for one stream must not queue behind another stream's bulk data.
@@ -873,9 +943,12 @@ mod tests {
 
         let mut reset_bulk = false;
         for i in 0..1024 {
-            let replies = timeout(Duration::from_secs(1), streams.on_data(1, vec![0; 64 * 1024]))
-                .await
-                .unwrap_or_else(|_| panic!("session loop blocked by bulk stream at frame {i}"));
+            let replies = timeout(
+                Duration::from_secs(1),
+                streams.on_data(1, vec![0; 64 * 1024]),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("session loop blocked by bulk stream at frame {i}"));
             reset_bulk |= replies
                 .iter()
                 .any(|f| matches!(f, StreamFrame::Reset { stream_id: 1, .. }));
@@ -888,7 +961,10 @@ mod tests {
                     .expect("tunnel write blocked");
                 loop {
                     match next_frame(&mut rx, Duration::from_secs(1)).await {
-                        Some(StreamFrame::Data { stream_id: 3, bytes }) => {
+                        Some(StreamFrame::Data {
+                            stream_id: 3,
+                            bytes,
+                        }) => {
                             assert_eq!(bytes, ping);
                             break;
                         }

@@ -28,7 +28,11 @@ impl std::error::Error for QueueError {}
 
 /// Queue `paths` for `peer`: one directory (sent as a folder, links and special
 /// files left out) or one or more files (sent as loose files).
-pub fn queue_paths(manager: &Arc<Manager>, peer: &str, paths: &[PathBuf]) -> Result<TransferId, QueueError> {
+pub fn queue_paths(
+    manager: &Arc<Manager>,
+    peer: &str,
+    paths: &[PathBuf],
+) -> Result<TransferId, QueueError> {
     let err = |m: &str| QueueError(m.to_string());
     let (manifest, spec) = match paths {
         [dir] if dir.is_dir() => {
@@ -37,12 +41,19 @@ pub fn queue_paths(manager: &Arc<Manager>, peer: &str, paths: &[PathBuf]) -> Res
                 .and_then(|n| n.to_str())
                 .ok_or_else(|| err("folder name is not valid UTF-8"))?
                 .to_string();
-            let parent = dir.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            let parent = dir
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
             let root = cap_std::fs::Dir::open_ambient_dir(parent, cap_std::ambient_authority())
                 .map_err(|e| QueueError(e.to_string()))?;
             let found = enumerate(&root, &[vec![name]]).map_err(|e| QueueError(e.to_string()))?;
             if found.skipped > 0 {
-                tracing::info!(event = "transfer.entries_skipped", count = found.skipped as u64, "links and special files left out");
+                tracing::info!(
+                    event = "transfer.entries_skipped",
+                    count = found.skipped as u64,
+                    "links and special files left out"
+                );
             }
             let m = build(ManifestKind::Folder, found.selected, &Limits::default())
                 .map_err(|k| QueueError(format!("folder can't be sent: {}", k.as_str())))?;
@@ -61,7 +72,12 @@ pub fn queue_paths(manager: &Arc<Manager>, peer: &str, paths: &[PathBuf]) -> Res
 
 /// Queue a selection inside `folder` for `peer`: `selected` are paths relative
 /// to `folder` (`/`-separated). Sent as that folder holding only the selection.
-pub fn queue_selection(manager: &Arc<Manager>, peer: &str, folder: &Path, selected: &[String]) -> Result<TransferId, QueueError> {
+pub fn queue_selection(
+    manager: &Arc<Manager>,
+    peer: &str,
+    folder: &Path,
+    selected: &[String],
+) -> Result<TransferId, QueueError> {
     let err = |m: &str| QueueError(m.to_string());
     let name = folder
         .file_name()
@@ -71,20 +87,36 @@ pub fn queue_selection(manager: &Arc<Manager>, peer: &str, folder: &Path, select
     let mut selections = Vec::with_capacity(selected.len());
     for rel in selected {
         let parts: Vec<String> = rel.split('/').map(str::to_string).collect();
-        if parts.iter().any(|p| p.is_empty() || p == "." || p == ".." || p.contains('\\')) {
+        if parts
+            .iter()
+            .any(|p| p.is_empty() || p == "." || p == ".." || p.contains('\\'))
+        {
             return Err(err("selection paths must be relative, without . or .."));
         }
-        selections.push(std::iter::once(name.clone()).chain(parts).collect::<Vec<_>>());
+        selections.push(
+            std::iter::once(name.clone())
+                .chain(parts)
+                .collect::<Vec<_>>(),
+        );
     }
     if selections.is_empty() {
         return Err(err("empty selection"));
     }
-    let parent = folder.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let root = cap_std::fs::Dir::open_ambient_dir(parent, cap_std::ambient_authority()).map_err(|e| QueueError(e.to_string()))?;
+    let parent = folder
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let root = cap_std::fs::Dir::open_ambient_dir(parent, cap_std::ambient_authority())
+        .map_err(|e| QueueError(e.to_string()))?;
     let found = enumerate(&root, &selections).map_err(|e| QueueError(e.to_string()))?;
     let m = build(ManifestKind::Folder, found.selected, &Limits::default())
         .map_err(|k| QueueError(format!("selection can't be sent: {}", k.as_str())))?;
-    Ok(manager.send(peer, new_transfer_id(), m, FilesSpec::Root(parent.to_path_buf())))
+    Ok(manager.send(
+        peer,
+        new_transfer_id(),
+        m,
+        FilesSpec::Root(parent.to_path_buf()),
+    ))
 }
 
 /// Serves the `transfer` CLI over IPC.
@@ -154,17 +186,27 @@ impl Handler for Control {
 
 /// Run one `transfer` CLI command against the agent at `addr`. Returns false
 /// when the agent refused it (the caller exits non-zero).
-pub async fn run_cli(addr: &super::ipc::IpcAddr, agent: &str, req: Request, json: bool) -> Result<bool, String> {
+pub async fn run_cli(
+    addr: &super::ipc::IpcAddr,
+    agent: &str,
+    req: Request,
+    json: bool,
+) -> Result<bool, String> {
     let resp = match super::ipc::call(addr, &req).await {
         Ok(r) => r,
         Err(super::ipc::CallError::Unavailable) => {
-            return Err(format!("{agent} is not running (start it with `{agent} run`)"))
+            return Err(format!(
+                "{agent} is not running (start it with `{agent} run`)"
+            ))
         }
         Err(super::ipc::CallError::Io(e)) => return Err(e.to_string()),
     };
     let peers = matches!(req, Request::Peers);
     if json {
-        println!("{}", serde_json::to_string_pretty(&resp).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&resp).unwrap_or_default()
+        );
     } else if resp.ok && peers {
         print_peers(&resp.data);
     } else if resp.ok {
@@ -180,7 +222,11 @@ pub fn print_peers(data: &serde_json::Value) {
     match data.as_array() {
         Some(v) if !v.is_empty() => {
             for p in v {
-                println!("{}  {}", p["peer"].as_str().unwrap_or(""), p["connection"].as_str().unwrap_or("unknown"));
+                println!(
+                    "{}  {}",
+                    p["peer"].as_str().unwrap_or(""),
+                    p["connection"].as_str().unwrap_or("unknown")
+                );
             }
         }
         _ => println!("no connected peers"),

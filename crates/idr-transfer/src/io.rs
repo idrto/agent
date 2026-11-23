@@ -37,7 +37,11 @@ impl Framed {
                 }
             }
             let mut tmp = [0u8; 16 * 1024];
-            let n = self.stream.read(&mut tmp).await.map_err(|_| TransportClosed)?;
+            let n = self
+                .stream
+                .read(&mut tmp)
+                .await
+                .map_err(|_| TransportClosed)?;
             if n == 0 {
                 return if self.buf.is_empty() {
                     Ok(None)
@@ -54,7 +58,9 @@ impl Framed {
         max: usize,
     ) -> Result<Option<T>, TransferErrorKind> {
         match self.next_raw(max).await? {
-            Some(body) => postcard::from_bytes(&body).map(Some).map_err(|_| ProtocolViolation),
+            Some(body) => postcard::from_bytes(&body)
+                .map(Some)
+                .map_err(|_| ProtocolViolation),
             None => Ok(None),
         }
     }

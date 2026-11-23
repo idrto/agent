@@ -3,9 +3,7 @@
 use idr_core::ConnectorRegistry;
 use idr_protocol::stream_mux::{CredentialMode, ServiceTransportKind};
 use idr_target::adapters::ServiceGatewayConnector;
-use idr_target::config::{
-    GatewayCredentialMode, GatewayServiceConfig, GatewayServiceType,
-};
+use idr_target::config::{GatewayCredentialMode, GatewayServiceConfig, GatewayServiceType};
 
 #[test]
 fn gateway_registers_named_http_service() {

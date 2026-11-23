@@ -279,8 +279,7 @@ impl Engine {
             .get_mut(&session_id)
             .ok_or_else(|| IdrError::new(IdrErrorKind::InvalidArgument, "unknown session"))?;
         if let Err(e) = self.rt.block_on(slot.session.refresh_named_services()) {
-            if slot.session.catalog_entries().is_empty()
-                && slot.session.named_services().is_empty()
+            if slot.session.catalog_entries().is_empty() && slot.session.named_services().is_empty()
             {
                 return Err(e);
             }

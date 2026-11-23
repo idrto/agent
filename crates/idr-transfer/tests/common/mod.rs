@@ -10,7 +10,9 @@ use async_trait::async_trait;
 use idr_core::{IdrError, IdrErrorKind, LogicalStream, StreamId};
 use idr_protocol::transfer::{new_transfer_id, Manifest, TransferErrorKind as K, TransferId};
 use idr_transfer::storage::{Approval, Consent, OfferInfo, Sink, SourceFiles, StreamOpener};
-use idr_transfer::{receive, send, Command, Limits, Outcome, Outgoing, Routed, Router, TransferEvent};
+use idr_transfer::{
+    receive, send, Command, Limits, Outcome, Outgoing, Routed, Router, TransferEvent,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
@@ -81,7 +83,11 @@ impl StreamOpener for Link {
     async fn open(&mut self) -> idr_core::Result<Box<dyn LogicalStream>> {
         let (a, b) = tokio::io::duplex(64 * 1024);
         self.opened += 1;
-        let hook = if self.opened == 2 { self.data_hook.clone() } else { None };
+        let hook = if self.opened == 2 {
+            self.data_hook.clone()
+        } else {
+            None
+        };
         self.incoming
             .send(Box::new(MemStream {
                 io: b,
@@ -151,7 +157,9 @@ pub fn spawn_receiver<S: Sink + 'static, C: Consent + 'static>(
         let mut done_tx = Some(done_tx);
         let mut sink = Some(sink);
         while let Some(stream) = incoming.recv().await {
-            if let Routed::Control { header, stream } = r.route(stream, Duration::from_secs(2)).await {
+            if let Routed::Control { header, stream } =
+                r.route(stream, Duration::from_secs(2)).await
+            {
                 let (ev_tx, mut ev_rx) = mpsc::unbounded_channel();
                 let router = r.clone();
                 let limits = limits.clone();
@@ -160,7 +168,14 @@ pub fn spawn_receiver<S: Sink + 'static, C: Consent + 'static>(
                 let mut sink2 = sink.take().unwrap();
                 tokio::spawn(async move {
                     let o = receive(
-                        &router, header, stream, &mut sink2, &mut consent, &limits, ev_tx, cmds,
+                        &router,
+                        header,
+                        stream,
+                        &mut sink2,
+                        &mut consent,
+                        &limits,
+                        ev_tx,
+                        cmds,
                     )
                     .await;
                     let mut evs = Vec::new();
@@ -236,9 +251,12 @@ pub async fn run_with<F: SourceFiles, S: Sink + 'static, C: Consent + 'static>(
         files,
         resume: opts.resume,
     };
-    let sender = timeout(Duration::from_secs(60), send(&mut link, req, &limits(), ev_tx, scmd_rx))
-        .await
-        .expect("sender hung");
+    let sender = timeout(
+        Duration::from_secs(60),
+        send(&mut link, req, &limits(), ev_tx, scmd_rx),
+    )
+    .await
+    .expect("sender hung");
     let (receiver, rx_events) = timeout(Duration::from_secs(60), done_rx)
         .await
         .expect("receiver hung")
@@ -255,4 +273,3 @@ pub async fn run_with<F: SourceFiles, S: Sink + 'static, C: Consent + 'static>(
         tx_events,
     }
 }
-

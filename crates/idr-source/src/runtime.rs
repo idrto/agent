@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use idr_core::error::{IdrError, IdrErrorKind, Result};
 use idr_core::session::{OpenStreamRequest, PeerSession};
 use idr_core::stream::{LogicalStream, StreamId};
+use idr_core::{MuxOut, MuxOutRx, StreamPriority, BULK_LOW_WATER};
 #[cfg(feature = "dp")]
 use idr_dp::DeviceIdentity;
 use idr_protocol::signaling::SignalingMessageType;
-use idr_core::{MuxOut, MuxOutRx, StreamPriority, BULK_LOW_WATER};
 use idr_protocol::stream_mux::{
     MuxProfile, StreamFrame, StreamOpenMeta, CREDIT_CONN_WINDOW, FEATURE_FLOW_CREDIT,
     FEATURE_PEER_OPEN, STREAM_MUX_VERSION,
@@ -663,7 +663,10 @@ impl SourceSession {
         if self.out.control(frame.encode()?).await {
             Ok(())
         } else {
-            Err(IdrError::new(IdrErrorKind::TransportClosed, "session closed"))
+            Err(IdrError::new(
+                IdrErrorKind::TransportClosed,
+                "session closed",
+            ))
         }
     }
 
@@ -684,7 +687,8 @@ impl SourceSession {
 
     /// Ask Target for its live `openStream` catalog over the DataChannel / relay path.
     pub async fn refresh_named_services(&mut self) -> Result<()> {
-        self.send_control(&StreamFrame::ServicesCatalogRequest).await?;
+        self.send_control(&StreamFrame::ServicesCatalogRequest)
+            .await?;
         let mut deadline = crate::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut got_names = false;
         loop {
@@ -692,7 +696,10 @@ impl SourceSession {
                 Some(crate::mux_session::DemuxEvent::ServicesCatalogDetailed { entries }) => {
                     self.named_services = entries.iter().map(|e| e.name.clone()).collect();
                     self.catalog_entries = entries;
-                    tracing::debug!(event = "session.catalog_received", count = self.catalog_entries.len() as u64);
+                    tracing::debug!(
+                        event = "session.catalog_received",
+                        count = self.catalog_entries.len() as u64
+                    );
                     return Ok(());
                 }
                 Some(crate::mux_session::DemuxEvent::ServicesCatalog { services }) => {
@@ -706,7 +713,10 @@ impl SourceSession {
                     got_names = true;
                     // Target may also send ServicesCatalogDetailed; wait briefly.
                     deadline = crate::time::Instant::now() + std::time::Duration::from_millis(50);
-                    tracing::debug!(event = "session.catalog_received", count = self.named_services.len() as u64);
+                    tracing::debug!(
+                        event = "session.catalog_received",
+                        count = self.named_services.len() as u64
+                    );
                 }
                 Some(_) => {}
                 None if got_names => return Ok(()),
@@ -794,9 +804,16 @@ pub struct SessionOpener {
 }
 
 impl SessionOpener {
-    pub async fn open(&self, service: &str, priority: StreamPriority) -> Result<Box<dyn LogicalStream>> {
+    pub async fn open(
+        &self,
+        service: &str,
+        priority: StreamPriority,
+    ) -> Result<Box<dyn LogicalStream>> {
         let kind = default_service_kind(service).ok_or_else(|| {
-            IdrError::new(IdrErrorKind::ServiceNotFound, format!("unknown service '{service}'"))
+            IdrError::new(
+                IdrErrorKind::ServiceNotFound,
+                format!("unknown service '{service}'"),
+            )
         })?;
         self.open_request(
             OpenStreamRequest {
@@ -830,7 +847,10 @@ impl SessionOpener {
             meta: request.meta,
         };
         if !self.out.control(open.encode()?).await {
-            return Err(IdrError::new(IdrErrorKind::TransportClosed, "session closed"));
+            return Err(IdrError::new(
+                IdrErrorKind::TransportClosed,
+                "session closed",
+            ));
         }
         let profile = match crate::time::timeout(std::time::Duration::from_secs(10), answer).await {
             Ok(Ok(Ok(()))) => MuxProfile::FlowControlV1,
@@ -838,7 +858,10 @@ impl SessionOpener {
                 return Err(IdrError::new(IdrErrorKind::ConnectionRefused, message))
             }
             Ok(Err(_)) => {
-                return Err(IdrError::new(IdrErrorKind::TransportClosed, "datachannel closed"))
+                return Err(IdrError::new(
+                    IdrErrorKind::TransportClosed,
+                    "datachannel closed",
+                ))
             }
             Err(_) => {
                 self.demux.lock().await.forget_open(stream_id.0);

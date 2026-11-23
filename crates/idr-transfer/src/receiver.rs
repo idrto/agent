@@ -89,18 +89,17 @@ async fn run<S: Sink, C: Consent>(
     let id = header.transfer_id;
 
     // Offer, then the whole manifest, checked before anything is shown.
-    let (digest, manifest_len, entry_count, resume) = match step(limits, control.next_control())
-        .await
-    {
-        Ok(ControlMsg::Offer {
-            digest,
-            manifest_len,
-            entry_count,
-            resume,
-        }) => (digest, manifest_len, entry_count, resume),
-        Ok(_) => return reject(control, ProtocolViolation).await,
-        Err(o) => return o,
-    };
+    let (digest, manifest_len, entry_count, resume) =
+        match step(limits, control.next_control()).await {
+            Ok(ControlMsg::Offer {
+                digest,
+                manifest_len,
+                entry_count,
+                resume,
+            }) => (digest, manifest_len, entry_count, resume),
+            Ok(_) => return reject(control, ProtocolViolation).await,
+            Err(o) => return o,
+        };
     if manifest_len > limits.max_manifest_bytes || entry_count > limits.max_entries {
         return reject(control, LimitExceeded).await;
     }
@@ -185,7 +184,9 @@ async fn run<S: Sink, C: Consent>(
     let (results_tx, mut results_rx) = mpsc::channel::<(u32, Option<TransferErrorKind>)>(64);
 
     let finished = {
-        let data_fut = state.receive(&mut data, sink, &manifest, ctl_rx, results_tx, limits, &meter);
+        let data_fut = state.receive(
+            &mut data, sink, &manifest, ctl_rx, results_tx, limits, &meter,
+        );
         tokio::pin!(data_fut);
         let mut done: Option<Result<u32, TransferErrorKind>> = None;
         let mut cmds_open = true;
@@ -193,7 +194,9 @@ async fn run<S: Sink, C: Consent>(
             if let Some(r) = done {
                 // Flush results the data side queued, in order, before Done.
                 while let Ok((entry, code)) = results_rx.try_recv() {
-                    let _ = control.send_control(&ControlMsg::EntryResult { entry, code }).await;
+                    let _ = control
+                        .send_control(&ControlMsg::EntryResult { entry, code })
+                        .await;
                 }
                 break Ok(r);
             }
@@ -259,13 +262,16 @@ async fn run<S: Sink, C: Consent>(
         Ok(Err(ProtocolViolation)) => violation(control).await,
         // The data stream broke; if the sender cancelled, its Cancel is on the way.
         Ok(Err(Stalled)) => Outcome::Interrupted(Stalled),
-        Ok(Err(k)) => match tokio::time::timeout(limits.step_timeout, control.next_control()).await {
+        Ok(Err(k)) => match tokio::time::timeout(limits.step_timeout, control.next_control()).await
+        {
             Ok(Ok(Some(ControlMsg::Cancel { .. }))) => Outcome::Cancelled,
             _ => Outcome::Interrupted(k),
         },
         Ok(Ok(0)) => match sink.finish().await {
             Err(k) => {
-                let _ = control.send_control(&ControlMsg::Done { code: Some(k) }).await;
+                let _ = control
+                    .send_control(&ControlMsg::Done { code: Some(k) })
+                    .await;
                 Outcome::Failed(k)
             }
             Ok(()) => {
@@ -297,7 +303,11 @@ async fn violation(control: &mut Framed) -> Outcome {
 #[derive(Clone)]
 enum St {
     /// File in progress (or not started): bytes received so far and their hash.
-    Receiving { received: u64, saved: u64, hasher: Sha256 },
+    Receiving {
+        received: u64,
+        saved: u64,
+        hasher: Sha256,
+    },
     Verified,
     /// Failed this attempt; later records for it are ignored (cut off).
     Failed,
@@ -419,7 +429,12 @@ impl Entries {
                     if bytes.len() > MAX_CHUNK_BYTES || bytes.is_empty() {
                         return Err(ProtocolViolation);
                     }
-                    let St::Receiving { received, saved, hasher } = &mut self.st[entry as usize] else {
+                    let St::Receiving {
+                        received,
+                        saved,
+                        hasher,
+                    } = &mut self.st[entry as usize]
+                    else {
                         if matches!(self.st[entry as usize], St::Failed) {
                             continue;
                         }
@@ -459,7 +474,9 @@ impl Entries {
                     match &self.st[entry as usize] {
                         St::Failed => continue,
                         St::Verified => return Err(ProtocolViolation),
-                        St::Receiving { received, hasher, .. } => {
+                        St::Receiving {
+                            received, hasher, ..
+                        } => {
                             if size != e.size || *received != size {
                                 (entry, Some(SizeMismatch))
                             } else if <[u8; 32]>::from(hasher.clone().finalize()) != sha256 {
@@ -499,7 +516,10 @@ impl Entries {
 
     async fn flush_checkpoints<S: Sink>(&mut self, sink: &mut S) {
         for (i, st) in self.st.iter_mut().enumerate() {
-            if let St::Receiving { received, saved, .. } = st {
+            if let St::Receiving {
+                received, saved, ..
+            } = st
+            {
                 if *received > *saved && sink.checkpoint(i as u32, *received).await.is_ok() {
                     *saved = *received;
                 }

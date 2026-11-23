@@ -10,8 +10,8 @@ pub mod peer;
 #[cfg(feature = "webrtc")]
 pub mod session;
 pub mod session_manager;
-pub mod source_policy;
 pub mod signaling_handler;
+pub mod source_policy;
 
 pub use session_manager::WebRtcSessionManager;
 pub use signaling_handler::WebRtcSignalingHandler;

@@ -25,8 +25,12 @@ impl Handler for Stub {
                 "progress": { "bytes_done": 0, "bytes_total": 5, "files_done": 0, "files_total": 1, "files_failed": 0, "bytes_per_sec": 0 },
                 "served": n,
             }])),
-            Request::Peers => Response::ok(serde_json::json!([{ "peer": "src-ski", "path": "turn", "connection": "relayed" }])),
-            Request::Accept { out: Some(out), .. } => Response::ok(serde_json::json!({ "out": out })),
+            Request::Peers => Response::ok(
+                serde_json::json!([{ "peer": "src-ski", "path": "turn", "connection": "relayed" }]),
+            ),
+            Request::Accept { out: Some(out), .. } => {
+                Response::ok(serde_json::json!({ "out": out }))
+            }
             Request::Reject { .. } => Response::err("rejected"),
             Request::Send { target, paths } => Response::ok(serde_json::json!({
                 "id": "ffeeddccbbaa99887766554433221100", "direction": "outgoing", "peer": target, "state": "queued",

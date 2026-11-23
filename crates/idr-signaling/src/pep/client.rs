@@ -129,8 +129,7 @@ impl PepClient {
         }
         let mut ordered = Vec::with_capacity(n);
         let logical = fqhn::canonicalize(target_fqhn).unwrap_or_else(|_| target_fqhn.to_string());
-        if let Ok((primary, secondary)) =
-            ModuloPlacement.primary_secondary(&logical, &self.servers)
+        if let Ok((primary, secondary)) = ModuloPlacement.primary_secondary(&logical, &self.servers)
         {
             ordered.push(primary);
             if let Some(sec) = secondary {
@@ -300,10 +299,7 @@ fn parse_signaling_message(raw: &str, session_id: Uuid) -> Result<SignalingMessa
             })
         }
         "presence_error" | "error" => {
-            let code = value
-                .get("code")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let code = value.get("code").and_then(|v| v.as_str()).unwrap_or("");
             let detail = value
                 .get("message")
                 .and_then(|v| v.as_str())

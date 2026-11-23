@@ -108,7 +108,9 @@ fn component_ok(c: &str, limits: &Limits) -> bool {
         && c != "."
         && c != ".."
         && c.len() <= limits.max_component_bytes
-        && !c.chars().any(|ch| ch == '/' || ch == '\\' || ch.is_control())
+        && !c
+            .chars()
+            .any(|ch| ch == '/' || ch == '\\' || ch.is_control())
 }
 
 /// The key two names collide under on case-insensitive or normalizing filesystems.
@@ -223,7 +225,11 @@ impl OfferSummary {
             dirs,
             total_bytes,
             largest_file,
-            top_level: top.iter().take(SUMMARY_NAMES).map(|s| s.to_string()).collect(),
+            top_level: top
+                .iter()
+                .take(SUMMARY_NAMES)
+                .map(|s| s.to_string())
+                .collect(),
             more_top_level: top.len().saturating_sub(SUMMARY_NAMES) as u32,
         }
     }
@@ -248,12 +254,19 @@ mod tests {
 
     #[test]
     fn single_file_is_a_one_entry_manifest() {
-        let m = build(ManifestKind::Files, vec![Selected::file(&["report.pdf"], 12)], &lim())
-            .unwrap();
+        let m = build(
+            ManifestKind::Files,
+            vec![Selected::file(&["report.pdf"], 12)],
+            &lim(),
+        )
+        .unwrap();
         assert_eq!(paths(&m), ["report.pdf"]);
         let s = OfferSummary::of(&m);
         assert!(s.is_single_file());
-        assert_eq!((s.top_level.clone(), s.total_bytes), (vec!["report.pdf".into()], 12));
+        assert_eq!(
+            (s.top_level.clone(), s.total_bytes),
+            (vec!["report.pdf".into()], 12)
+        );
     }
 
     #[test]
@@ -277,7 +290,11 @@ mod tests {
                 "Project/src/network/client.dart",
             ]
         );
-        assert!(m.entries.iter().enumerate().all(|(i, e)| e.id as usize == i));
+        assert!(m
+            .entries
+            .iter()
+            .enumerate()
+            .all(|(i, e)| e.id as usize == i));
         let s = OfferSummary::of(&m);
         assert_eq!((s.files, s.dirs, s.total_bytes), (3, 4, 12));
         assert_eq!(s.top_level, ["Project"]);
@@ -288,7 +305,13 @@ mod tests {
         // FS-008: empty is refused; FS-009: duplicates collapse; kind clash is refused.
         assert!(build(ManifestKind::Files, vec![], &lim()).is_err());
         let dup = vec![Selected::file(&["a"], 1), Selected::file(&["a"], 1)];
-        assert_eq!(build(ManifestKind::Files, dup, &lim()).unwrap().entries.len(), 1);
+        assert_eq!(
+            build(ManifestKind::Files, dup, &lim())
+                .unwrap()
+                .entries
+                .len(),
+            1
+        );
         let clash = vec![Selected::file(&["P", "x"], 1), Selected::dir(&["P", "x"])];
         assert!(build(ManifestKind::Folder, clash, &lim()).is_err());
     }
@@ -326,7 +349,11 @@ mod tests {
             vec!["/etc"],
         ] {
             let m = folder(vec![entry(0, EntryKind::File, &bad, 1)]);
-            assert_eq!(validate(&m, &lim()), Err(TransferErrorKind::ManifestInvalid), "{bad:?}");
+            assert_eq!(
+                validate(&m, &lim()),
+                Err(TransferErrorKind::ManifestInvalid),
+                "{bad:?}"
+            );
         }
     }
 
@@ -364,18 +391,31 @@ mod tests {
             entry(0, EntryKind::File, &["P", "Readme.md"], 1),
             entry(1, EntryKind::File, &["P", "README.md"], 1),
         ]);
-        assert_eq!(validate(&case, &lim()), Err(TransferErrorKind::ManifestInvalid));
+        assert_eq!(
+            validate(&case, &lim()),
+            Err(TransferErrorKind::ManifestInvalid)
+        );
         let norm = folder(vec![
             entry(0, EntryKind::File, &["P", "caf\u{e9}"], 1),
             entry(1, EntryKind::File, &["P", "cafe\u{301}"], 1),
         ]);
-        assert_eq!(validate(&norm, &lim()), Err(TransferErrorKind::ManifestInvalid));
+        assert_eq!(
+            validate(&norm, &lim()),
+            Err(TransferErrorKind::ManifestInvalid)
+        );
         let built = build(
             ManifestKind::Folder,
-            vec![Selected::file(&["P", "src", "a"], 1), Selected::file(&["P", "SRC", "b"], 1)],
+            vec![
+                Selected::file(&["P", "src", "a"], 1),
+                Selected::file(&["P", "SRC", "b"], 1),
+            ],
             &lim(),
         );
-        assert_eq!(built, Err(TransferErrorKind::ManifestInvalid), "src/ and SRC/ collide");
+        assert_eq!(
+            built,
+            Err(TransferErrorKind::ManifestInvalid),
+            "src/ and SRC/ collide"
+        );
     }
 
     #[test]
@@ -395,13 +435,27 @@ mod tests {
                 .map(|i| entry(i, EntryKind::File, &["P", &format!("{i}")], 1))
                 .collect(),
         );
-        assert_eq!(validate(&too_many, &l), Err(TransferErrorKind::LimitExceeded));
+        assert_eq!(
+            validate(&too_many, &l),
+            Err(TransferErrorKind::LimitExceeded)
+        );
         let deep = folder(vec![entry(0, EntryKind::File, &["P", "a", "b", "c"], 1)]);
         assert_eq!(validate(&deep, &l), Err(TransferErrorKind::LimitExceeded));
         let long_comp = folder(vec![entry(0, EntryKind::File, &["P", "123456789"], 1)]);
-        assert_eq!(validate(&long_comp, &l), Err(TransferErrorKind::ManifestInvalid));
-        let long_path = folder(vec![entry(0, EntryKind::File, &["P", "12345", "1234567"], 1)]);
-        assert_eq!(validate(&long_path, &l), Err(TransferErrorKind::LimitExceeded));
+        assert_eq!(
+            validate(&long_comp, &l),
+            Err(TransferErrorKind::ManifestInvalid)
+        );
+        let long_path = folder(vec![entry(
+            0,
+            EntryKind::File,
+            &["P", "12345", "1234567"],
+            1,
+        )]);
+        assert_eq!(
+            validate(&long_path, &l),
+            Err(TransferErrorKind::LimitExceeded)
+        );
         let big = folder(vec![entry(0, EntryKind::File, &["P", "a"], 101)]);
         assert_eq!(validate(&big, &l), Err(TransferErrorKind::LimitExceeded));
         let total = folder(vec![

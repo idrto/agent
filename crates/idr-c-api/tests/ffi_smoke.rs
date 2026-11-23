@@ -64,7 +64,15 @@ fn mock_round_trip_bytes() {
 
     let service = CString::new("http").unwrap();
     let mut stream = 0u64;
-    let rc = unsafe { idr_open_stream(engine, session, service.as_ptr(), &mut stream, std::ptr::null()) };
+    let rc = unsafe {
+        idr_open_stream(
+            engine,
+            session,
+            service.as_ptr(),
+            &mut stream,
+            std::ptr::null(),
+        )
+    };
     assert_eq!(rc, 0, "open_stream failed");
 
     unsafe {

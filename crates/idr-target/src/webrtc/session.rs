@@ -8,8 +8,10 @@ use uuid::Uuid;
 use crate::config::{NginxConfig, WebRtcPolicyConfig};
 use crate::identity::TargetIdentity;
 use crate::presence::outbox::PresenceSignalingOutbox;
+use crate::webrtc::local::{
+    is_local_service, IoStream, LocalStream, SessionLocal, TransferEndpoint,
+};
 use crate::webrtc::mux::{decode_datachannel_message, encode_datachannel_message};
-use crate::webrtc::local::{is_local_service, IoStream, LocalStream, SessionLocal, TransferEndpoint};
 use crate::webrtc::mux_streams::MuxStreams;
 use crate::webrtc::peer::{NativePeerSession, PeerConfig, PeerEvent};
 use crate::webrtc::session_manager::{
@@ -114,8 +116,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
     let mut answer_sdp = String::new();
     let mut local: Option<SessionLocal> = None;
     let mut answered = false;
-    let answer_deadline =
-        tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    let answer_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
 
     let result = loop {
         // Bulk waits while the DataChannel holds more than the low-water mark;
@@ -365,7 +366,9 @@ async fn handle_mux_message(
                 }]);
             }
             if let Some(service) = meta.service_name.as_deref().filter(|s| is_local_service(s)) {
-                return Ok(open_local_service(rt, stream_id, service, &meta, streams, local));
+                return Ok(open_local_service(
+                    rt, stream_id, service, &meta, streams, local,
+                ));
             }
             // Connect off the session loop; DATA is buffered until it completes.
             let rt2 = rt.clone();
@@ -491,7 +494,11 @@ fn open_local_service(
     if !transfer && rt.offer.source.policy.is_none() {
         return refuse(OpenErrorCode::Unauthorized, "Source identity not attested");
     }
-    let priority = if transfer { StreamPriority::Bulk } else { StreamPriority::Interactive };
+    let priority = if transfer {
+        StreamPriority::Bulk
+    } else {
+        StreamPriority::Interactive
+    };
     let (mine, theirs) = tokio::io::duplex(64 * 1024);
     if local
         .streams
@@ -515,17 +522,17 @@ async fn open_via_registry(
     let claimed = idr_protocol::fqhn::canonicalize(&meta.target_fqhn)
         .unwrap_or_else(|_| meta.target_fqhn.to_ascii_lowercase());
     if claimed != rt.fqhn {
-        return Err((OpenErrorCode::FqhnMismatch, "StreamOpen FQHN mismatch".into()));
+        return Err((
+            OpenErrorCode::FqhnMismatch,
+            "StreamOpen FQHN mismatch".into(),
+        ));
     }
 
-    let service = meta
-        .service_name
-        .as_deref()
-        .or(match kind {
-            StreamKind::HttpPassthrough => Some("http"),
-            StreamKind::TlsPassthrough => Some("https"),
-            StreamKind::TcpConnect => None,
-        });
+    let service = meta.service_name.as_deref().or(match kind {
+        StreamKind::HttpPassthrough => Some("http"),
+        StreamKind::TlsPassthrough => Some("https"),
+        StreamKind::TcpConnect => None,
+    });
 
     let Some(service_name) = service else {
         return Err((
@@ -544,29 +551,24 @@ async fn open_via_registry(
         return Err((OpenErrorCode::Unauthorized, reason.into()));
     }
 
-    let (svc, connector) = rt.connectors.resolve(service_name).map_err(|e| {
-        (
-            OpenErrorCode::ServiceNotFound,
-            e.to_string(),
-        )
-    })?;
+    let (svc, connector) = rt
+        .connectors
+        .resolve(service_name)
+        .map_err(|e| (OpenErrorCode::ServiceNotFound, e.to_string()))?;
 
     let connect_kind = if svc.kind != kind { svc.kind } else { kind };
-    connector
-        .connect(connect_kind, meta)
-        .await
-        .map_err(|e| {
-            let code = match e.kind() {
-                IdrErrorKind::InvalidArgument => OpenErrorCode::InvalidArgument,
-                IdrErrorKind::ServiceNotFound => OpenErrorCode::ServiceNotFound,
-                IdrErrorKind::AuthorizationDenied | IdrErrorKind::AuthenticationFailed => {
-                    OpenErrorCode::Unauthorized
-                }
-                IdrErrorKind::ResourceExhausted => OpenErrorCode::ResourceExhausted,
-                _ => OpenErrorCode::ConnectionRefused,
-            };
-            (code, e.to_string())
-        })
+    connector.connect(connect_kind, meta).await.map_err(|e| {
+        let code = match e.kind() {
+            IdrErrorKind::InvalidArgument => OpenErrorCode::InvalidArgument,
+            IdrErrorKind::ServiceNotFound => OpenErrorCode::ServiceNotFound,
+            IdrErrorKind::AuthorizationDenied | IdrErrorKind::AuthenticationFailed => {
+                OpenErrorCode::Unauthorized
+            }
+            IdrErrorKind::ResourceExhausted => OpenErrorCode::ResourceExhausted,
+            _ => OpenErrorCode::ConnectionRefused,
+        };
+        (code, e.to_string())
+    })
 }
 
 /// Messages on OpenError are visible to Source — never include secrets, paths, or env names.

@@ -16,7 +16,11 @@ fn ctx_json_parents_engine_work_in_the_hosts_run() {
     ))
     .unwrap();
     assert_eq!(unsafe { idr_telemetry_init(init.as_ptr()) }, 0);
-    assert_eq!(unsafe { idr_telemetry_init(init.as_ptr()) }, -2, "only once");
+    assert_eq!(
+        unsafe { idr_telemetry_init(init.as_ptr()) },
+        -2,
+        "only once"
+    );
 
     let (source_id, region, token) = (
         CString::new("ffi-test").unwrap(),
@@ -43,7 +47,10 @@ fn ctx_json_parents_engine_work_in_the_hosts_run() {
     )
     .unwrap();
     let mut session = 0u64;
-    assert_eq!(unsafe { idr_connect(engine, fqhn.as_ptr(), &mut session, ctx.as_ptr()) }, 0);
+    assert_eq!(
+        unsafe { idr_connect(engine, fqhn.as_ptr(), &mut session, ctx.as_ptr()) },
+        0
+    );
     // A failing attempt: one registered event with a stable error.type, under the host's trace.
     let bad = CString::new("not a valid name!").unwrap();
     let mut none = 0u64;
@@ -58,7 +65,10 @@ fn ctx_json_parents_engine_work_in_the_hosts_run() {
         .flatten()
         .find(|e| e.file_name().to_string_lossy().ends_with(".rust.jsonl"))
         .expect("rust.jsonl producer in the host's directory");
-    assert!(file.file_name().to_string_lossy().contains(host_id), "host's app_session_id");
+    assert!(
+        file.file_name().to_string_lossy().contains(host_id),
+        "host's app_session_id"
+    );
     let records: Vec<serde_json::Value> = std::fs::read_to_string(file.path())
         .unwrap()
         .lines()

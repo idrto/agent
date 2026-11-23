@@ -53,7 +53,11 @@ async fn large_write_waits_for_credit() {
     let mut buf = vec![0u8; 64 * 1024];
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     while got.len() < data.len() {
-        assert!(tokio::time::Instant::now() < deadline, "2 MiB echo stalled at {}", got.len());
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "2 MiB echo stalled at {}",
+            got.len()
+        );
         if sent < data.len() {
             match timeout(Duration::from_millis(50), stream.write(&data[sent..])).await {
                 Ok(Ok(n)) => sent += n,
@@ -74,7 +78,11 @@ async fn slow_open_does_not_stall_other_streams() {
     let mut session = connect().await;
     let mut echo = session.open_named_stream("echo").await.unwrap();
     // Start opening the 3 s service; give up waiting for it after 100 ms.
-    let _ = timeout(Duration::from_millis(100), session.open_named_stream("slow")).await;
+    let _ = timeout(
+        Duration::from_millis(100),
+        session.open_named_stream("slow"),
+    )
+    .await;
 
     let started = std::time::Instant::now();
     echo.write(b"still here").await.unwrap();
@@ -158,7 +166,13 @@ async fn tunnel_stays_responsive_during_bulk_upload() {
     }
     let bytes = uploaded.load(std::sync::atomic::Ordering::Relaxed);
     uploader.abort();
-    eprintln!("bulk uploaded {} KiB; worst tunnel RTT {worst:?}", bytes / 1024);
+    eprintln!(
+        "bulk uploaded {} KiB; worst tunnel RTT {worst:?}",
+        bytes / 1024
+    );
     assert!(bytes > 1024 * 1024, "bulk barely moved: {bytes} bytes");
-    assert!(worst < Duration::from_millis(250), "worst tunnel RTT {worst:?}");
+    assert!(
+        worst < Duration::from_millis(250),
+        "worst tunnel RTT {worst:?}"
+    );
 }

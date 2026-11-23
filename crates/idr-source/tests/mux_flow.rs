@@ -29,7 +29,10 @@ struct Wire {
 
 impl Wire {
     fn inject(&self, frame: StreamFrame) {
-        self.inbound.lock().unwrap().push_back(frame.encode().unwrap());
+        self.inbound
+            .lock()
+            .unwrap()
+            .push_back(frame.encode().unwrap());
         self.wake.notify_one();
     }
     fn sent(&self) -> Vec<StreamFrame> {
@@ -60,7 +63,9 @@ impl PeerTransport for ScriptPeer {
         self.inner.send_binary(message)?;
         let frame = StreamFrame::decode(message).unwrap();
         match &frame {
-            StreamFrame::Hello { version, features, .. } => {
+            StreamFrame::Hello {
+                version, features, ..
+            } => {
                 let mut ack = MuxProfile::from_features(features).advertised_features();
                 if !self.wire.old_target && features.iter().any(|f| f == FEATURE_FLOW_CREDIT) {
                     ack.push(FEATURE_FLOW_CREDIT.into());

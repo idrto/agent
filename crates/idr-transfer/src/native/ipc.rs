@@ -26,15 +26,33 @@ use tokio::sync::watch;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Request {
-    Send { target: String, paths: Vec<PathBuf> },
+    Send {
+        target: String,
+        paths: Vec<PathBuf>,
+    },
     List,
-    Status { id: String },
-    Pause { id: String },
-    Resume { id: String },
-    Cancel { id: String },
-    RetryFailed { id: String },
-    Accept { id: String, out: Option<PathBuf> },
-    Reject { id: String },
+    Status {
+        id: String,
+    },
+    Pause {
+        id: String,
+    },
+    Resume {
+        id: String,
+    },
+    Cancel {
+        id: String,
+    },
+    RetryFailed {
+        id: String,
+    },
+    Accept {
+        id: String,
+        out: Option<PathBuf>,
+    },
+    Reject {
+        id: String,
+    },
     /// Peers with a bound session now: send targets (Source FQHNs or Target SKIs).
     Peers,
 }
@@ -51,11 +69,19 @@ pub struct Response {
 
 impl Response {
     pub fn ok(data: serde_json::Value) -> Self {
-        Self { ok: true, error: None, data }
+        Self {
+            ok: true,
+            error: None,
+            data,
+        }
     }
 
     pub fn err(code: &str) -> Self {
-        Self { ok: false, error: Some(code.to_string()), data: serde_json::Value::Null }
+        Self {
+            ok: false,
+            error: Some(code.to_string()),
+            data: serde_json::Value::Null,
+        }
     }
 }
 
@@ -84,7 +110,9 @@ pub enum CallError {
 
 /// One request to the running agent.
 pub async fn call(addr: &IpcAddr, req: &Request) -> Result<Response, CallError> {
-    let stream = imp::connect(addr).await.map_err(|_| CallError::Unavailable)?;
+    let stream = imp::connect(addr)
+        .await
+        .map_err(|_| CallError::Unavailable)?;
     let (r, mut w) = tokio::io::split(stream);
     let mut line = serde_json::to_vec(req).map_err(|e| CallError::Io(e.into()))?;
     line.push(b'\n');
@@ -137,7 +165,11 @@ async fn serve_conn<S: AsyncRead + AsyncWrite + Unpin>(stream: S, handler: Arc<d
 }
 
 /// Serve `handler` at `addr` until `shutdown` turns true.
-pub async fn serve(addr: IpcAddr, handler: Arc<dyn Handler>, shutdown: watch::Receiver<bool>) -> io::Result<()> {
+pub async fn serve(
+    addr: IpcAddr,
+    handler: Arc<dyn Handler>,
+    shutdown: watch::Receiver<bool>,
+) -> io::Result<()> {
     imp::serve(addr, handler, shutdown).await
 }
 
@@ -153,14 +185,21 @@ mod imp {
         let dir = dir.join("ipc");
         std::fs::create_dir_all(&dir)?;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-        Ok(IpcAddr(dir.join(format!("{agent}.sock")).to_string_lossy().into_owned()))
+        Ok(IpcAddr(
+            dir.join(format!("{agent}.sock"))
+                .to_string_lossy()
+                .into_owned(),
+        ))
     }
 
     pub async fn connect(addr: &IpcAddr) -> io::Result<UnixStream> {
         let s = connect_any(addr).await?;
         // The socket must belong to an agent running as this user.
         if s.peer_cred()?.uid() != rustix::process::getuid().as_raw() {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "agent socket owned by another user"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "agent socket owned by another user",
+            ));
         }
         Ok(s)
     }
@@ -169,7 +208,11 @@ mod imp {
         UnixStream::connect(&addr.0).await
     }
 
-    pub async fn serve(addr: IpcAddr, handler: Arc<dyn Handler>, mut shutdown: watch::Receiver<bool>) -> io::Result<()> {
+    pub async fn serve(
+        addr: IpcAddr,
+        handler: Arc<dyn Handler>,
+        mut shutdown: watch::Receiver<bool>,
+    ) -> io::Result<()> {
         let _ = std::fs::remove_file(&addr.0);
         let listener = UnixListener::bind(&addr.0)?;
         std::fs::set_permissions(&addr.0, std::fs::Permissions::from_mode(0o600))?;
@@ -183,7 +226,9 @@ mod imp {
                 Ok(c) if c.uid() == me => {
                     tokio::spawn(serve_conn(stream, handler.clone()));
                 }
-                _ => tracing::warn!(event = "agent.ipc.failed", error.type = "ipc_peer_refused", "IPC connection from another user refused"),
+                _ => {
+                    tracing::warn!(event = "agent.ipc.failed", error.type = "ipc_peer_refused", "IPC connection from another user refused")
+                }
             }
         }
     }
@@ -196,10 +241,12 @@ mod imp {
     use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient, ServerOptions};
     use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
     use windows_sys::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        SDDL_REVISION_1,
     };
     use windows_sys::Win32::Security::{
-        GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+        GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
+        TOKEN_USER,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -226,7 +273,13 @@ mod imp {
             let mut len = 0u32;
             GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut len);
             let mut buf = vec![0u64; (len as usize).div_ceil(8)];
-            let ok = GetTokenInformation(token, TokenUser, buf.as_mut_ptr() as *mut c_void, len, &mut len);
+            let ok = GetTokenInformation(
+                token,
+                TokenUser,
+                buf.as_mut_ptr() as *mut c_void,
+                len,
+                &mut len,
+            );
             CloseHandle(token);
             if ok == 0 {
                 return Err(io::Error::last_os_error());
@@ -263,7 +316,9 @@ mod imp {
     /// have created the name first, while the agent wasn't running).
     pub fn server_is_this_user(pipe: HANDLE) -> io::Result<()> {
         use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
-        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
         let mut pid = 0u32;
         // SAFETY: `pipe` is an open pipe handle; the process handle is closed below.
         let sid = unsafe {
@@ -279,7 +334,10 @@ mod imp {
             sid?
         };
         if sid != user_sid()? {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "agent pipe served by another user"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "agent pipe served by another user",
+            ));
         }
         Ok(())
     }
@@ -302,7 +360,12 @@ mod imp {
         let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         // SAFETY: `wide` is NUL-terminated; `sd` receives a LocalAlloc'd descriptor.
         let ok = unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(wide.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut())
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                wide.as_ptr(),
+                SDDL_REVISION_1,
+                &mut sd,
+                std::ptr::null_mut(),
+            )
         };
         if ok == 0 {
             return Err(io::Error::last_os_error());
@@ -310,7 +373,11 @@ mod imp {
         Ok(Descriptor(sd))
     }
 
-    fn create(addr: &IpcAddr, sd: &Descriptor, first: bool) -> io::Result<tokio::net::windows::named_pipe::NamedPipeServer> {
+    fn create(
+        addr: &IpcAddr,
+        sd: &Descriptor,
+        first: bool,
+    ) -> io::Result<tokio::net::windows::named_pipe::NamedPipeServer> {
         let mut sa = SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: sd.0,
@@ -325,7 +392,11 @@ mod imp {
         }
     }
 
-    pub async fn serve(addr: IpcAddr, handler: Arc<dyn Handler>, mut shutdown: watch::Receiver<bool>) -> io::Result<()> {
+    pub async fn serve(
+        addr: IpcAddr,
+        handler: Arc<dyn Handler>,
+        mut shutdown: watch::Receiver<bool>,
+    ) -> io::Result<()> {
         let sd = descriptor()?;
         // First instance: fails if another process already owns this pipe name.
         let mut server = create(&addr, &sd, true)?;
@@ -335,7 +406,10 @@ mod imp {
                 _ = shutdown.changed() => return Ok(()),
             }
             let next = create(&addr, &sd, false)?;
-            tokio::spawn(serve_conn(std::mem::replace(&mut server, next), handler.clone()));
+            tokio::spawn(serve_conn(
+                std::mem::replace(&mut server, next),
+                handler.clone(),
+            ));
         }
     }
 }
@@ -356,9 +430,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn request_response_and_unavailable() {
         let dir = tempfile::tempdir().unwrap();
-        let addr = IpcAddr(format!("{}-{}", IpcAddr::for_agent("idr-test", dir.path()).unwrap().0, std::process::id()));
+        let addr = IpcAddr(format!(
+            "{}-{}",
+            IpcAddr::for_agent("idr-test", dir.path()).unwrap().0,
+            std::process::id()
+        ));
         // CLI-020: nobody listening yet.
-        assert!(matches!(call(&addr, &Request::List).await, Err(CallError::Unavailable)));
+        assert!(matches!(
+            call(&addr, &Request::List).await,
+            Err(CallError::Unavailable)
+        ));
 
         let (stop, rx) = watch::channel(false);
         tokio::spawn(serve(addr.clone(), Arc::new(Echo), rx));
@@ -389,16 +470,23 @@ mod tests {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::Foundation::LocalFree;
         use windows_sys::Win32::Security::Authorization::{
-            ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1, SE_KERNEL_OBJECT,
+            ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1,
+            SE_KERNEL_OBJECT,
         };
         use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
 
         let dir = tempfile::tempdir().unwrap();
-        let addr = IpcAddr(format!("{}-dacl-{}", IpcAddr::for_agent("idr-test", dir.path()).unwrap().0, std::process::id()));
+        let addr = IpcAddr(format!(
+            "{}-dacl-{}",
+            IpcAddr::for_agent("idr-test", dir.path()).unwrap().0,
+            std::process::id()
+        ));
         let (stop, rx) = watch::channel(false);
         tokio::spawn(serve(addr.clone(), Arc::new(Echo), rx));
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        let client = tokio::net::windows::named_pipe::ClientOptions::new().open(&addr.0).unwrap();
+        let client = tokio::net::windows::named_pipe::ClientOptions::new()
+            .open(&addr.0)
+            .unwrap();
         // SAFETY: querying our own pipe handle; buffers are LocalFree'd.
         let sddl = unsafe {
             let mut sd = std::ptr::null_mut();
@@ -415,7 +503,13 @@ mod tests {
             assert_eq!(rc, 0, "GetSecurityInfo failed");
             let mut s: *mut u16 = std::ptr::null_mut();
             assert_ne!(
-                ConvertSecurityDescriptorToStringSecurityDescriptorW(sd, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut s, std::ptr::null_mut()),
+                ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                    sd,
+                    SDDL_REVISION_1,
+                    DACL_SECURITY_INFORMATION,
+                    &mut s,
+                    std::ptr::null_mut()
+                ),
                 0
             );
             let n = (0..).take_while(|&i| *s.add(i) != 0).count();
@@ -433,9 +527,18 @@ mod tests {
 
     #[test]
     fn requests_have_stable_json() {
-        let r = Request::Accept { id: "01".into(), out: Some("C:/in".into()) };
-        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"cmd":"accept","id":"01","out":"C:/in"}"#);
-        assert_eq!(serde_json::to_string(&Request::RetryFailed { id: "x".into() }).unwrap(), r#"{"cmd":"retry_failed","id":"x"}"#);
+        let r = Request::Accept {
+            id: "01".into(),
+            out: Some("C:/in".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&r).unwrap(),
+            r#"{"cmd":"accept","id":"01","out":"C:/in"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Request::RetryFailed { id: "x".into() }).unwrap(),
+            r#"{"cmd":"retry_failed","id":"x"}"#
+        );
     }
 }
 
@@ -452,7 +555,12 @@ struct ReqCtx {
 fn request_ctx(line: &str) -> ReqCtx {
     let v: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
     let s = |k: &str| v["ctx"][k].as_str().unwrap_or_default().to_string();
-    ReqCtx { traceparent: s("traceparent"), session_id: s("session_id"), operation_id: s("operation_id"), transfer_id: s("transfer_id") }
+    ReqCtx {
+        traceparent: s("traceparent"),
+        session_id: s("session_id"),
+        operation_id: s("operation_id"),
+        transfer_id: s("transfer_id"),
+    }
 }
 
 fn request_name(r: &Request) -> &'static str {
@@ -476,7 +584,9 @@ mod ctx_tests {
 
     #[test]
     fn ctx_is_optional_and_never_breaks_a_request() {
-        let c = request_ctx(r#"{"cmd":"list","ctx":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}}"#);
+        let c = request_ctx(
+            r#"{"cmd":"list","ctx":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}}"#,
+        );
         assert!(c.traceparent.starts_with("00-0af765"));
         assert!(request_ctx(r#"{"cmd":"list"}"#).traceparent.is_empty());
         assert!(request_ctx("not json").traceparent.is_empty());

@@ -17,15 +17,17 @@ use idr_source::SourceRuntime;
 use idr_target::webrtc::local::{TransferConfig, TransferEndpoint};
 use idr_transfer::bind::LocalIdentity;
 use idr_transfer::manifest::build;
+use idr_transfer::native::ipc::{call, CallError, IpcAddr, Request};
 use idr_transfer::native::manager::{Direction, State};
 use idr_transfer::native::NativeFiles;
 use idr_transfer::policy::{PeerRule, PolicyEngine, ReceivePolicy};
 use idr_transfer::{Limits, Outcome, Outgoing};
 use idr_webrtc::native::NativePeerConfig;
 use idr_webrtc::{NativePeer, PeerConnectRequest, PeerEvent, PeerTransport};
-use rcgen::{BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, SanType};
+use rcgen::{
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, SanType,
+};
 use sha2::Digest;
-use idr_transfer::native::ipc::{call, CallError, IpcAddr, Request};
 use source_agent::daemon::{Daemon, DaemonConfig, RuntimeFactory};
 use tokio::sync::{mpsc, watch};
 
@@ -33,10 +35,14 @@ use tokio::sync::{mpsc, watch};
 
 fn keys(seed: u8) -> (SigningKey, KeyPair) {
     let mut der = vec![
-        0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+        0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04,
+        0x20,
     ];
     der.extend_from_slice(&[seed; 32]);
-    (SigningKey::from_bytes(&[seed; 32]), KeyPair::try_from(der.as_slice()).unwrap())
+    (
+        SigningKey::from_bytes(&[seed; 32]),
+        KeyPair::try_from(der.as_slice()).unwrap(),
+    )
 }
 
 fn params(cn: &str) -> CertificateParams {
@@ -59,18 +65,28 @@ impl Pki {
         let (_, root_key) = keys(1);
         let mut p = params("entity root");
         p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        Self { root: p.self_signed(&root_key).unwrap(), root_key }
+        Self {
+            root: p.self_signed(&root_key).unwrap(),
+            root_key,
+        }
     }
 
     fn device(&self, seed: u8, ski: &str, host: Option<&str>) -> LocalIdentity {
         let (sk, kp) = keys(seed);
         let mut p = params(ski);
-        p.subject_alt_names = vec![SanType::URI(format!("urn:dp:ski:{ski}").try_into().unwrap())];
+        p.subject_alt_names = vec![SanType::URI(
+            format!("urn:dp:ski:{ski}").try_into().unwrap(),
+        )];
         if let Some(h) = host {
-            p.subject_alt_names.push(SanType::DnsName(h.try_into().unwrap()));
+            p.subject_alt_names
+                .push(SanType::DnsName(h.try_into().unwrap()));
         }
         let leaf = p.signed_by(&kp, &self.root, &self.root_key).unwrap();
-        LocalIdentity { key: sk, ski: ski.into(), chain_pem: format!("{}{}", leaf.pem(), self.root.pem()) }
+        LocalIdentity {
+            key: sk,
+            ski: ski.into(),
+            chain_pem: format!("{}{}", leaf.pem(), self.root.pem()),
+        }
     }
 }
 
@@ -143,7 +159,13 @@ struct World {
 
 fn auto(ski: &str) -> ReceivePolicy {
     let mut p = ReceivePolicy::headless();
-    p.peers.insert(ski.into(), PeerRule { auto_accept: true, ..PeerRule::default() });
+    p.peers.insert(
+        ski.into(),
+        PeerRule {
+            auto_accept: true,
+            ..PeerRule::default()
+        },
+    );
     p
 }
 
@@ -247,7 +269,12 @@ fn start(w: &World, receive_policy: ReceivePolicy) -> Daemon {
     .unwrap()
 }
 
-async fn wait_state(d: &Daemon, id: &TransferId, secs: u64, want: impl Fn(&State) -> bool) -> State {
+async fn wait_state(
+    d: &Daemon,
+    id: &TransferId,
+    secs: u64,
+    want: impl Fn(&State) -> bool,
+) -> State {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
     loop {
         let s = d.manager().status(id).map(|i| i.state);
@@ -256,14 +283,20 @@ async fn wait_state(d: &Daemon, id: &TransferId, secs: u64, want: impl Fn(&State
                 return s.clone();
             }
         }
-        assert!(tokio::time::Instant::now() < deadline, "state stuck at {s:?}");
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "state stuck at {s:?}"
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
 async fn wait_bytes(d: &Daemon, id: &TransferId, at_least: u64) {
     for _ in 0..400 {
-        if d.manager().status(id).is_some_and(|i| i.progress.bytes_done >= at_least) {
+        if d.manager()
+            .status(id)
+            .is_some_and(|i| i.progress.bytes_done >= at_least)
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -272,7 +305,9 @@ async fn wait_bytes(d: &Daemon, id: &TransferId, at_least: u64) {
 }
 
 fn bytes(n: usize, seed: u8) -> Vec<u8> {
-    (0..n).map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 24) as u8 ^ seed).collect()
+    (0..n)
+        .map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 24) as u8 ^ seed)
+        .collect()
 }
 
 fn file(dir: &Path, name: &str, n: usize) -> PathBuf {
@@ -304,7 +339,10 @@ async fn queued_file_and_folder_complete() {
     assert_eq!(sha(&f), sha(&w.target_dir.as_path().join("report.pdf")));
     // In-process loopback: the selected ICE pair is host↔host, i.e. direct.
     let info = idr_transfer::native::manager::info_json(&d.manager().status(&id).unwrap());
-    assert_eq!((info["path"].as_str(), info["relayed"].as_bool()), (Some("host"), Some(false)));
+    assert_eq!(
+        (info["path"].as_str(), info["relayed"].as_bool()),
+        (Some("host"), Some(false))
+    );
     assert_eq!(info["connection"], "direct");
     // The Target classifies the same pair from its side and agrees.
     let target_view = w.endpoint.peer(bound_session(&w).await).unwrap().path;
@@ -351,7 +389,10 @@ async fn resumes_after_daemon_restart() {
     let d = start(&w, ReceivePolicy::headless());
     // The restored transfer waits for the session, so this sees its first report.
     let mut events = d.manager().subscribe();
-    let restored = d.manager().status(&id).expect("transfer forgotten across restart");
+    let restored = d
+        .manager()
+        .status(&id)
+        .expect("transfer forgotten across restart");
     assert_eq!(restored.direction, Direction::Outgoing);
     wait_state(&d, &id, 120, completed).await;
     let resumed_from = std::iter::from_fn(|| events.try_recv().ok()).find_map(|(t, e)| match e {
@@ -379,7 +420,10 @@ async fn pause_resume_and_cancel() {
     let held = d.manager().status(&id).unwrap().progress.bytes_done;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let later = d.manager().status(&id).unwrap().progress.bytes_done;
-    assert!(later <= held + (1 << 20), "kept sending while paused ({held} → {later})");
+    assert!(
+        later <= held + (1 << 20),
+        "kept sending while paused ({held} → {later})"
+    );
     d.manager().resume(&id).await.unwrap();
     wait_state(&d, &id, 120, completed).await;
     assert_eq!(sha(&f), sha(&w.target_dir.as_path().join("p.bin")));
@@ -418,16 +462,36 @@ async fn incoming_follows_local_policy() {
         let (_tx, rx) = mpsc::channel(1);
         let o = w
             .endpoint
-            .send(session, Outgoing { transfer_id: new_transfer_id(), manifest: m, files, resume: false }, rx)
+            .send(
+                session,
+                Outgoing {
+                    transfer_id: new_transfer_id(),
+                    manifest: m,
+                    files,
+                    resume: false,
+                },
+                rx,
+            )
             .await;
         if allowed {
             assert_eq!(o, Outcome::Completed);
-            assert_eq!(sha(&f), sha(&w.source_inbox.as_path().join("from-target.bin")));
-            let incoming = d.manager().list().into_iter().find(|i| i.direction == Direction::Incoming).unwrap();
+            assert_eq!(
+                sha(&f),
+                sha(&w.source_inbox.as_path().join("from-target.bin"))
+            );
+            let incoming = d
+                .manager()
+                .list()
+                .into_iter()
+                .find(|i| i.direction == Direction::Incoming)
+                .unwrap();
             assert_eq!(incoming.state, State::Done(Outcome::Completed));
         } else {
             assert_eq!(o, Outcome::Rejected(K::Unauthorized));
-            assert!(std::fs::read_dir(w.source_inbox.as_path()).unwrap().next().is_none());
+            assert!(std::fs::read_dir(w.source_inbox.as_path())
+                .unwrap()
+                .next()
+                .is_none());
         }
         d.shutdown().await;
     }
@@ -435,8 +499,16 @@ async fn incoming_follows_local_policy() {
 
 async fn pending_id(d: &Daemon) -> String {
     for _ in 0..200 {
-        if let Some(i) = d.manager().list().into_iter().find(|i| i.state == State::Pending) {
-            return idr_transfer::native::manager::info_json(&i)["id"].as_str().unwrap().to_string();
+        if let Some(i) = d
+            .manager()
+            .list()
+            .into_iter()
+            .find(|i| i.state == State::Pending)
+        {
+            return idr_transfer::native::manager::info_json(&i)["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
@@ -444,7 +516,9 @@ async fn pending_id(d: &Daemon) -> String {
 }
 
 async fn ipc(w: &World, req: Request) -> idr_transfer::native::ipc::Response {
-    call(w.ipc.as_ref().unwrap(), &req).await.expect("agent IPC unavailable")
+    call(w.ipc.as_ref().unwrap(), &req)
+        .await
+        .expect("agent IPC unavailable")
 }
 
 /// CLI-001 / CLI-005..011 / CLI-019 / CLI-020 / AUTH-011 / UX-002: the local
@@ -453,14 +527,23 @@ async fn ipc(w: &World, req: Request) -> idr_transfer::native::ipc::Response {
 async fn ipc_controls_the_daemon() {
     let mut w = world().await;
     let dir = w.data_dir.as_path().to_path_buf();
-    w.ipc = Some(IpcAddr::for_agent(&format!("sa-test-{}", uuid::Uuid::new_v4().simple()), &dir).unwrap());
+    w.ipc = Some(
+        IpcAddr::for_agent(&format!("sa-test-{}", uuid::Uuid::new_v4().simple()), &dir).unwrap(),
+    );
     let d = start(&w, ReceivePolicy::interactive());
     tokio::time::sleep(Duration::from_millis(150)).await;
     let src = tempfile::tempdir().unwrap();
 
     // send / status / list
     let f = file(src.path(), "via-ipc.bin", 2 << 20);
-    let r = ipc(&w, Request::Send { target: FQHN.into(), paths: vec![f.clone()] }).await;
+    let r = ipc(
+        &w,
+        Request::Send {
+            target: FQHN.into(),
+            paths: vec![f.clone()],
+        },
+    )
+    .await;
     assert!(r.ok, "{r:?}");
     let id = r.data["id"].as_str().unwrap().to_string();
     let tid = idr_transfer::native::manager::parse_id(&id).unwrap();
@@ -470,15 +553,35 @@ async fn ipc_controls_the_daemon() {
     assert_eq!(st.data["summary"]["top_level"][0], "via-ipc.bin");
     let list = ipc(&w, Request::List).await;
     assert!(list.data.as_array().unwrap().iter().any(|t| t["id"] == id));
-    assert_eq!(ipc(&w, Request::Status { id: "nope".into() }).await.error.as_deref(), Some("invalid_argument"));
+    assert_eq!(
+        ipc(&w, Request::Status { id: "nope".into() })
+            .await
+            .error
+            .as_deref(),
+        Some("invalid_argument")
+    );
 
     // pause / resume / cancel
     let big = file(src.path(), "big.bin", 40 << 20);
-    let id2 = ipc(&w, Request::Send { target: FQHN.into(), paths: vec![big] }).await.data["id"].as_str().unwrap().to_string();
+    let id2 = ipc(
+        &w,
+        Request::Send {
+            target: FQHN.into(),
+            paths: vec![big],
+        },
+    )
+    .await
+    .data["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let tid2 = idr_transfer::native::manager::parse_id(&id2).unwrap();
     wait_bytes(&d, &tid2, 1 << 20).await;
     assert!(ipc(&w, Request::Pause { id: id2.clone() }).await.ok);
-    assert_eq!(ipc(&w, Request::Status { id: id2.clone() }).await.data["state"], "paused");
+    assert_eq!(
+        ipc(&w, Request::Status { id: id2.clone() }).await.data["state"],
+        "paused"
+    );
     assert!(ipc(&w, Request::Resume { id: id2.clone() }).await.ok);
     assert!(ipc(&w, Request::Cancel { id: id2.clone() }).await.ok);
     wait_state(&d, &tid2, 30, |s| *s == State::Done(Outcome::Cancelled)).await;
@@ -488,7 +591,10 @@ async fn ipc_controls_the_daemon() {
 
     // peers: the bound Target, with how the session reaches it.
     let peers = ipc(&w, Request::Peers).await;
-    assert_eq!(peers.data, serde_json::json!([{ "peer": FQHN, "path": "host", "connection": "direct" }]));
+    assert_eq!(
+        peers.data,
+        serde_json::json!([{ "peer": FQHN, "path": "host", "connection": "direct" }])
+    );
     let offer = |name: &str| {
         let f = file(src.path(), name, 100_000);
         let (files, sel) = NativeFiles::loose(&[f]).unwrap();
@@ -496,19 +602,59 @@ async fn ipc_controls_the_daemon() {
         let ep = w.endpoint.clone();
         tokio::spawn(async move {
             let (_tx, rx) = mpsc::channel(1);
-            ep.send(session, Outgoing { transfer_id: new_transfer_id(), manifest: m, files, resume: false }, rx).await
+            ep.send(
+                session,
+                Outgoing {
+                    transfer_id: new_transfer_id(),
+                    manifest: m,
+                    files,
+                    resume: false,
+                },
+                rx,
+            )
+            .await
         })
     };
     let first = offer("incoming.bin");
     let pid = pending_id(&d).await;
     let shown = ipc(&w, Request::Status { id: pid.clone() }).await;
-    assert_eq!((shown.data["state"].as_str(), shown.data["summary"]["files"].as_u64()), (Some("pending"), Some(1)));
+    assert_eq!(
+        (
+            shown.data["state"].as_str(),
+            shown.data["summary"]["files"].as_u64()
+        ),
+        (Some("pending"), Some(1))
+    );
     let outside = tempfile::tempdir().unwrap();
-    let refused = ipc(&w, Request::Accept { id: pid.clone(), out: Some(outside.path().to_path_buf()) }).await;
-    assert_eq!(refused.error.as_deref(), Some("unauthorized"), "accept into a non-permitted dir");
-    assert!(ipc(&w, Request::Accept { id: pid.clone(), out: Some(w.alt_inbox.as_path().to_path_buf()) }).await.ok);
+    let refused = ipc(
+        &w,
+        Request::Accept {
+            id: pid.clone(),
+            out: Some(outside.path().to_path_buf()),
+        },
+    )
+    .await;
+    assert_eq!(
+        refused.error.as_deref(),
+        Some("unauthorized"),
+        "accept into a non-permitted dir"
+    );
+    assert!(
+        ipc(
+            &w,
+            Request::Accept {
+                id: pid.clone(),
+                out: Some(w.alt_inbox.as_path().to_path_buf())
+            }
+        )
+        .await
+        .ok
+    );
     assert_eq!(first.await.unwrap(), Outcome::Completed);
-    assert!(w.alt_inbox.as_path().join("incoming.bin").is_file(), "not stored where accepted");
+    assert!(
+        w.alt_inbox.as_path().join("incoming.bin").is_file(),
+        "not stored where accepted"
+    );
 
     let second = offer("unwanted.bin");
     let pid = pending_id(&d).await;
@@ -518,7 +664,10 @@ async fn ipc_controls_the_daemon() {
 
     d.shutdown().await;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(matches!(call(w.ipc.as_ref().unwrap(), &Request::List).await, Err(CallError::Unavailable)));
+    assert!(matches!(
+        call(w.ipc.as_ref().unwrap(), &Request::List).await,
+        Err(CallError::Unavailable)
+    ));
 }
 
 /// An interactive receiver asks once. A resume of the accepted transfer (same
@@ -537,13 +686,30 @@ async fn interactive_resume_needs_no_second_accept() {
         let ep = w.endpoint.clone();
         tokio::spawn(async move {
             let (_tx, rx) = mpsc::channel(1);
-            ep.send(session, Outgoing { transfer_id: id, manifest: m, files, resume }, rx).await
+            ep.send(
+                session,
+                Outgoing {
+                    transfer_id: id,
+                    manifest: m,
+                    files,
+                    resume,
+                },
+                rx,
+            )
+            .await
         })
     };
 
     let first = attempt(bound_session(&w).await, &f, false);
     let pid = pending_id(&d).await;
-    assert!(d.manager().accept(&idr_transfer::native::manager::parse_id(&pid).unwrap(), None, &[]).is_ok());
+    assert!(d
+        .manager()
+        .accept(
+            &idr_transfer::native::manager::parse_id(&pid).unwrap(),
+            None,
+            &[]
+        )
+        .is_ok());
     wait_bytes(&d, &id, 4 << 20).await;
     w.kill.send_modify(|k| *k += 1);
     assert!(matches!(first.await.unwrap(), Outcome::Interrupted(_)));
@@ -554,7 +720,10 @@ async fn interactive_resume_needs_no_second_accept() {
     let mut outcome = Outcome::Interrupted(K::TransportClosed);
     for _ in 0..40 {
         let resumed = attempt(session, &f, true);
-        outcome = tokio::time::timeout(Duration::from_secs(60), resumed).await.expect("resume waited for consent").unwrap();
+        outcome = tokio::time::timeout(Duration::from_secs(60), resumed)
+            .await
+            .expect("resume waited for consent")
+            .unwrap();
         if !matches!(outcome, Outcome::Interrupted(_)) {
             break;
         }
@@ -567,7 +736,10 @@ async fn interactive_resume_needs_no_second_accept() {
     // Same id, other content, claiming to resume: parked for a decision.
     let other = file(src.path(), "other.bin", 1000);
     let forged = attempt(session, &other, true);
-    assert_eq!(pending_id(&d).await, idr_transfer::native::manager::info_json(&d.manager().status(&id).unwrap())["id"]);
+    assert_eq!(
+        pending_id(&d).await,
+        idr_transfer::native::manager::info_json(&d.manager().status(&id).unwrap())["id"]
+    );
     d.manager().reject(&id).unwrap();
     assert_eq!(forged.await.unwrap(), Outcome::Rejected(K::Rejected));
     d.shutdown().await;
@@ -590,15 +762,35 @@ async fn resume_takes_over_a_lingering_attempt() {
         let ep = w.endpoint.clone();
         tokio::spawn(async move {
             let (_tx, rx) = mpsc::channel(1);
-            ep.send(session, Outgoing { transfer_id: id, manifest: m, files, resume }, rx).await
+            ep.send(
+                session,
+                Outgoing {
+                    transfer_id: id,
+                    manifest: m,
+                    files,
+                    resume,
+                },
+                rx,
+            )
+            .await
         })
     };
     let first = attempt(false);
     let pid = pending_id(&d).await;
-    assert!(d.manager().accept(&idr_transfer::native::manager::parse_id(&pid).unwrap(), None, &[]).is_ok());
+    assert!(d
+        .manager()
+        .accept(
+            &idr_transfer::native::manager::parse_id(&pid).unwrap(),
+            None,
+            &[]
+        )
+        .is_ok());
     wait_bytes(&d, &id, 4 << 20).await;
     let second = attempt(true);
-    let outcome = tokio::time::timeout(Duration::from_secs(60), second).await.expect("resume stuck").unwrap();
+    let outcome = tokio::time::timeout(Duration::from_secs(60), second)
+        .await
+        .expect("resume stuck")
+        .unwrap();
     assert_eq!(outcome, Outcome::Completed);
     assert!(matches!(first.await.unwrap(), Outcome::Interrupted(_)));
     assert_eq!(sha(&f), sha(&w.source_inbox.as_path().join("overlap.bin")));
@@ -628,10 +820,19 @@ async fn transfer_survives_lease_expiry() {
     assert_eq!(sha(&f), sha(&w.target_dir.as_path().join("leased.bin")));
     let expired = std::iter::from_fn(|| events.try_recv().ok())
         .filter(|(t, e)| {
-            *t == id && matches!(e, idr_transfer::TransferEvent::Finished(Outcome::Interrupted(K::AuthorizationExpired)))
+            *t == id
+                && matches!(
+                    e,
+                    idr_transfer::TransferEvent::Finished(Outcome::Interrupted(
+                        K::AuthorizationExpired
+                    ))
+                )
         })
         .count();
-    eprintln!("lease test: {expired} lease-boundary stops, {:?}", t0.elapsed());
+    eprintln!(
+        "lease test: {expired} lease-boundary stops, {:?}",
+        t0.elapsed()
+    );
     assert!(expired >= 1, "no attempt ended at a lease boundary");
     d.shutdown().await;
 }
@@ -667,7 +868,10 @@ async fn resumes_after_target_agent_restart() {
             _ => {}
         }
     }
-    assert!(resumed_from.unwrap_or(0) > 0, "restart resent from zero ({resumed_from:?})");
+    assert!(
+        resumed_from.unwrap_or(0) > 0,
+        "restart resent from zero ({resumed_from:?})"
+    );
     d.shutdown().await;
 }
 
@@ -699,7 +903,9 @@ const CRASH_ENV: &str = "IDR_TEST_CRASH_CHILD";
 /// unless the parent test launched this binary with `IDR_TEST_CRASH_CHILD`.
 #[tokio::test(flavor = "multi_thread")]
 async fn crash_child() {
-    let Ok(spec) = std::env::var(CRASH_ENV) else { return };
+    let Ok(spec) = std::env::var(CRASH_ENV) else {
+        return;
+    };
     let [target, data, file]: [&str; 3] = spec.split('|').collect::<Vec<_>>().try_into().unwrap();
     let w = world_at(auto(SRC), Some((target.into(), data.into()))).await;
     let d = start(&w, ReceivePolicy::headless());
@@ -730,9 +936,18 @@ fn staged_bytes(target: &Path) -> u64 {
 /// no duplicate file, no numbered copy, no leftover staging.
 #[test]
 fn resumes_after_both_agents_crash() {
-    let (target, data, src) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (target, data, src) = (
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+    );
     let f = file(src.path(), "crash.bin", 60 << 20);
-    let spec = format!("{}|{}|{}", target.path().display(), data.path().display(), f.display());
+    let spec = format!(
+        "{}|{}|{}",
+        target.path().display(),
+        data.path().display(),
+        f.display()
+    );
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["crash_child", "--exact", "--nocapture", "--test-threads=1"])
         .env(CRASH_ENV, spec)
@@ -742,7 +957,10 @@ fn resumes_after_both_agents_crash() {
         .unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(120);
     while staged_bytes(target.path()) < 14 << 20 {
-        assert!(std::time::Instant::now() < deadline, "child made no progress");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "child made no progress"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     child.kill().unwrap();
@@ -756,7 +974,11 @@ fn resumes_after_both_agents_crash() {
         let d = start(&w, ReceivePolicy::headless());
         let mut events = d.manager().subscribe();
         let restored = d.manager().list();
-        assert_eq!(restored.len(), 1, "outbox should hold exactly the one transfer");
+        assert_eq!(
+            restored.len(),
+            1,
+            "outbox should hold exactly the one transfer"
+        );
         let id = restored[0].id;
         wait_state(&d, &id, 180, completed).await;
         let first = std::iter::from_fn(|| events.try_recv().ok()).find_map(|(t, e)| match e {
@@ -768,10 +990,26 @@ fn resumes_after_both_agents_crash() {
         assert!(resumed_from > 0, "restart resent from zero");
         // The last 4 MiB checkpoint at or below what was on disk; the unproven
         // tail past it was cut back, not trusted.
-        assert_eq!(resumed_from, at_kill / (4 << 20) * (4 << 20), "did not resume at the last verified checkpoint");
+        assert_eq!(
+            resumed_from,
+            at_kill / (4 << 20) * (4 << 20),
+            "did not resume at the last verified checkpoint"
+        );
         d.shutdown().await;
     });
-    assert_eq!(sha(&f), sha(&target.path().join("crash.bin")), "corrupted after crash + resume");
-    let left: Vec<_> = std::fs::read_dir(target.path()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-    assert_eq!(left, ["crash.bin"], "duplicate, numbered copy or staging left behind");
+    assert_eq!(
+        sha(&f),
+        sha(&target.path().join("crash.bin")),
+        "corrupted after crash + resume"
+    );
+    let left: Vec<_> = std::fs::read_dir(target.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        left,
+        ["crash.bin"],
+        "duplicate, numbered copy or staging left behind"
+    );
 }

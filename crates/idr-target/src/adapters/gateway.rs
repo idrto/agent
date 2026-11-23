@@ -38,9 +38,7 @@ impl ServiceGatewayConnector {
         let name = cfg.name.clone();
         let fqhn = cfg.target_fqhn.clone().unwrap_or_default();
         let transport = match cfg.service_type {
-            GatewayServiceType::Http => {
-                idr_protocol::stream_mux::ServiceTransportKind::Http
-            }
+            GatewayServiceType::Http => idr_protocol::stream_mux::ServiceTransportKind::Http,
             GatewayServiceType::Tcp => idr_protocol::stream_mux::ServiceTransportKind::Tcp,
         };
         // HTTP + inject_headers implies Target-held secrets unless explicitly overridden.
@@ -72,7 +70,10 @@ impl ServiceGatewayConnector {
 
     fn tcp_addr(&self) -> Result<String> {
         self.cfg.tcp_endpoint().map_err(|e| {
-            IdrError::new(IdrErrorKind::InvalidArgument, format!("service {}: {e}", self.cfg.name))
+            IdrError::new(
+                IdrErrorKind::InvalidArgument,
+                format!("service {}: {e}", self.cfg.name),
+            )
         })
     }
 
@@ -198,18 +199,13 @@ async fn http_proxy_connection(
     } else {
         format!("/{}", req.path)
     };
-    let url = format!(
-        "{}{}",
-        base.trim_end_matches('/'),
-        path_q
-    );
+    let url = format!("{}{}", base.trim_end_matches('/'), path_q);
 
     let host_header = host_header_for(&base);
 
     let mut builder = http
         .request(
-            reqwest::Method::from_bytes(req.method.as_bytes())
-                .unwrap_or(reqwest::Method::GET),
+            reqwest::Method::from_bytes(req.method.as_bytes()).unwrap_or(reqwest::Method::GET),
             &url,
         )
         .header("Host", &host_header)

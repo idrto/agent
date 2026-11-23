@@ -102,7 +102,10 @@ impl PresenceWebSocketClient {
     }
 
     /// Enable peer binding and file transfer on WebRTC sessions.
-    pub fn with_transfers(mut self, transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>) -> Self {
+    pub fn with_transfers(
+        mut self,
+        transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>,
+    ) -> Self {
         self.transfers = transfers;
         self
     }
@@ -196,7 +199,11 @@ impl PresenceWebSocketClient {
                 sleep(self.cfg.transport_fallback_delay()).await;
             }
             let label = transport_label(choice);
-            debug!(event = "presence.attempting_presence_connect", transport = label, role = role_label);
+            debug!(
+                event = "presence.attempting_presence_connect",
+                transport = label,
+                role = role_label
+            );
             let result = match choice {
                 PresenceTransportChoice::Quic(addr) => {
                     self.connect_quic_and_serve(role_label, addr, &reg_json, jwt)
@@ -394,7 +401,9 @@ impl PresenceWebSocketClient {
         };
         match outbox.send_json(&json).await {
             Ok(()) => info!(event = "presence.sent_unregister_target", fqhn = %self.fqhn),
-            Err(e) => debug!(event = "presence.skip_unregister_target_presence_not_writable", error.message = %e),
+            Err(e) => {
+                debug!(event = "presence.skip_unregister_target_presence_not_writable", error.message = %e)
+            }
         }
         outbox.close();
     }
@@ -418,18 +427,20 @@ impl PresenceWebSocketClient {
             None
         };
         let webrtc = if self.reg_cfg.webrtc.enabled {
-            Some(WebRtcSignalingHandler::new(
-                self.reg_cfg.webrtc.clone(),
-                self.fqhn.clone(),
-                self.identity.clone(),
-                self.presence_push_verify_key(),
-                self.webrtc_sessions.clone(),
-                self.reg_cfg.nginx.clone(),
-                self.reg_cfg.webrtc.policy.clone(),
-                self.connectors.clone(),
-                self.reg_cfg.presence.insecure_dev,
+            Some(
+                WebRtcSignalingHandler::new(
+                    self.reg_cfg.webrtc.clone(),
+                    self.fqhn.clone(),
+                    self.identity.clone(),
+                    self.presence_push_verify_key(),
+                    self.webrtc_sessions.clone(),
+                    self.reg_cfg.nginx.clone(),
+                    self.reg_cfg.webrtc.policy.clone(),
+                    self.connectors.clone(),
+                    self.reg_cfg.presence.insecure_dev,
+                )
+                .with_transfers(self.transfers.clone()),
             )
-            .with_transfers(self.transfers.clone()))
         } else {
             None
         };
@@ -489,7 +500,10 @@ impl PresenceClientTask {
         let json_bytes = signaling_json::decode_json_frame_auto(&buf)
             .map_err(|e| anyhow::anyhow!("decode push frame: {e}"))?;
         let text = std::str::from_utf8(&json_bytes).context("push utf8")?;
-        info!(event = "presence.presence_quic_push_received", bytes = json_bytes.len());
+        info!(
+            event = "presence.presence_quic_push_received",
+            bytes = json_bytes.len()
+        );
         self.handle_message(text).await
     }
 
@@ -625,20 +639,18 @@ impl PresenceClientTask {
             "turn_probe_ack" => {
                 debug!(event = "presence.received_turn_probe_ack");
             }
-            "register_target_ack" => {
-                match serde_json::from_str::<RegisterTargetAck>(text) {
-                    Ok(ack) => {
-                        if ack.turn_mint_allowed {
-                            info!(event = "presence.register_target_ack_platform_turn_available", target_fqhn = %ack.target_fqhn, fallback = %ack.webrtc_fallback);
-                        } else if ack.target_allows_p2p {
-                            warn!(event = "presence.register_target_ack_no_turn_mint", target_fqhn = %ack.target_fqhn, fallback = %ack.webrtc_fallback, reason = ack.reason.as_deref().unwrap_or("data_transfer_exhausted"));
-                        } else {
-                            warn!(event = "presence.register_target_ack_turn_unavailable_and", target_fqhn = %ack.target_fqhn, reason = ack.reason.as_deref().unwrap_or("payment_required"));
-                        }
+            "register_target_ack" => match serde_json::from_str::<RegisterTargetAck>(text) {
+                Ok(ack) => {
+                    if ack.turn_mint_allowed {
+                        info!(event = "presence.register_target_ack_platform_turn_available", target_fqhn = %ack.target_fqhn, fallback = %ack.webrtc_fallback);
+                    } else if ack.target_allows_p2p {
+                        warn!(event = "presence.register_target_ack_no_turn_mint", target_fqhn = %ack.target_fqhn, fallback = %ack.webrtc_fallback, reason = ack.reason.as_deref().unwrap_or("data_transfer_exhausted"));
+                    } else {
+                        warn!(event = "presence.register_target_ack_turn_unavailable_and", target_fqhn = %ack.target_fqhn, reason = ack.reason.as_deref().unwrap_or("payment_required"));
                     }
-                    Err(e) => warn!(event = "presence.invalid_register_target_ack", error.message = %e),
                 }
-            }
+                Err(e) => warn!(event = "presence.invalid_register_target_ack", error.message = %e),
+            },
             _ => {}
         }
         Ok(())

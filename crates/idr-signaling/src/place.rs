@@ -11,10 +11,7 @@ use idr_protocol::placement::{ModuloPlacement, PresencePlacement};
 ///
 /// Dual-mod placement (`hash%N`, `hash%(N-1)`, bump secondary on collide).
 /// Dial Primary first, then Secondary when discovery lists ≥2 servers.
-pub fn place(
-    doc: &PresenceDiscoveryDocument,
-    target_fqhn: &str,
-) -> Result<(usize, Option<usize>)> {
+pub fn place(doc: &PresenceDiscoveryDocument, target_fqhn: &str) -> Result<(usize, Option<usize>)> {
     let fqhn = fqhn::canonicalize(target_fqhn)
         .map_err(|e| IdrError::new(IdrErrorKind::InvalidArgument, e.to_string()))?;
     ModuloPlacement

@@ -48,7 +48,10 @@ impl NativeFiles {
                 .and_then(|n| n.to_str())
                 .ok_or_else(|| invalid("file name is not valid UTF-8"))?
                 .to_string();
-            let parent = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            let parent = p
+                .parent()
+                .filter(|d| !d.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
             let dir = Dir::open_ambient_dir(parent, ambient_authority())?;
             let meta = dir.symlink_metadata(&name)?;
             if !meta.file_type().is_file() {

@@ -112,8 +112,9 @@ pub async fn bind_peer(
             return Err(TransferErrorKind::ProtocolViolation);
         };
         let expected = peer_bind::transcript(ctx, role.peer(), &offerer, &answerer);
-        let mut peer = peer_bind::verify(role.peer(), &ski, &chain_pem, &signature, &expected, trust)
-            .map_err(refusal)?;
+        let mut peer =
+            peer_bind::verify(role.peer(), &ski, &chain_pem, &signature, &expected, trust)
+                .map_err(refusal)?;
         peer.path = ctx.path;
         Ok(peer)
     };

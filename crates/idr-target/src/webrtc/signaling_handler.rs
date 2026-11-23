@@ -60,7 +60,10 @@ impl WebRtcSignalingHandler {
     }
 
     /// Enable peer binding and file transfer on sessions this handler starts.
-    pub fn with_transfers(mut self, transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>) -> Self {
+    pub fn with_transfers(
+        mut self,
+        transfers: Option<Arc<crate::webrtc::local::TransferEndpoint>>,
+    ) -> Self {
         self.transfers = transfers;
         self
     }

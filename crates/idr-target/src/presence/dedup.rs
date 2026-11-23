@@ -151,7 +151,10 @@ impl CommandDedup {
             for k in keys {
                 map.remove(&k);
             }
-            warn!(event = "presence.command_dedup_cache_pruned", excess = excess);
+            warn!(
+                event = "presence.command_dedup_cache_pruned",
+                excess = excess
+            );
         }
     }
 }

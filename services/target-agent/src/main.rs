@@ -81,19 +81,31 @@ enum TransferCmd {
     },
     /// Transfers and pending offers.
     List,
-    Status { id: String },
+    Status {
+        id: String,
+    },
     /// Accept a pending incoming offer, optionally into a permitted directory.
     Accept {
         id: String,
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    Reject { id: String },
-    Pause { id: String },
-    Resume { id: String },
-    Cancel { id: String },
+    Reject {
+        id: String,
+    },
+    Pause {
+        id: String,
+    },
+    Resume {
+        id: String,
+    },
+    Cancel {
+        id: String,
+    },
     /// Re-send the entries that failed.
-    RetryFailed { id: String },
+    RetryFailed {
+        id: String,
+    },
     /// Peers with a bound session now (who `send --target` can reach).
     Peers,
 }
@@ -101,15 +113,27 @@ enum TransferCmd {
 impl TransferCmd {
     fn request(self) -> Result<idr_transfer::native::ipc::Request> {
         use idr_transfer::native::ipc::Request;
-        let abs = |p: PathBuf| std::fs::canonicalize(&p).with_context(|| format!("{}", p.display()));
+        let abs =
+            |p: PathBuf| std::fs::canonicalize(&p).with_context(|| format!("{}", p.display()));
         Ok(match self {
-            TransferCmd::Send { target, files, dirs } => Request::Send {
+            TransferCmd::Send {
                 target,
-                paths: files.into_iter().chain(dirs).map(abs).collect::<Result<_>>()?,
+                files,
+                dirs,
+            } => Request::Send {
+                target,
+                paths: files
+                    .into_iter()
+                    .chain(dirs)
+                    .map(abs)
+                    .collect::<Result<_>>()?,
             },
             TransferCmd::List => Request::List,
             TransferCmd::Status { id } => Request::Status { id },
-            TransferCmd::Accept { id, out } => Request::Accept { id, out: out.map(abs).transpose()? },
+            TransferCmd::Accept { id, out } => Request::Accept {
+                id,
+                out: out.map(abs).transpose()?,
+            },
             TransferCmd::Reject { id } => Request::Reject { id },
             TransferCmd::Pause { id } => Request::Pause { id },
             TransferCmd::Resume { id } => Request::Resume { id },
@@ -121,7 +145,11 @@ impl TransferCmd {
 }
 
 fn transfer_data_dir(cfg: &Config) -> Result<PathBuf> {
-    let dir = cfg.file_transfer.data_dir.clone().unwrap_or_else(|| "target-agent-data".into());
+    let dir = cfg
+        .file_transfer
+        .data_dir
+        .clone()
+        .unwrap_or_else(|| "target-agent-data".into());
     std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     Ok(dir)
 }
@@ -139,44 +167,70 @@ fn start_transfers(
         return Ok(None);
     }
     let id = dp.context("[file_transfer] needs a DP identity ([dp].identity_path)")?;
-    let d = id.private_jwk.get("d").and_then(|v| v.as_str()).context("DP identity has no private key")?;
+    let d = id
+        .private_jwk
+        .get("d")
+        .and_then(|v| v.as_str())
+        .context("DP identity has no private key")?;
     let chain = id
         .chain_pem
         .as_deref()
         .or(id.cert_pem.as_deref())
         .context("DP identity has no issued certificate")?;
-    let me = idr_transfer::bind::LocalIdentity::from_jwk(d, &id.ski, chain).context("DP key is not Ed25519")?;
+    let me = idr_transfer::bind::LocalIdentity::from_jwk(d, &id.ski, chain)
+        .context("DP key is not Ed25519")?;
     let root_pem = match &ft.entity_root_path {
-        Some(p) => Some(std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?),
+        Some(p) => {
+            Some(std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?)
+        }
         None => None,
     };
     let roots = idr_transfer::bind::entity_roots(root_pem.as_deref(), &me.chain_pem)
         .context("no entity root: set [file_transfer].entity_root_path")?;
-    let receive_dir = ft.receive_dir.clone().context("[file_transfer].receive_dir is required")?;
+    let receive_dir = ft
+        .receive_dir
+        .clone()
+        .context("[file_transfer].receive_dir is required")?;
     let data_dir = transfer_data_dir(cfg)?;
-    let manager = idr_transfer::native::manager::Manager::open(&data_dir, Default::default(), Default::default())
-        .context("open transfer outbox")?;
-    let mut policy = if ft.interactive { ReceivePolicy::interactive() } else { ReceivePolicy::headless() };
+    let manager = idr_transfer::native::manager::Manager::open(
+        &data_dir,
+        Default::default(),
+        Default::default(),
+    )
+    .context("open transfer outbox")?;
+    let mut policy = if ft.interactive {
+        ReceivePolicy::interactive()
+    } else {
+        ReceivePolicy::headless()
+    };
     policy.lease = idr_transfer::policy::lease_from_minutes(ft.lease_minutes);
     for p in &ft.peers {
-        policy.peers.insert(p.ski.clone(), PeerRule {
-            auto_accept: p.auto_accept,
-            auto_accept_max_bytes: p.auto_accept_max_bytes,
-            ..Default::default()
-        });
+        policy.peers.insert(
+            p.ski.clone(),
+            PeerRule {
+                auto_accept: p.auto_accept,
+                auto_accept_max_bytes: p.auto_accept_max_bytes,
+                ..Default::default()
+            },
+        );
     }
     let dest = receive_dir.clone();
-    let engine = PolicyEngine::new(policy, Some(Arc::new(move || idr_transfer::native::free_space(&dest))));
-    let (endpoint, mut events) = idr_target::webrtc::local::TransferEndpoint::new(idr_target::webrtc::local::TransferConfig {
-        identity: me,
-        roots,
-        policy: engine,
-        receive_dir: receive_dir.clone(),
-        limits: Default::default(),
-        bind_timeout: std::time::Duration::from_secs(10),
-        manager: Some(manager.clone()),
-        offer_expiry: ft.interactive.then(|| std::time::Duration::from_secs(300)),
-    });
+    let engine = PolicyEngine::new(
+        policy,
+        Some(Arc::new(move || idr_transfer::native::free_space(&dest))),
+    );
+    let (endpoint, mut events) = idr_target::webrtc::local::TransferEndpoint::new(
+        idr_target::webrtc::local::TransferConfig {
+            identity: me,
+            roots,
+            policy: engine,
+            receive_dir: receive_dir.clone(),
+            limits: Default::default(),
+            bind_timeout: std::time::Duration::from_secs(10),
+            manager: Some(manager.clone()),
+            offer_expiry: ft.interactive.then(|| std::time::Duration::from_secs(300)),
+        },
+    );
     tokio::spawn(async move { while events.recv().await.is_some() {} });
     let mut permitted = ft.permitted_dirs.clone();
     permitted.push(receive_dir);
@@ -229,10 +283,14 @@ async fn main() -> Result<()> {
         Commands::Run => run_service(cli.config, cli.identity).await,
         Commands::Transfer { json, cmd } => {
             let cfg = Config::load(&cli.config).context("load configuration")?;
-            let addr = idr_transfer::native::ipc::IpcAddr::for_agent("target-agent", &transfer_data_dir(&cfg)?)?;
-            let ok = idr_transfer::native::control::run_cli(&addr, "target-agent", cmd.request()?, json)
-                .await
-                .map_err(anyhow::Error::msg)?;
+            let addr = idr_transfer::native::ipc::IpcAddr::for_agent(
+                "target-agent",
+                &transfer_data_dir(&cfg)?,
+            )?;
+            let ok =
+                idr_transfer::native::control::run_cli(&addr, "target-agent", cmd.request()?, json)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
             if !ok {
                 std::process::exit(1);
             }

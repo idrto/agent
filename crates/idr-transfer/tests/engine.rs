@@ -17,9 +17,7 @@ use idr_transfer::io::Framed;
 use idr_transfer::manifest::{build, Selected};
 use idr_transfer::mem::{AcceptAll, DenyAll, MemFiles, MemSink};
 use idr_transfer::storage::{Approval, StreamOpener};
-use idr_transfer::{
-    Command, Limits, Outcome, Routed, Router, TransferEvent,
-};
+use idr_transfer::{Command, Limits, Outcome, Routed, Router, TransferEvent};
 use sha2::Digest;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
@@ -29,7 +27,9 @@ async fn run(manifest: Manifest, files: MemFiles, sink: MemSink, opts: Opts) -> 
 }
 
 fn bytes(n: usize, seed: u8) -> Vec<u8> {
-    (0..n).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed)).collect()
+    (0..n)
+        .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))
+        .collect()
 }
 
 fn files_manifest(files: &MemFiles, items: &[(&[&str], Vec<u8>)], kind: ManifestKind) -> Manifest {
@@ -52,10 +52,17 @@ fn sha(b: &[u8]) -> Vec<u8> {
 async fn single_file_roundtrip() {
     let files = MemFiles::default();
     let data = bytes(300_000, 1);
-    let m = files_manifest(&files, &[(&["report.pdf"], data.clone())], ManifestKind::Files);
+    let m = files_manifest(
+        &files,
+        &[(&["report.pdf"], data.clone())],
+        ManifestKind::Files,
+    );
     let sink = MemSink::default();
     let r = run(m, files, sink.clone(), Opts::default()).await;
-    assert_eq!((r.sender.clone(), r.receiver.clone()), (Outcome::Completed, Outcome::Completed));
+    assert_eq!(
+        (r.sender.clone(), r.receiver.clone()),
+        (Outcome::Completed, Outcome::Completed)
+    );
     let got = sink.visible()["report.pdf"].clone().unwrap();
     assert_eq!(sha(&got), sha(&data));
 
@@ -65,12 +72,20 @@ async fn single_file_roundtrip() {
     });
     let s = offered.expect("no Offered event");
     assert!(s.is_single_file());
-    assert_eq!((s.top_level.as_slice(), s.total_bytes), (&["report.pdf".to_string()][..], 300_000));
+    assert_eq!(
+        (s.top_level.as_slice(), s.total_bytes),
+        (&["report.pdf".to_string()][..], 300_000)
+    );
     assert!(r.rx_events.contains(&TransferEvent::Accepted {
         approval: Some(Approval::User)
     }));
-    assert!(r.tx_events.contains(&TransferEvent::Accepted { approval: None }));
-    assert_eq!(r.tx_events.last(), Some(&TransferEvent::Finished(Outcome::Completed)));
+    assert!(r
+        .tx_events
+        .contains(&TransferEvent::Accepted { approval: None }));
+    assert_eq!(
+        r.tx_events.last(),
+        Some(&TransferEvent::Finished(Outcome::Completed))
+    );
 }
 
 /// FT-003 / FT-004 / FT-007: empty, binary and several files in one transfer.
@@ -138,7 +153,13 @@ async fn complete_folder_appears_only_when_complete() {
     assert_eq!(v["Project/empty.txt"], Some(vec![]));
     assert_eq!(
         v["Project/src/network/socket.dart"].as_deref(),
-        Some(&files.file(&["Project", "src", "network", "socket.dart"]).lock().unwrap().data[..])
+        Some(
+            &files
+                .file(&["Project", "src", "network", "socket.dart"])
+                .lock()
+                .unwrap()
+                .data[..]
+        )
     );
     assert_eq!(v.len(), 17, "11 files + 6 dirs");
 }
@@ -197,8 +218,15 @@ async fn many_small_files_with_bounded_events() {
         .filter(|e| matches!(e, TransferEvent::Progress(_)))
         .count();
     let budget = (started.elapsed().as_millis() / 250) as usize + 3;
-    assert!(progress <= budget, "{progress} progress events (budget {budget})");
-    assert!(r.rx_events.len() < 3000 / 10, "per-file events: {}", r.rx_events.len());
+    assert!(
+        progress <= budget,
+        "{progress} progress events (budget {budget})"
+    );
+    assert!(
+        r.rx_events.len() < 3000 / 10,
+        "per-file events: {}",
+        r.rx_events.len()
+    );
 }
 
 // ---- Integrity and failures -----------------------------------------------
@@ -221,7 +249,10 @@ async fn corrupted_file_fails_alone() {
     let files = MemFiles::default();
     let m = files_manifest(
         &files,
-        &[(&["a.bin"], bytes(100_000, 1)), (&["b.bin"], bytes(5_000, 2))],
+        &[
+            (&["a.bin"], bytes(100_000, 1)),
+            (&["b.bin"], bytes(5_000, 2)),
+        ],
         ManifestKind::Files,
     );
     let sink = MemSink::default();
@@ -254,8 +285,14 @@ async fn folder_with_failed_entry_stays_staged() {
         ..Opts::default()
     };
     let r = run(m, files, sink.clone(), opts).await;
-    assert!(matches!(r.receiver, Outcome::CompletedWithErrors { failed: 1 }));
-    assert!(sink.visible().is_empty(), "incomplete folder became visible");
+    assert!(matches!(
+        r.receiver,
+        Outcome::CompletedWithErrors { failed: 1 }
+    ));
+    assert!(
+        sink.visible().is_empty(),
+        "incomplete folder became visible"
+    );
     assert!(sink.holds(&id), "verified entries kept staged for retry");
 }
 
@@ -266,11 +303,20 @@ async fn file_changed_during_transfer() {
     let files = MemFiles::default();
     let m = files_manifest(
         &files,
-        &[(&["live.log"], bytes(10_000, 3)), (&["grows.log"], bytes(10_000, 4)), (&["ok"], vec![1])],
+        &[
+            (&["live.log"], bytes(10_000, 3)),
+            (&["grows.log"], bytes(10_000, 4)),
+            (&["ok"], vec![1]),
+        ],
         ManifestKind::Files,
     );
     files.file(&["live.log"]).lock().unwrap().mtime = Some(42);
-    files.file(&["grows.log"]).lock().unwrap().data.extend_from_slice(b"more");
+    files
+        .file(&["grows.log"])
+        .lock()
+        .unwrap()
+        .data
+        .extend_from_slice(b"more");
     let sink = MemSink::default();
     let r = run(m, files, sink.clone(), Opts::default()).await;
     assert_eq!(r.receiver, Outcome::CompletedWithErrors { failed: 2 });
@@ -289,7 +335,10 @@ async fn storage_failure_fails_entry() {
     let files = MemFiles::default();
     let m = files_manifest(
         &files,
-        &[(&["full.bin"], bytes(50_000, 1)), (&["fits.bin"], bytes(10, 2))],
+        &[
+            (&["full.bin"], bytes(50_000, 1)),
+            (&["fits.bin"], bytes(10, 2)),
+        ],
         ManifestKind::Files,
     );
     let sink = MemSink::default();
@@ -334,8 +383,16 @@ async fn resume_after_disconnect_skips_verified_data() {
         },
     )
     .await;
-    assert!(matches!(first.sender, Outcome::Interrupted(_)), "{:?}", first.sender);
-    assert!(matches!(first.receiver, Outcome::Interrupted(_)), "{:?}", first.receiver);
+    assert!(
+        matches!(first.sender, Outcome::Interrupted(_)),
+        "{:?}",
+        first.sender
+    );
+    assert!(
+        matches!(first.receiver, Outcome::Interrupted(_)),
+        "{:?}",
+        first.receiver
+    );
     assert!(sink.holds(&id));
     assert!(sink.visible().contains_key("a-small"));
     let kept = sink.partial_len(&id, 1);
@@ -376,7 +433,11 @@ async fn resume_after_disconnect_skips_verified_data() {
 #[tokio::test(flavor = "multi_thread")]
 async fn tampered_partial_is_not_finalized() {
     let files = MemFiles::default();
-    let m = files_manifest(&files, &[(&["big"], bytes(800_000, 5))], ManifestKind::Files);
+    let m = files_manifest(
+        &files,
+        &[(&["big"], bytes(800_000, 5))],
+        ManifestKind::Files,
+    );
     let id = new_transfer_id();
     let sink = MemSink::default();
     let first = run(
@@ -394,11 +455,16 @@ async fn tampered_partial_is_not_finalized() {
     let restarted = sink.reopen();
     // prepare() truncates to the checkpoint; tamper inside what survives.
     restarted.tamper(&id, 0, 10);
-    let second = run(m, files, restarted.clone(), Opts {
-        id: Some(id),
-        resume: true,
-        ..Opts::default()
-    })
+    let second = run(
+        m,
+        files,
+        restarted.clone(),
+        Opts {
+            id: Some(id),
+            resume: true,
+            ..Opts::default()
+        },
+    )
     .await;
     assert_eq!(second.receiver, Outcome::CompletedWithErrors { failed: 1 });
     assert!(!restarted.visible().contains_key("big"));
@@ -411,18 +477,28 @@ async fn conflicting_manifest_for_same_id_is_rejected() {
     let m1 = files_manifest(&files, &[(&["x"], bytes(500_000, 1))], ManifestKind::Files);
     let id = new_transfer_id();
     let sink = MemSink::default();
-    run(m1, files.clone(), sink.clone(), Opts {
-        id: Some(id),
-        cut_after: Some(200_000),
-        ..Opts::default()
-    })
+    run(
+        m1,
+        files.clone(),
+        sink.clone(),
+        Opts {
+            id: Some(id),
+            cut_after: Some(200_000),
+            ..Opts::default()
+        },
+    )
     .await;
     let m2 = files_manifest(&files, &[(&["y"], bytes(10, 2))], ManifestKind::Files);
-    let r = run(m2, files, sink.reopen(), Opts {
-        id: Some(id),
-        resume: true,
-        ..Opts::default()
-    })
+    let r = run(
+        m2,
+        files,
+        sink.reopen(),
+        Opts {
+            id: Some(id),
+            resume: true,
+            ..Opts::default()
+        },
+    )
     .await;
     assert_eq!(r.sender, Outcome::Rejected(K::ConflictingManifest));
 }
@@ -432,22 +508,35 @@ async fn conflicting_manifest_for_same_id_is_rejected() {
 #[tokio::test(flavor = "multi_thread")]
 async fn pause_then_resume_completes() {
     let files = MemFiles::default();
-    let m = files_manifest(&files, &[(&["p"], bytes(3_000_000, 7))], ManifestKind::Files);
+    let m = files_manifest(
+        &files,
+        &[(&["p"], bytes(3_000_000, 7))],
+        ManifestKind::Files,
+    );
     let sink = MemSink::default();
     let ms = Duration::from_millis;
-    let r = run(m, files, sink.clone(), Opts {
-        sender_cmds: vec![
-            (ms(5), Command::Pause),
-            (ms(6), Command::Pause),
-            (ms(400), Command::Resume),
-            (ms(401), Command::Resume),
-        ],
-        ..Opts::default()
-    })
+    let r = run(
+        m,
+        files,
+        sink.clone(),
+        Opts {
+            sender_cmds: vec![
+                (ms(5), Command::Pause),
+                (ms(6), Command::Pause),
+                (ms(400), Command::Resume),
+                (ms(401), Command::Resume),
+            ],
+            ..Opts::default()
+        },
+    )
     .await;
     assert_eq!(r.receiver, Outcome::Completed);
-    assert!(r.rx_events.contains(&TransferEvent::Paused { by_peer: true }));
-    assert!(r.rx_events.contains(&TransferEvent::Resumed { by_peer: true }));
+    assert!(r
+        .rx_events
+        .contains(&TransferEvent::Paused { by_peer: true }));
+    assert!(r
+        .rx_events
+        .contains(&TransferEvent::Resumed { by_peer: true }));
     assert_eq!(sink.visible()["p"].as_ref().unwrap().len(), 3_000_000);
 }
 
@@ -474,13 +563,21 @@ async fn receiver_cancel_cleans_up() {
     let id = new_transfer_id();
     let sink = MemSink::default();
     let ms = Duration::from_millis;
-    let r = run(m, files, sink.clone(), Opts {
-        id: Some(id),
-        receiver_cmds: vec![(ms(20), Command::Cancel), (ms(21), Command::Cancel)],
-        ..Opts::default()
-    })
+    let r = run(
+        m,
+        files,
+        sink.clone(),
+        Opts {
+            id: Some(id),
+            receiver_cmds: vec![(ms(20), Command::Cancel), (ms(21), Command::Cancel)],
+            ..Opts::default()
+        },
+    )
     .await;
-    assert_eq!((r.sender, r.receiver), (Outcome::Cancelled, Outcome::Cancelled));
+    assert_eq!(
+        (r.sender, r.receiver),
+        (Outcome::Cancelled, Outcome::Cancelled)
+    );
     assert!(!sink.holds(&id), "staging kept after cancel");
     assert!(sink.visible().is_empty());
     assert_eq!(sink.discarded(), 1);
@@ -490,17 +587,29 @@ async fn receiver_cancel_cleans_up() {
 #[tokio::test(flavor = "multi_thread")]
 async fn sender_cancel_while_paused_cleans_up() {
     let files = MemFiles::default();
-    let m = files_manifest(&files, &[(&["c"], bytes(4_000_000, 1))], ManifestKind::Files);
+    let m = files_manifest(
+        &files,
+        &[(&["c"], bytes(4_000_000, 1))],
+        ManifestKind::Files,
+    );
     let id = new_transfer_id();
     let sink = MemSink::default();
     let ms = Duration::from_millis;
-    let r = run(m, files, sink.clone(), Opts {
-        id: Some(id),
-        sender_cmds: vec![(ms(5), Command::Pause), (ms(100), Command::Cancel)],
-        ..Opts::default()
-    })
+    let r = run(
+        m,
+        files,
+        sink.clone(),
+        Opts {
+            id: Some(id),
+            sender_cmds: vec![(ms(5), Command::Pause), (ms(100), Command::Cancel)],
+            ..Opts::default()
+        },
+    )
     .await;
-    assert_eq!((r.sender, r.receiver), (Outcome::Cancelled, Outcome::Cancelled));
+    assert_eq!(
+        (r.sender, r.receiver),
+        (Outcome::Cancelled, Outcome::Cancelled)
+    );
     assert!(!sink.holds(&id));
     assert!(sink.visible().is_empty());
 }
@@ -513,7 +622,14 @@ async fn denied_offer_stores_nothing() {
     let files = MemFiles::default();
     let m = files_manifest(&files, &[(&["x"], bytes(10, 1))], ManifestKind::Files);
     let sink = MemSink::default();
-    let r = run_with(m, files, sink.clone(), DenyAll(K::Unauthorized), Opts::default()).await;
+    let r = run_with(
+        m,
+        files,
+        sink.clone(),
+        DenyAll(K::Unauthorized),
+        Opts::default(),
+    )
+    .await;
     assert_eq!(r.sender, Outcome::Rejected(K::Unauthorized));
     assert_eq!(r.receiver, Outcome::Rejected(K::Unauthorized));
     assert!(sink.visible().is_empty());
@@ -583,7 +699,8 @@ impl Raw {
 
     async fn offer(&mut self, m: &Manifest) {
         let enc = m.encode();
-        self.offer_raw(&enc, Manifest::digest_of(&enc), m.entries.len() as u32).await;
+        self.offer_raw(&enc, Manifest::digest_of(&enc), m.entries.len() as u32)
+            .await;
     }
 
     async fn offer_raw(&mut self, enc: &[u8], digest: [u8; 32], count: u32) {
@@ -596,7 +713,8 @@ impl Raw {
         })
         .await;
         for c in enc.chunks(MANIFEST_CHUNK_BYTES) {
-            self.ctl(ControlMsg::ManifestChunk { bytes: c.to_vec() }).await;
+            self.ctl(ControlMsg::ManifestChunk { bytes: c.to_vec() })
+                .await;
         }
     }
 
@@ -612,7 +730,10 @@ impl Raw {
     }
 
     async fn accept_and_open_data(&mut self) {
-        assert!(matches!(self.reply().await, Some(ControlMsg::Accept { .. })));
+        assert!(matches!(
+            self.reply().await,
+            Some(ControlMsg::Accept { .. })
+        ));
         self.data = Some(Framed::new(self.link.open().await.unwrap()));
         self.header(StreamRole::Data, TRANSFER_VERSION).await;
     }
@@ -622,7 +743,11 @@ impl Raw {
     }
 
     async fn outcome(self) -> Outcome {
-        timeout(Duration::from_secs(10), self.done).await.unwrap().unwrap().0
+        timeout(Duration::from_secs(10), self.done)
+            .await
+            .unwrap()
+            .unwrap()
+            .0
     }
 }
 
@@ -678,7 +803,12 @@ async fn oversized_manifest_rejected_up_front() {
         resume: false,
     })
     .await;
-    assert_eq!(raw.reply().await, Some(ControlMsg::Reject { code: K::LimitExceeded }));
+    assert_eq!(
+        raw.reply().await,
+        Some(ControlMsg::Reject {
+            code: K::LimitExceeded
+        })
+    );
 }
 
 /// Manifest bytes that don't match the offered digest (PT-017).
@@ -687,7 +817,12 @@ async fn manifest_digest_mismatch_rejected() {
     let mut raw = raw_link(limits()).await;
     let enc = one_file(1).encode();
     raw.offer_raw(&enc, [7; 32], 1).await;
-    assert_eq!(raw.reply().await, Some(ControlMsg::Reject { code: K::ManifestInvalid }));
+    assert_eq!(
+        raw.reply().await,
+        Some(ControlMsg::Reject {
+            code: K::ManifestInvalid
+        })
+    );
 }
 
 /// PT-002: unsupported protocol version.
@@ -709,7 +844,11 @@ async fn data_stream_without_accepted_offer_is_refused() {
     let router = Router::default();
     let (a, b) = tokio::io::duplex(1024);
     let (_c, cut) = watch::channel(false);
-    let mut sender = Framed::new(Box::new(MemStream { io: a, cut: cut.clone(), hook: None }));
+    let mut sender = Framed::new(Box::new(MemStream {
+        io: a,
+        cut: cut.clone(),
+        hook: None,
+    }));
     sender
         .send(&StreamHeader {
             magic: STREAM_MAGIC,
@@ -720,7 +859,14 @@ async fn data_stream_without_accepted_offer_is_refused() {
         .await
         .unwrap();
     let routed = router
-        .route(Box::new(MemStream { io: b, cut, hook: None }), Duration::from_secs(1))
+        .route(
+            Box::new(MemStream {
+                io: b,
+                cut,
+                hook: None,
+            }),
+            Duration::from_secs(1),
+        )
         .await;
     assert!(matches!(routed, Routed::Refused));
 }
@@ -741,8 +887,18 @@ async fn unknown_control_messages() {
         })
         .await
         .unwrap();
-    raw.rec(DataRecord::Chunk { entry: 0, offset: 0, bytes: content.clone() }).await;
-    raw.rec(DataRecord::EntryEnd { entry: 0, size: 5, sha256: digest(&content) }).await;
+    raw.rec(DataRecord::Chunk {
+        entry: 0,
+        offset: 0,
+        bytes: content.clone(),
+    })
+    .await;
+    raw.rec(DataRecord::EntryEnd {
+        entry: 0,
+        size: 5,
+        sha256: digest(&content),
+    })
+    .await;
     let sink = raw.sink.clone();
     assert_eq!(raw.outcome().await, Outcome::Completed);
     assert_eq!(sink.visible()["f"], Some(content));
@@ -776,7 +932,11 @@ async fn violation_case(records: Vec<DataRecord>, size: u64) -> (Outcome, MemSin
 /// oversized chunks fail the transfer; nothing is finalized.
 #[tokio::test(flavor = "multi_thread")]
 async fn invalid_data_records_fail_the_transfer() {
-    let chunk = |entry, offset, n| DataRecord::Chunk { entry, offset, bytes: vec![1; n] };
+    let chunk = |entry, offset, n| DataRecord::Chunk {
+        entry,
+        offset,
+        bytes: vec![1; n],
+    };
     let cases = vec![
         vec![chunk(5, 0, 10)],
         vec![chunk(0, 3, 10)],
@@ -797,8 +957,16 @@ async fn invalid_data_records_fail_the_transfer() {
 async fn sender_exceeding_declared_size_is_cut_off() {
     let (o, sink) = violation_case(
         vec![
-            DataRecord::Chunk { entry: 0, offset: 0, bytes: vec![1; 10] },
-            DataRecord::Chunk { entry: 0, offset: 10, bytes: vec![1; 10] },
+            DataRecord::Chunk {
+                entry: 0,
+                offset: 0,
+                bytes: vec![1; 10],
+            },
+            DataRecord::Chunk {
+                entry: 0,
+                offset: 10,
+                bytes: vec![1; 10],
+            },
         ],
         15,
     )
@@ -808,8 +976,16 @@ async fn sender_exceeding_declared_size_is_cut_off() {
     // A trailer claiming a different size is refused too.
     let (o, _) = violation_case(
         vec![
-            DataRecord::Chunk { entry: 0, offset: 0, bytes: vec![1; 10] },
-            DataRecord::EntryEnd { entry: 0, size: 10, sha256: digest(&[1; 10]) },
+            DataRecord::Chunk {
+                entry: 0,
+                offset: 0,
+                bytes: vec![1; 10],
+            },
+            DataRecord::EntryEnd {
+                entry: 0,
+                size: 10,
+                sha256: digest(&[1; 10]),
+            },
         ],
         12,
     )
@@ -827,7 +1003,12 @@ async fn stalled_sender_interrupts() {
     .await;
     raw.offer(&one_file(100)).await;
     raw.accept_and_open_data().await;
-    raw.rec(DataRecord::Chunk { entry: 0, offset: 0, bytes: vec![1; 10] }).await;
+    raw.rec(DataRecord::Chunk {
+        entry: 0,
+        offset: 0,
+        bytes: vec![1; 10],
+    })
+    .await;
     let id = raw.id;
     let sink = raw.sink.clone();
     let _keep = raw.router.clone();
@@ -848,7 +1029,10 @@ fn entry_limit_is_exactly_one_hundred_thousand() {
     };
     let at = build(ManifestKind::Folder, files(99_999), &Limits::default()).unwrap();
     assert_eq!(at.entries.len(), 100_000, "the root folder + 99,999 files");
-    assert_eq!(build(ManifestKind::Folder, files(100_000), &Limits::default()), Err(K::LimitExceeded));
+    assert_eq!(
+        build(ManifestKind::Folder, files(100_000), &Limits::default()),
+        Err(K::LimitExceeded)
+    );
 }
 
 /// A sender that ignores the limit and offers 100,001 entries is refused
@@ -857,6 +1041,17 @@ fn entry_limit_is_exactly_one_hundred_thousand() {
 async fn over_limit_entry_count_rejected_up_front() {
     let mut raw = raw_link(limits()).await;
     raw.header(StreamRole::Control, TRANSFER_VERSION).await;
-    raw.ctl(ControlMsg::Offer { digest: [0; 32], manifest_len: 1000, entry_count: 100_001, resume: false }).await;
-    assert_eq!(raw.reply().await, Some(ControlMsg::Reject { code: K::LimitExceeded }));
+    raw.ctl(ControlMsg::Offer {
+        digest: [0; 32],
+        manifest_len: 1000,
+        entry_count: 100_001,
+        resume: false,
+    })
+    .await;
+    assert_eq!(
+        raw.reply().await,
+        Some(ControlMsg::Reject {
+            code: K::LimitExceeded
+        })
+    );
 }

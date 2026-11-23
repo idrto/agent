@@ -134,7 +134,9 @@ impl PeerTransport for JsPeerTransport {
         }
         // Inject directly — avoids a lost pushPeerEvent race that would block
         // forever before Presence WSS is opened.
-        let _ = self.event_tx.send(PeerEvent::LocalDescription { sdp_type, sdp });
+        let _ = self
+            .event_tx
+            .send(PeerEvent::LocalDescription { sdp_type, sdp });
         Ok(())
     }
 
@@ -155,10 +157,7 @@ impl PeerTransport for JsPeerTransport {
             .set_ice_servers
             .call1(&JsValue::NULL, &JsValue::from_str(json))
             .map_err(|e| {
-                IdrError::new(
-                    IdrErrorKind::IceFailed,
-                    format!("set ice servers: {e:?}"),
-                )
+                IdrError::new(IdrErrorKind::IceFailed, format!("set ice servers: {e:?}"))
             })?;
         Ok(())
     }
@@ -225,9 +224,9 @@ pub fn parse_peer_event(value: &JsValue) -> Result<PeerEvent> {
             let data = js_sys::Reflect::get(&obj, &JsValue::from_str("data")).map_err(|e| {
                 IdrError::new(IdrErrorKind::ProtocolError, format!("binary data: {e:?}"))
             })?;
-            let arr: js_sys::Uint8Array = data
-                .dyn_into()
-                .map_err(|_| IdrError::new(IdrErrorKind::ProtocolError, "binary data not Uint8Array"))?;
+            let arr: js_sys::Uint8Array = data.dyn_into().map_err(|_| {
+                IdrError::new(IdrErrorKind::ProtocolError, "binary data not Uint8Array")
+            })?;
             let mut buf = vec![0u8; arr.length() as usize];
             arr.copy_to(&mut buf);
             Ok(PeerEvent::BinaryMessage(buf))

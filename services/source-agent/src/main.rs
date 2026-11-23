@@ -84,41 +84,72 @@ enum TransferCmd {
     },
     /// Transfers and pending offers.
     List,
-    Status { id: String },
+    Status {
+        id: String,
+    },
     /// Accept a pending incoming offer, optionally into a permitted directory.
     Accept {
         id: String,
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    Reject { id: String },
-    Pause { id: String },
-    Resume { id: String },
-    Cancel { id: String },
+    Reject {
+        id: String,
+    },
+    Pause {
+        id: String,
+    },
+    Resume {
+        id: String,
+    },
+    Cancel {
+        id: String,
+    },
     /// Re-send the entries that failed.
-    RetryFailed { id: String },
+    RetryFailed {
+        id: String,
+    },
     /// Peers with a bound session now (who `send --target` can reach).
     Peers,
 }
 
 fn ipc_addr(cfg: &SourceConfig) -> Result<idr_transfer::native::ipc::IpcAddr> {
-    let dir = cfg.daemon.data_dir.clone().unwrap_or_else(|| "source-agent-data".into());
+    let dir = cfg
+        .daemon
+        .data_dir
+        .clone()
+        .unwrap_or_else(|| "source-agent-data".into());
     std::fs::create_dir_all(&dir)?;
-    Ok(idr_transfer::native::ipc::IpcAddr::for_agent("source-agent", &dir)?)
+    Ok(idr_transfer::native::ipc::IpcAddr::for_agent(
+        "source-agent",
+        &dir,
+    )?)
 }
 
 impl TransferCmd {
     fn request(self) -> Result<idr_transfer::native::ipc::Request> {
         use idr_transfer::native::ipc::Request;
-        let abs = |p: PathBuf| std::fs::canonicalize(&p).with_context(|| format!("{}", p.display()));
+        let abs =
+            |p: PathBuf| std::fs::canonicalize(&p).with_context(|| format!("{}", p.display()));
         Ok(match self {
-            TransferCmd::Send { target, files, dirs } => Request::Send {
+            TransferCmd::Send {
                 target,
-                paths: files.into_iter().chain(dirs).map(abs).collect::<Result<_>>()?,
+                files,
+                dirs,
+            } => Request::Send {
+                target,
+                paths: files
+                    .into_iter()
+                    .chain(dirs)
+                    .map(abs)
+                    .collect::<Result<_>>()?,
             },
             TransferCmd::List => Request::List,
             TransferCmd::Status { id } => Request::Status { id },
-            TransferCmd::Accept { id, out } => Request::Accept { id, out: out.map(abs).transpose()? },
+            TransferCmd::Accept { id, out } => Request::Accept {
+                id,
+                out: out.map(abs).transpose()?,
+            },
             TransferCmd::Reject { id } => Request::Reject { id },
             TransferCmd::Pause { id } => Request::Pause { id },
             TransferCmd::Resume { id } => Request::Resume { id },
@@ -130,9 +161,14 @@ impl TransferCmd {
 }
 
 async fn transfer_cmd(cfg: &SourceConfig, json: bool, cmd: TransferCmd) -> Result<()> {
-    let ok = idr_transfer::native::control::run_cli(&ipc_addr(cfg)?, "source-agent", cmd.request()?, json)
-        .await
-        .map_err(anyhow::Error::msg)?;
+    let ok = idr_transfer::native::control::run_cli(
+        &ipc_addr(cfg)?,
+        "source-agent",
+        cmd.request()?,
+        json,
+    )
+    .await
+    .map_err(anyhow::Error::msg)?;
     if !ok {
         idr_telemetry::exit(1);
     }
@@ -148,7 +184,11 @@ async fn main() -> Result<()> {
     let _telemetry = idr_telemetry::init_binary(
         "source-agent",
         env!("CARGO_PKG_VERSION"),
-        idr_telemetry::BinaryDefaults { filter: &cli.log_level, json_stdout: false, files: true },
+        idr_telemetry::BinaryDefaults {
+            filter: &cli.log_level,
+            json_stdout: false,
+            files: true,
+        },
     )
     .context("init telemetry")?;
 
@@ -196,13 +236,16 @@ async fn main() -> Result<()> {
             let identity = load_identity(&cfg, cli.identity.as_deref())?;
             let factory = runtime_factory(&cfg, identity.clone()).await?;
             if !(cfg.file_transfer.enabled && !cfg.daemon.targets.is_empty()) {
-                info!("source-agent running (no [daemon].targets with [file_transfer] enabled; idle)");
+                info!(
+                    "source-agent running (no [daemon].targets with [file_transfer] enabled; idle)"
+                );
                 if service {
                     tokio::signal::ctrl_c().await?;
                 }
                 return Ok(());
             }
-            let id = identity.context("[file_transfer] needs a DP identity ([dp].identity_path)")?;
+            let id =
+                identity.context("[file_transfer] needs a DP identity ([dp].identity_path)")?;
             let me = source_agent::config::local_identity(&id)?;
             let roots = source_agent::config::entity_roots(&cfg.file_transfer, &me)?;
             let mut policy = if cfg.file_transfer.interactive {
@@ -210,13 +253,17 @@ async fn main() -> Result<()> {
             } else {
                 idr_transfer::policy::ReceivePolicy::headless()
             };
-            policy.lease = idr_transfer::policy::lease_from_minutes(cfg.file_transfer.lease_minutes);
+            policy.lease =
+                idr_transfer::policy::lease_from_minutes(cfg.file_transfer.lease_minutes);
             for p in &cfg.file_transfer.peers {
-                policy.peers.insert(p.ski.clone(), idr_transfer::policy::PeerRule {
-                    auto_accept: p.auto_accept,
-                    auto_accept_max_bytes: p.auto_accept_max_bytes,
-                    ..Default::default()
-                });
+                policy.peers.insert(
+                    p.ski.clone(),
+                    idr_transfer::policy::PeerRule {
+                        auto_accept: p.auto_accept,
+                        auto_accept_max_bytes: p.auto_accept_max_bytes,
+                        ..Default::default()
+                    },
+                );
             }
             let receive_dir = cfg
                 .file_transfer
@@ -225,7 +272,11 @@ async fn main() -> Result<()> {
                 .context("[file_transfer].receive_dir is required")?;
             let daemon = source_agent::daemon::Daemon::start(
                 source_agent::daemon::DaemonConfig {
-                    data_dir: cfg.daemon.data_dir.clone().unwrap_or_else(|| "source-agent-data".into()),
+                    data_dir: cfg
+                        .daemon
+                        .data_dir
+                        .clone()
+                        .unwrap_or_else(|| "source-agent-data".into()),
                     targets: cfg.daemon.targets.clone(),
                     identity: std::sync::Arc::new(me),
                     roots,
@@ -241,7 +292,10 @@ async fn main() -> Result<()> {
                 },
                 factory,
             )?;
-            info!(targets = cfg.daemon.targets.len(), "source-agent daemon running (ctrl-c to stop)");
+            info!(
+                targets = cfg.daemon.targets.len(),
+                "source-agent daemon running (ctrl-c to stop)"
+            );
             tokio::signal::ctrl_c().await?;
             daemon.shutdown().await;
             info!("source-agent stopped");
@@ -278,7 +332,10 @@ fn load_identity(
     cfg: &SourceConfig,
     identity_override: Option<&std::path::Path>,
 ) -> Result<Option<idr_dp::DeviceIdentity>> {
-    let Some(path) = identity_override.map(PathBuf::from).or_else(|| cfg.dp.identity_path.clone()) else {
+    let Some(path) = identity_override
+        .map(PathBuf::from)
+        .or_else(|| cfg.dp.identity_path.clone())
+    else {
         return Ok(None);
     };
     let id = FileSecretStore::new(&path).load_identity()?;
@@ -300,7 +357,11 @@ async fn runtime_factory(
         discovery_key_b64: cfg.presence.discovery_key.clone(),
         timeout: Duration::from_secs(cfg.presence.connect_timeout_seconds),
     })?;
-    let servers = discovery.fetch().await.context("presence discovery")?.presence_servers;
+    let servers = discovery
+        .fetch()
+        .await
+        .context("presence discovery")?
+        .presence_servers;
     let pep_cfg = PepClientConfig {
         prefer_quic: cfg.presence.prefer_quic,
         connect_timeout: Duration::from_secs(cfg.presence.connect_timeout_seconds),
@@ -308,7 +369,10 @@ async fn runtime_factory(
         insecure_dev: cfg.presence.discovery_key.is_empty(),
         ..PepClientConfig::default()
     };
-    let (source_id, region) = (cfg.source.source_id.clone(), cfg.source.source_region.clone());
+    let (source_id, region) = (
+        cfg.source.source_id.clone(),
+        cfg.source.source_region.clone(),
+    );
     Ok(std::sync::Arc::new(move || {
         // The device proves itself in each session request (`source_proof`), as the
         // engine does; Presence doesn't accept PepClient's in-band credential frame.

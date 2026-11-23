@@ -52,13 +52,12 @@ impl DiscoveryService {
                 warn!(event = "presence.discovery_key_empty_insecure_dev_skipping");
                 return Ok(None);
             }
-            anyhow::bail!(
-                "presence.discovery_key is required unless presence.insecure_dev = true"
-            );
+            anyhow::bail!("presence.discovery_key is required unless presence.insecure_dev = true");
         }
-        Ok(Some(KeyPair::from_base64url_public(&cfg.discovery_key).map_err(
-            |e| anyhow::anyhow!("invalid discovery key: {e}"),
-        )?))
+        Ok(Some(
+            KeyPair::from_base64url_public(&cfg.discovery_key)
+                .map_err(|e| anyhow::anyhow!("invalid discovery key: {e}"))?,
+        ))
     }
 
     fn load_cache(&self) {
@@ -69,7 +68,9 @@ impl DiscoveryService {
                         *self.cached.write() = Some(doc);
                     }
                 }
-                Err(err) => warn!(event = "presence.discovery_cache_unusable", error.message = %err),
+                Err(err) => {
+                    warn!(event = "presence.discovery_cache_unusable", error.message = %err)
+                }
             }
         }
     }
@@ -133,7 +134,11 @@ impl DiscoveryService {
             .send(StorageCommand::UpsertDiscoveryCache(row))
             .await;
 
-        info!(event = "presence.discovery_document_fetched", generation = doc.generation, servers = doc.presence_servers.len());
+        info!(
+            event = "presence.discovery_document_fetched",
+            generation = doc.generation,
+            servers = doc.presence_servers.len()
+        );
         Ok(doc)
     }
 
@@ -145,9 +150,7 @@ impl DiscoveryService {
 fn verify_discovery_signature(bytes: &[u8], key: &VerifyingKey) -> Result<()> {
     // Full schema: verify via typed document (includes valid_until expiry).
     if let Ok(doc) = serde_json::from_slice::<PresenceDiscoveryDocument>(bytes) {
-        return doc
-            .verify(key)
-            .map_err(|e| anyhow::anyhow!("{e}"));
+        return doc.verify(key).map_err(|e| anyhow::anyhow!("{e}"));
     }
 
     // Live slim schema: try empty-string signature field, then omitted field.

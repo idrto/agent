@@ -206,19 +206,29 @@ pub enum ControlMsg {
         /// Continuing a transfer id the receiver may already hold state for.
         resume: bool,
     },
-    ManifestChunk { bytes: Vec<u8> },
-    Accept { resume: Vec<ResumePoint> },
-    Reject { code: TransferErrorKind },
+    ManifestChunk {
+        bytes: Vec<u8>,
+    },
+    Accept {
+        resume: Vec<ResumePoint>,
+    },
+    Reject {
+        code: TransferErrorKind,
+    },
     Pause,
     Resume,
-    Cancel { code: TransferErrorKind },
+    Cancel {
+        code: TransferErrorKind,
+    },
     /// Receiver → sender: an entry was verified and committed (`code` None) or failed.
     EntryResult {
         entry: u32,
         code: Option<TransferErrorKind>,
     },
     /// Receiver → sender: every entry is resolved. `code` None means Completed.
-    Done { code: Option<TransferErrorKind> },
+    Done {
+        code: Option<TransferErrorKind>,
+    },
 }
 
 impl ControlMsg {
@@ -254,8 +264,8 @@ impl ControlMsg {
                 Ok(None)
             };
         }
-        let msg: Self = postcard::from_bytes(&frame.body)
-            .map_err(|_| TransferErrorKind::ProtocolViolation)?;
+        let msg: Self =
+            postcard::from_bytes(&frame.body).map_err(|_| TransferErrorKind::ProtocolViolation)?;
         if msg.msg_type() != frame.msg_type {
             return Err(TransferErrorKind::ProtocolViolation);
         }

@@ -216,10 +216,7 @@ impl GatewayServiceConfig {
                 anyhow::bail!("inject_headers entry missing name");
             }
             if h.from_env.is_none() && h.from_file.is_none() {
-                anyhow::bail!(
-                    "inject_headers {} needs from_env or from_file",
-                    h.name
-                );
+                anyhow::bail!("inject_headers {} needs from_env or from_file", h.name);
             }
         }
         Ok(())
@@ -764,9 +761,8 @@ impl Config {
             }
         }
         if let Some(path) = &self.auth.entitlement_jwt_path {
-            let raw = std::fs::read_to_string(path).with_context(|| {
-                format!("read entitlement JWT from {}", path.display())
-            })?;
+            let raw = std::fs::read_to_string(path)
+                .with_context(|| format!("read entitlement JWT from {}", path.display()))?;
             let t = raw.trim();
             if t.is_empty() {
                 anyhow::bail!("entitlement JWT file empty: {}", path.display());

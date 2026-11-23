@@ -20,13 +20,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch, Notify};
 
 use super::files::NativeFiles;
+use super::sink::NativeSink;
 use crate::events::{Command, Outcome, Progress, TransferEvent};
 use crate::io::Framed;
 use crate::manifest::OfferSummary;
-use crate::policy::SendPolicy;
 use crate::policy::Prompt;
+use crate::policy::SendPolicy;
 use crate::storage::{Consent, OfferInfo, Sink, StreamOpener};
-use super::sink::NativeSink;
 use crate::{receive, send, Limits, Outgoing, Router};
 
 /// How to reopen an outgoing transfer's files, now or after a restart.
@@ -142,8 +142,21 @@ struct Entry {
 }
 
 impl Entry {
-    fn new(info: TransferInfo, manifest: Option<Manifest>, files: Option<FilesSpec>, cmds: Option<mpsc::Sender<Command>>) -> Self {
-        Self { info, manifest, files, cmds, wake: Arc::new(Notify::new()), failed: HashMap::new(), renamed: HashMap::new() }
+    fn new(
+        info: TransferInfo,
+        manifest: Option<Manifest>,
+        files: Option<FilesSpec>,
+        cmds: Option<mpsc::Sender<Command>>,
+    ) -> Self {
+        Self {
+            info,
+            manifest,
+            files,
+            cmds,
+            wake: Arc::new(Notify::new()),
+            failed: HashMap::new(),
+            renamed: HashMap::new(),
+        }
     }
 }
 
@@ -171,7 +184,14 @@ pub struct Manager {
 }
 
 /// Outbox row: id, direction, peer, manifest, files, state.
-type Row = (Vec<u8>, i64, String, Option<Vec<u8>>, Option<Vec<u8>>, String);
+type Row = (
+    Vec<u8>,
+    i64,
+    String,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    String,
+);
 /// A transfer's command channel (while running), state and wake-up.
 type Handles = (Option<mpsc::Sender<Command>>, State, Arc<Notify>);
 
@@ -182,7 +202,11 @@ fn hex(id: &TransferId) -> String {
 impl Manager {
     /// Open (or create) the outbox in `data_dir` and resume unfinished outgoing
     /// transfers once their peers' sessions are published with [`Manager::set_link`].
-    pub fn open(data_dir: &Path, limits: Limits, send_policy: SendPolicy) -> rusqlite::Result<Arc<Self>> {
+    pub fn open(
+        data_dir: &Path,
+        limits: Limits,
+        send_policy: SendPolicy,
+    ) -> rusqlite::Result<Arc<Self>> {
         let conn = Connection::open(data_dir.join("transfers.db"))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.execute_batch(
@@ -212,20 +236,39 @@ impl Manager {
     fn restore(self: &Arc<Self>) -> rusqlite::Result<()> {
         let rows: Vec<Row> = {
             let db = self.db.lock().unwrap();
-            let mut st = db.prepare("SELECT id, direction, peer, manifest, files, state FROM transfer")?;
-            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
+            let mut st =
+                db.prepare("SELECT id, direction, peer, manifest, files, state FROM transfer")?;
+            let rows = st.query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            })?;
             rows.collect::<rusqlite::Result<_>>()?
         };
         for (id, dir, peer, manifest, files, state) in rows {
-            let Ok(id) = TransferId::try_from(id.as_slice()) else { continue };
+            let Ok(id) = TransferId::try_from(id.as_slice()) else {
+                continue;
+            };
             let manifest: Option<Manifest> = manifest.and_then(|b| postcard::from_bytes(&b).ok());
             let files: Option<FilesSpec> = files.and_then(|b| postcard::from_bytes(&b).ok());
-            let direction = if dir == 0 { Direction::Outgoing } else { Direction::Incoming };
+            let direction = if dir == 0 {
+                Direction::Outgoing
+            } else {
+                Direction::Incoming
+            };
             let mut state = State::parse(&state);
             if direction == Direction::Incoming && !state.is_done() {
                 state = State::Waiting(TransferErrorKind::TransportClosed);
             }
-            let resumable = direction == Direction::Outgoing && !state.is_done() && manifest.is_some() && files.is_some();
+            let resumable = direction == Direction::Outgoing
+                && !state.is_done()
+                && manifest.is_some()
+                && files.is_some();
             let summary = manifest.as_ref().map(OfferSummary::of);
             // Totals from the manifest; a completed transfer is all done (live counts aren't stored).
             let mut progress = Progress::default();
@@ -237,12 +280,23 @@ impl Manager {
                     progress.files_done = s.files;
                 }
             }
-            self.entries.lock().unwrap().insert(id, Entry::new(
-                TransferInfo { id, direction, peer, summary, state, progress, path: None },
-                manifest,
-                files,
-                None,
-            ));
+            self.entries.lock().unwrap().insert(
+                id,
+                Entry::new(
+                    TransferInfo {
+                        id,
+                        direction,
+                        peer,
+                        summary,
+                        state,
+                        progress,
+                        path: None,
+                    },
+                    manifest,
+                    files,
+                    None,
+                ),
+            );
             if resumable {
                 tokio::spawn(self.clone().run_outgoing(id, true));
             }
@@ -282,11 +336,19 @@ impl Manager {
     /// Signalled when one of `peer`'s transfers stopped because its
     /// authorization ended: the agent should re-authorize (new session).
     pub fn reauth_needed(&self, peer: &str) -> Arc<Notify> {
-        self.reauth.lock().unwrap().entry(peer.to_string()).or_default().clone()
+        self.reauth
+            .lock()
+            .unwrap()
+            .entry(peer.to_string())
+            .or_default()
+            .clone()
     }
 
     fn note_auth_stop(&self, peer: &str, outcome: &Outcome) {
-        if let Outcome::Interrupted(TransferErrorKind::AuthorizationExpired | TransferErrorKind::Unauthorized) = outcome {
+        if let Outcome::Interrupted(
+            TransferErrorKind::AuthorizationExpired | TransferErrorKind::Unauthorized,
+        ) = outcome
+        {
             self.reauth_needed(peer).notify_one();
         }
     }
@@ -331,7 +393,13 @@ impl Manager {
     }
 
     pub fn list(&self) -> Vec<TransferInfo> {
-        let mut v: Vec<_> = self.entries.lock().unwrap().values().map(|e| e.info.clone()).collect();
+        let mut v: Vec<_> = self
+            .entries
+            .lock()
+            .unwrap()
+            .values()
+            .map(|e| e.info.clone())
+            .collect();
         v.sort_by_key(|i| i.id);
         v
     }
@@ -341,7 +409,13 @@ impl Manager {
     }
 
     /// Queue an outgoing transfer. It starts once `peer`'s session is up.
-    pub fn send(self: &Arc<Self>, peer: &str, transfer_id: TransferId, manifest: Manifest, files: FilesSpec) -> TransferId {
+    pub fn send(
+        self: &Arc<Self>,
+        peer: &str,
+        transfer_id: TransferId,
+        manifest: Manifest,
+        files: FilesSpec,
+    ) -> TransferId {
         let info = TransferInfo {
             id: transfer_id,
             direction: Direction::Outgoing,
@@ -351,7 +425,10 @@ impl Manager {
             progress: Progress::default(),
             path: None,
         };
-        self.entries.lock().unwrap().insert(transfer_id, Entry::new(info, Some(manifest), Some(files), None));
+        self.entries.lock().unwrap().insert(
+            transfer_id,
+            Entry::new(info, Some(manifest), Some(files), None),
+        );
         self.persist(&transfer_id);
         tokio::spawn(self.clone().run_outgoing(transfer_id, false));
         transfer_id
@@ -408,7 +485,10 @@ impl Manager {
     /// Re-run failed or interrupted entries of a finished outgoing transfer.
     pub fn retry(self: &Arc<Self>, id: &TransferId) -> Result<(), TransferErrorKind> {
         let state = self.cmd(id)?.1;
-        if !matches!(state, State::Done(Outcome::CompletedWithErrors { .. }) | State::Done(Outcome::Failed(_))) {
+        if !matches!(
+            state,
+            State::Done(Outcome::CompletedWithErrors { .. }) | State::Done(Outcome::Failed(_))
+        ) {
             return Err(TransferErrorKind::Rejected);
         }
         self.set_state(id, State::Queued);
@@ -422,7 +502,10 @@ impl Manager {
             let rx = self.links.lock().unwrap().get(peer).cloned();
             if let Some(mut rx) = rx {
                 let got = rx
-                    .wait_for(|l| l.as_ref().is_some_and(|l| newer_than.map_or(true, |g| l.generation() > g)))
+                    .wait_for(|l| {
+                        l.as_ref()
+                            .is_some_and(|l| newer_than.map_or(true, |g| l.generation() > g))
+                    })
                     .await
                     .ok()
                     .and_then(|l| l.clone());
@@ -441,7 +524,13 @@ impl Manager {
             let (state, wake, peer, manifest, spec) = {
                 let entries = self.entries.lock().unwrap();
                 let Some(e) = entries.get(&id) else { return };
-                (e.info.state.clone(), e.wake.clone(), e.info.peer.clone(), e.manifest.clone(), e.files.clone())
+                (
+                    e.info.state.clone(),
+                    e.wake.clone(),
+                    e.info.peer.clone(),
+                    e.manifest.clone(),
+                    e.files.clone(),
+                )
             };
             if state.is_done() {
                 return;
@@ -453,7 +542,9 @@ impl Manager {
                 }
                 continue;
             }
-            let (Some(manifest), Some(spec)) = (manifest, spec) else { return };
+            let (Some(manifest), Some(spec)) = (manifest, spec) else {
+                return;
+            };
             // A retry on the same session waits a little; a new session goes at once.
             let link = tokio::select! {
                 l = self.link_for(&peer, last_gen) => l,
@@ -467,7 +558,10 @@ impl Manager {
             let files = match spec.open() {
                 Ok(f) => f,
                 Err(_) => {
-                    self.set_state(&id, State::Done(Outcome::Failed(TransferErrorKind::SourceReadFailed)));
+                    self.set_state(
+                        &id,
+                        State::Done(Outcome::Failed(TransferErrorKind::SourceReadFailed)),
+                    );
                     return;
                 }
             };
@@ -479,7 +573,12 @@ impl Manager {
             }
             let (ev_tx, ev_rx) = mpsc::unbounded_channel();
             let resumed = resume;
-            let req = Outgoing { transfer_id: id, manifest, files, resume };
+            let req = Outgoing {
+                transfer_id: id,
+                manifest,
+                files,
+                resume,
+            };
             let mut opener = link.opener();
             let (outcome, ()) = tokio::join!(
                 send(&mut *opener, req, &self.limits, ev_tx, cmd_rx),
@@ -504,7 +603,8 @@ impl Manager {
                 // 30 s, 60 s… keeps refusals per rate window under the cool-off count.
                 Outcome::Rejected(TransferErrorKind::LimitExceeded) if resumed => {
                     self.set_state(&id, State::Waiting(TransferErrorKind::LimitExceeded));
-                    limit_backoff = (limit_backoff * 2).clamp(Duration::from_secs(15), Duration::from_secs(60));
+                    limit_backoff =
+                        (limit_backoff * 2).clamp(Duration::from_secs(15), Duration::from_secs(60));
                     tokio::time::sleep(limit_backoff).await;
                     last_gen = None;
                 }
@@ -553,12 +653,23 @@ impl Manager {
         // The peer reconnected while an older attempt still runs on a session that
         // hasn't noticed it left; that attempt holds the transfer's files. Stop it
         // (and its consent prompt) and wait until its storage is closed.
-        let older = self.entries.lock().unwrap().get(&id).and_then(|e| e.cmds.clone());
+        let older = self
+            .entries
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|e| e.cmds.clone());
         if let Some(older) = older {
             let _ = older.try_send(Command::Supersede);
             self.pending.lock().unwrap().remove(&id);
         }
-        let turn = self.receiving.lock().unwrap().entry(id).or_default().clone();
+        let turn = self
+            .receiving
+            .lock()
+            .unwrap()
+            .entry(id)
+            .or_default()
+            .clone();
         let _turn = turn.lock_owned().await;
         let (cmd_tx, cmd_rx) = mpsc::channel(8);
         {
@@ -587,7 +698,16 @@ impl Manager {
         self.persist(&id);
         let (ev_tx, ev_rx) = mpsc::unbounded_channel();
         let (outcome, ()) = tokio::join!(
-            receive(router, header, control, &mut sink, consent, &self.limits, ev_tx, cmd_rx),
+            receive(
+                router,
+                header,
+                control,
+                &mut sink,
+                consent,
+                &self.limits,
+                ev_tx,
+                cmd_rx
+            ),
             self.track(id, ev_rx),
         );
         drop(sink);
@@ -606,22 +726,40 @@ impl Manager {
     /// A [`Prompt`] that parks an offer as `Pending` until [`Manager::accept`] or
     /// [`Manager::reject`], or refuses it after `expiry`.
     pub fn prompt(self: &Arc<Self>, expiry: Duration) -> Box<dyn Prompt> {
-        Box::new(ManagerPrompt { manager: self.clone(), expiry })
+        Box::new(ManagerPrompt {
+            manager: self.clone(),
+            expiry,
+        })
     }
 
     /// Accept a pending offer, optionally into `out` (which must be within `permitted`).
-    pub fn accept(&self, id: &TransferId, out: Option<PathBuf>, permitted: &[PathBuf]) -> Result<(), TransferErrorKind> {
+    pub fn accept(
+        &self,
+        id: &TransferId,
+        out: Option<PathBuf>,
+        permitted: &[PathBuf],
+    ) -> Result<(), TransferErrorKind> {
         if let Some(dir) = &out {
             let dest = super::resolve_destination(permitted, dir)?;
             self.destinations.lock().unwrap().insert(*id, dest);
         }
-        let tx = self.pending.lock().unwrap().remove(id).ok_or(TransferErrorKind::Rejected)?;
+        let tx = self
+            .pending
+            .lock()
+            .unwrap()
+            .remove(id)
+            .ok_or(TransferErrorKind::Rejected)?;
         let _ = tx.send(true);
         Ok(())
     }
 
     pub fn reject(&self, id: &TransferId) -> Result<(), TransferErrorKind> {
-        let tx = self.pending.lock().unwrap().remove(id).ok_or(TransferErrorKind::Rejected)?;
+        let tx = self
+            .pending
+            .lock()
+            .unwrap()
+            .remove(id)
+            .ok_or(TransferErrorKind::Rejected)?;
         let _ = tx.send(false);
         Ok(())
     }
@@ -631,7 +769,11 @@ impl Manager {
     pub fn entries_json(&self, id: &TransferId, first: u32, max: u32) -> Option<serde_json::Value> {
         let entries = self.entries.lock().unwrap();
         let e = entries.get(id)?;
-        let all = e.manifest.as_ref().map(|m| m.entries.as_slice()).unwrap_or(&[]);
+        let all = e
+            .manifest
+            .as_ref()
+            .map(|m| m.entries.as_slice())
+            .unwrap_or(&[]);
         let batch: Vec<_> = all
             .iter()
             .skip(first as usize)
@@ -669,7 +811,11 @@ impl Prompt for ManagerPrompt {
         // for the same peer) with this exact manifest: resuming needs no new consent.
         if offer.resume {
             let entries = self.manager.entries.lock().unwrap();
-            if entries.get(&id).and_then(|e| e.manifest.as_ref()).is_some_and(|m| Manifest::digest_of(&m.encode()) == *offer.digest) {
+            if entries
+                .get(&id)
+                .and_then(|e| e.manifest.as_ref())
+                .is_some_and(|m| Manifest::digest_of(&m.encode()) == *offer.digest)
+            {
                 return true;
             }
         }
@@ -679,7 +825,10 @@ impl Prompt for ManagerPrompt {
             e.info.state = State::Pending;
             e.info.summary = Some(offer.summary.clone());
         }
-        let _ = self.manager.events.send((id, TransferEvent::AwaitingDecision));
+        let _ = self
+            .manager
+            .events
+            .send((id, TransferEvent::AwaitingDecision));
         let yes = matches!(tokio::time::timeout(self.expiry, rx).await, Ok(Ok(true)));
         self.manager.pending.lock().unwrap().remove(&id);
         if let Some(e) = self.manager.entries.lock().unwrap().get_mut(&id) {
@@ -699,7 +848,11 @@ pub struct DeferredSink {
 
 impl DeferredSink {
     pub fn new(manager: Arc<Manager>, default: PathBuf) -> Self {
-        Self { manager, default, inner: None }
+        Self {
+            manager,
+            default,
+            inner: None,
+        }
     }
 
     fn inner(&mut self) -> crate::storage::Result<&mut NativeSink> {
@@ -709,7 +862,12 @@ impl DeferredSink {
 
 #[async_trait::async_trait]
 impl Sink for DeferredSink {
-    async fn prepare(&mut self, id: &TransferId, digest: &idr_protocol::transfer::Sha256Digest, manifest: &Manifest) -> crate::storage::Result<Vec<idr_protocol::transfer::ResumePoint>> {
+    async fn prepare(
+        &mut self,
+        id: &TransferId,
+        digest: &idr_protocol::transfer::Sha256Digest,
+        manifest: &Manifest,
+    ) -> crate::storage::Result<Vec<idr_protocol::transfer::ResumePoint>> {
         if let Some(e) = self.manager.entries.lock().unwrap().get_mut(id) {
             e.manifest.get_or_insert_with(|| manifest.clone());
         }
@@ -728,7 +886,12 @@ impl Sink for DeferredSink {
     async fn create_dir(&mut self, entry: u32) -> crate::storage::Result<()> {
         self.inner()?.create_dir(entry).await
     }
-    async fn read_partial(&mut self, entry: u32, offset: u64, buf: &mut [u8]) -> crate::storage::Result<usize> {
+    async fn read_partial(
+        &mut self,
+        entry: u32,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> crate::storage::Result<usize> {
         self.inner()?.read_partial(entry, offset, buf).await
     }
     async fn write(&mut self, entry: u32, offset: u64, bytes: &[u8]) -> crate::storage::Result<()> {
@@ -753,7 +916,10 @@ impl Sink for DeferredSink {
         }
     }
     fn take_renamed(&mut self) -> Vec<(u32, String)> {
-        self.inner.as_mut().map(|s| s.take_renamed()).unwrap_or_default()
+        self.inner
+            .as_mut()
+            .map(|s| s.take_renamed())
+            .unwrap_or_default()
     }
 }
 

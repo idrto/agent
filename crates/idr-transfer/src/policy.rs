@@ -114,7 +114,9 @@ pub const MIN_LEASE: Duration = Duration::from_secs(5 * 60);
 
 /// The lease from a `lease_minutes` setting: 15 min by default, never below [`MIN_LEASE`].
 pub fn lease_from_minutes(minutes: Option<u64>) -> Duration {
-    minutes.map_or(Duration::from_secs(15 * 60), |m| Duration::from_secs(m.saturating_mul(60)).max(MIN_LEASE))
+    minutes.map_or(Duration::from_secs(15 * 60), |m| {
+        Duration::from_secs(m.saturating_mul(60)).max(MIN_LEASE)
+    })
 }
 
 /// Asks the local user about an offer (interactive endpoints).
@@ -170,7 +172,11 @@ impl PolicyEngine {
 
     /// Consent for offers on one session. `peer` is the result of the binding
     /// exchange; `None` (anonymous, unverified, binding failed) refuses everything.
-    pub fn consent(&self, peer: Option<VerifiedPeer>, prompt: Option<Box<dyn Prompt>>) -> PeerConsent {
+    pub fn consent(
+        &self,
+        peer: Option<VerifiedPeer>,
+        prompt: Option<Box<dyn Prompt>>,
+    ) -> PeerConsent {
         PeerConsent {
             engine: self.clone(),
             peer,
@@ -187,12 +193,22 @@ impl PolicyEngine {
 
     /// Bytes currently reserved by incomplete incoming transfers.
     pub fn reserved_bytes(&self) -> u64 {
-        self.state.lock().unwrap().reserved.values().map(|(_, b)| b).sum()
+        self.state
+            .lock()
+            .unwrap()
+            .reserved
+            .values()
+            .map(|(_, b)| b)
+            .sum()
     }
 
     /// Admission checks before asking anyone. On success one concurrency slot is
     /// held for this peer.
-    fn admit(&self, peer: &VerifiedPeer, s: &OfferSummary) -> Result<Option<Approval>, TransferErrorKind> {
+    fn admit(
+        &self,
+        peer: &VerifiedPeer,
+        s: &OfferSummary,
+    ) -> Result<Option<Approval>, TransferErrorKind> {
         let p = &self.policy;
         if unix_now() > peer.not_after {
             return Err(AuthorizationExpired);
@@ -206,7 +222,10 @@ impl PolicyEngine {
         if ps.cooled_until.is_some_and(|t| now < t) {
             return Err(LimitExceeded);
         }
-        if ps.window_start.is_none_or_elapsed(now, Duration::from_secs(60)) {
+        if ps
+            .window_start
+            .is_none_or_elapsed(now, Duration::from_secs(60))
+        {
             ps.window_start = Some(now);
             ps.offers_in_window = 0;
         }
@@ -215,7 +234,10 @@ impl PolicyEngine {
             return Err(LimitExceeded);
         }
         let rule = p.peers.get(&peer.ski).cloned().unwrap_or_default();
-        let file_cap = rule.max_file_bytes.unwrap_or(u64::MAX).min(p.max_file_bytes);
+        let file_cap = rule
+            .max_file_bytes
+            .unwrap_or(u64::MAX)
+            .min(p.max_file_bytes);
         if s.largest_file > file_cap || s.total_bytes > p.max_transfer_bytes {
             return Err(LimitExceeded);
         }
@@ -226,8 +248,8 @@ impl PolicyEngine {
         if ps.active >= p.max_concurrent_per_peer || st.active_total >= p.max_concurrent_total {
             return Err(LimitExceeded);
         }
-        let auto = rule.auto_accept
-            && s.total_bytes <= rule.auto_accept_max_bytes.unwrap_or(u64::MAX);
+        let auto =
+            rule.auto_accept && s.total_bytes <= rule.auto_accept_max_bytes.unwrap_or(u64::MAX);
         let approval = if auto {
             Some(Approval::Auto)
         } else if p.interactive && p.mode == ConsentMode::AlwaysAsk {
@@ -347,7 +369,10 @@ impl Consent for PeerConsent {
                 Approval::User
             }
         };
-        if let Err(k) = self.engine.reserve(*offer.transfer_id, &peer.ski, offer.summary.total_bytes) {
+        if let Err(k) =
+            self.engine
+                .reserve(*offer.transfer_id, &peer.ski, offer.summary.total_bytes)
+        {
             self.engine.release(None, &peer.ski, false);
             self.admitted = None;
             return Err(k);
@@ -361,8 +386,12 @@ impl Consent for PeerConsent {
         let (Some((id, reserved)), Some(peer)) = (self.admitted.take(), self.peer.as_ref()) else {
             return;
         };
-        let failed = matches!(outcome, Outcome::Failed(TransferErrorKind::ProtocolViolation));
-        self.engine.release(reserved.then_some(&id), &peer.ski, failed);
+        let failed = matches!(
+            outcome,
+            Outcome::Failed(TransferErrorKind::ProtocolViolation)
+        );
+        self.engine
+            .release(reserved.then_some(&id), &peer.ski, failed);
     }
 }
 
@@ -388,7 +417,11 @@ impl Default for SendPolicy {
 impl SendPolicy {
     /// Check before offering. A sender-side confirmation never replaces the
     /// receiver's own decision.
-    pub fn check(&self, peer: Option<&VerifiedPeer>, s: &OfferSummary) -> Result<(), TransferErrorKind> {
+    pub fn check(
+        &self,
+        peer: Option<&VerifiedPeer>,
+        s: &OfferSummary,
+    ) -> Result<(), TransferErrorKind> {
         let peer = peer.ok_or(Unauthorized)?;
         if !self.enabled
             || self
@@ -429,7 +462,9 @@ pub async fn lease_watch<F, Fut>(
             _ = cmds.closed() => return,
         }
         let _ = events.send(TransferEvent::LeaseExpiring {
-            secs_left: until.saturating_duration_since(tokio::time::Instant::now()).as_secs(),
+            secs_left: until
+                .saturating_duration_since(tokio::time::Instant::now())
+                .as_secs(),
         });
         let renewed = tokio::select! {
             r = renew() => r,

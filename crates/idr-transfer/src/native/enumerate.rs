@@ -133,10 +133,25 @@ mod tests {
 
         let root = Dir::open_ambient_dir(t.path(), ambient_authority()).unwrap();
         let e = enumerate(&root, &[vec!["Project".into()]]).unwrap();
-        assert_eq!(paths(&e), ["Project", "Project/README.md", "Project/src", "Project/src/main.rs"]);
+        assert_eq!(
+            paths(&e),
+            [
+                "Project",
+                "Project/README.md",
+                "Project/src",
+                "Project/src/main.rs"
+            ]
+        );
         let expected_skips = if cfg!(unix) { 3 } else { 1 };
         assert_eq!(e.skipped, expected_skips);
-        assert_eq!(e.selected.iter().find(|s| s.path.last().unwrap() == "README.md").unwrap().size, 2);
+        assert_eq!(
+            e.selected
+                .iter()
+                .find(|s| s.path.last().unwrap() == "README.md")
+                .unwrap()
+                .size,
+            2
+        );
 
         // Selecting the link itself is skipped, not followed.
         let e = enumerate(&root, &[vec!["Project".into(), "escape".into()]]).unwrap();
@@ -146,7 +161,11 @@ mod tests {
 
     #[cfg(unix)]
     fn nix_fifo(path: &std::path::Path) {
-        assert!(std::process::Command::new("mkfifo").arg(path).status().unwrap().success());
+        assert!(std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .unwrap()
+            .success());
     }
 
     /// FS-002 / FS-004: selecting subfolders and single files.

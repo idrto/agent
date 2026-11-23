@@ -98,7 +98,9 @@ pub struct SendCredit(Arc<Semaphore>);
 
 impl SendCredit {
     pub fn new(initial: u32) -> Self {
-        Self(Arc::new(Semaphore::new(initial.min(MAX_SEND_CREDIT) as usize)))
+        Self(Arc::new(Semaphore::new(
+            initial.min(MAX_SEND_CREDIT) as usize
+        )))
     }
 
     /// Apply a peer `WindowUpdate`. Credit beyond [`MAX_SEND_CREDIT`] is dropped.

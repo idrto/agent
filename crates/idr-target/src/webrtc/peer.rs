@@ -177,7 +177,11 @@ impl PeerConnectionHandler for ConnectionHandler {
                 .public(PeerEvent::Error("local SDP exceeds limit".into()));
             return;
         }
-        tracing::warn!(event = "webrtc.using_raw_local_sdp_webrtc_sdp", sdp_type = sdp_type, sdp_len = sdp.len());
+        tracing::warn!(
+            event = "webrtc.using_raw_local_sdp_webrtc_sdp",
+            sdp_type = sdp_type,
+            sdp_len = sdp.len()
+        );
         self.sink
             .public(PeerEvent::LocalDescription(LocalDescription {
                 sdp_type: sdp_type.into(),
@@ -372,7 +376,10 @@ impl NativePeerSession {
             if dropped != 0 {
                 // A dropped message is lost stream data: end the session. With
                 // flow_credit_v1 a compliant peer can't get here (queue sizing).
-                warn!(event = "webrtc.webrtc_callback_queue_overflow", dropped = dropped);
+                warn!(
+                    event = "webrtc.webrtc_callback_queue_overflow",
+                    dropped = dropped
+                );
                 return Ok(PeerEvent::ConnectionFailed(format!(
                     "callback queue overflow dropped={dropped}"
                 )));

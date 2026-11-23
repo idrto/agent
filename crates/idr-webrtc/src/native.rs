@@ -17,10 +17,10 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use idr_core::error::{IdrError, IdrErrorKind, Result};
+use idr_protocol::stream_mux::DC_EVENT_QUEUE_CAPACITY;
 use idr_protocol::webrtc_ice::{
     IceServer, IceTransportPolicy, STUN_GOOGLE, WEBRTC_DC_LABEL, WEBRTC_DC_PROTOCOL,
 };
-use idr_protocol::stream_mux::DC_EVENT_QUEUE_CAPACITY;
 use idr_protocol::{MAX_FRAME_BYTES, MAX_ICE_CANDIDATE_BYTES, MAX_SDP_BYTES};
 
 use crate::transport::{PeerConnectRequest, PeerEvent, PeerRole, PeerTransport};
@@ -340,9 +340,9 @@ impl NativePeer {
     }
 
     fn peer_mut(&mut self) -> Result<&mut RtcPeerConnection<ConnectionHandler>> {
-        self.peer.as_deref_mut().ok_or_else(|| {
-            IdrError::new(IdrErrorKind::TransportClosed, "peer connection closed")
-        })
+        self.peer
+            .as_deref_mut()
+            .ok_or_else(|| IdrError::new(IdrErrorKind::TransportClosed, "peer connection closed"))
     }
 
     fn ensure_offerer_channel(&mut self) -> Result<()> {
@@ -362,7 +362,12 @@ impl NativePeer {
         let mut channel = self
             .peer_mut()?
             .create_data_channel_ex(WEBRTC_DC_LABEL, handler, &dc_init)
-            .map_err(|e| IdrError::new(IdrErrorKind::InternalError, format!("create_data_channel: {e}")))?;
+            .map_err(|e| {
+                IdrError::new(
+                    IdrErrorKind::InternalError,
+                    format!("create_data_channel: {e}"),
+                )
+            })?;
         channel
             .set_buffered_amount_low_threshold(self.config.buffered_amount_low_threshold)
             .map_err(|e| {
@@ -377,14 +382,12 @@ impl NativePeer {
 
     fn map_event(event: InternalEvent) -> PeerEvent {
         match event {
-            InternalEvent::LocalDescription { sdp_type, sdp } => PeerEvent::LocalDescription {
-                sdp_type,
-                sdp,
-            },
-            InternalEvent::LocalCandidate { candidate, mid } => PeerEvent::LocalCandidate {
-                candidate,
-                mid,
-            },
+            InternalEvent::LocalDescription { sdp_type, sdp } => {
+                PeerEvent::LocalDescription { sdp_type, sdp }
+            }
+            InternalEvent::LocalCandidate { candidate, mid } => {
+                PeerEvent::LocalCandidate { candidate, mid }
+            }
             InternalEvent::GatheringComplete => PeerEvent::GatheringComplete,
             InternalEvent::DataChannelOpen => PeerEvent::DataChannelOpen,
             InternalEvent::DataChannelClosed => PeerEvent::DataChannelClosed,
@@ -511,29 +514,23 @@ impl PeerTransport for NativePeer {
     }
 
     async fn create_local_description(&mut self) -> Result<()> {
-        let role = self.role.ok_or_else(|| {
-            IdrError::new(IdrErrorKind::NotInitialized, "peer not started")
-        })?;
+        let role = self
+            .role
+            .ok_or_else(|| IdrError::new(IdrErrorKind::NotInitialized, "peer not started"))?;
         match role {
             PeerRole::Offerer => {
                 self.ensure_offerer_channel()?;
                 self.peer_mut()?
                     .set_local_description(SdpType::Offer)
                     .map_err(|e| {
-                        IdrError::new(
-                            IdrErrorKind::SignalingFailed,
-                            format!("create_offer: {e}"),
-                        )
+                        IdrError::new(IdrErrorKind::SignalingFailed, format!("create_offer: {e}"))
                     })?;
             }
             PeerRole::Answerer => {
                 self.peer_mut()?
                     .set_local_description(SdpType::Answer)
                     .map_err(|e| {
-                        IdrError::new(
-                            IdrErrorKind::SignalingFailed,
-                            format!("create_answer: {e}"),
-                        )
+                        IdrError::new(IdrErrorKind::SignalingFailed, format!("create_answer: {e}"))
                     })?;
             }
         }
@@ -553,14 +550,12 @@ impl PeerTransport for NativePeer {
             candidate: candidate.to_string(),
             mid: mid.to_string(),
         };
-        self.peer_mut()?
-            .add_remote_candidate(&cand)
-            .map_err(|e| {
-                IdrError::new(
-                    IdrErrorKind::IceFailed,
-                    format!("add_remote_candidate: {e}"),
-                )
-            })
+        self.peer_mut()?.add_remote_candidate(&cand).map_err(|e| {
+            IdrError::new(
+                IdrErrorKind::IceFailed,
+                format!("add_remote_candidate: {e}"),
+            )
+        })
     }
 
     fn buffered_amount(&self) -> usize {
@@ -606,7 +601,9 @@ impl PeerTransport for NativePeer {
                         return Ok(PeerEvent::ConnectionFailed);
                     }
                     channel
-                        .set_buffered_amount_low_threshold(self.config.buffered_amount_low_threshold)
+                        .set_buffered_amount_low_threshold(
+                            self.config.buffered_amount_low_threshold,
+                        )
                         .map_err(|e| {
                             IdrError::new(
                                 IdrErrorKind::InternalError,
@@ -667,6 +664,9 @@ mod tests {
     async fn queue_overflow_is_fatal() {
         let mut peer = NativePeer::new(NativePeerConfig::default()).unwrap();
         peer.dropped.store(1, Ordering::Release);
-        assert!(matches!(peer.next_event().await.unwrap(), PeerEvent::ConnectionFailed));
+        assert!(matches!(
+            peer.next_event().await.unwrap(),
+            PeerEvent::ConnectionFailed
+        ));
     }
 }

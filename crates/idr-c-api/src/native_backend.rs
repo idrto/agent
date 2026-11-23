@@ -20,7 +20,9 @@ pub struct NativeBackendConfig {
 }
 
 /// Discovery once; then each call builds a fresh runtime on those Presence servers.
-pub async fn native_factory(cfg: NativeBackendConfig) -> idr_core::Result<idr_source::agent::RuntimeFactory> {
+pub async fn native_factory(
+    cfg: NativeBackendConfig,
+) -> idr_core::Result<idr_source::agent::RuntimeFactory> {
     let mut discovery = DiscoveryClient::new(DiscoveryConfig {
         discovery_url: cfg.discovery_url,
         discovery_key_b64: cfg.discovery_key_b64,

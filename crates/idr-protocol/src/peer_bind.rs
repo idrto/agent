@@ -47,8 +47,15 @@ impl BindRole {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BindMsg {
-    Hello { version: u16, nonce: [u8; 32] },
-    Proof { ski: String, chain_pem: String, signature: Vec<u8> },
+    Hello {
+        version: u16,
+        nonce: [u8; 32],
+    },
+    Proof {
+        ski: String,
+        chain_pem: String,
+        signature: Vec<u8>,
+    },
 }
 
 /// Session facts both peers already agree on.
@@ -94,7 +101,11 @@ pub fn sdp_fingerprint(sdp: &str) -> Option<String> {
     sdp.lines().find_map(|l| {
         let v = l.trim().strip_prefix("a=fingerprint:")?;
         let (alg, fp) = v.split_once(' ')?;
-        Some(format!("{} {}", alg.to_ascii_lowercase(), fp.trim().to_ascii_uppercase()))
+        Some(format!(
+            "{} {}",
+            alg.to_ascii_lowercase(),
+            fp.trim().to_ascii_uppercase()
+        ))
     })
 }
 
@@ -179,7 +190,11 @@ pub fn verify(
                 }
             }
             None => {
-                let root = trust.roots.iter().find(|r| signed_by(cert, r)).ok_or(Untrusted)?;
+                let root = trust
+                    .roots
+                    .iter()
+                    .find(|r| signed_by(cert, r))
+                    .ok_or(Untrusted)?;
                 let (rnb, rna) = validity(root).ok_or(ChainInvalid)?;
                 if trust.now < rnb || trust.now > rna {
                     return Err(Expired);
@@ -252,12 +267,20 @@ fn read_tlv(input: &[u8]) -> Option<(Tlv<'_>, usize)> {
             return None;
         }
         idx += n;
-        input[2..2 + n].iter().fold(0usize, |l, b| (l << 8) | *b as usize)
+        input[2..2 + n]
+            .iter()
+            .fold(0usize, |l, b| (l << 8) | *b as usize)
     };
     if input.len() < idx + len {
         return None;
     }
-    Some((Tlv { tag, value: &input[idx..idx + len] }, idx + len))
+    Some((
+        Tlv {
+            tag,
+            value: &input[idx..idx + len],
+        },
+        idx + len,
+    ))
 }
 
 /// TBSCertificate fields after the optional version: serial, signature,
@@ -373,14 +396,22 @@ const BASIC_CONSTRAINTS_OID: [u8; 5] = [0x06, 0x03, 0x55, 0x1d, 0x13];
 /// `(oid TLV bytes, extnValue contents)` for each extension.
 fn extensions(cert: &[u8]) -> Vec<(&[u8], &[u8])> {
     let mut out = Vec::new();
-    let Some(fields) = tbs_fields(cert) else { return out };
-    let Some(ext) = fields.iter().find(|f| f.tag == 0xa3) else { return out };
-    let Some((seq, _)) = read_tlv(ext.value) else { return out };
+    let Some(fields) = tbs_fields(cert) else {
+        return out;
+    };
+    let Some(ext) = fields.iter().find(|f| f.tag == 0xa3) else {
+        return out;
+    };
+    let Some((seq, _)) = read_tlv(ext.value) else {
+        return out;
+    };
     let mut rest = seq.value;
     while let Some((e, n)) = read_tlv(rest) {
         rest = &rest[n..];
         let mut body = e.value;
-        let Some((_, oid_n)) = read_tlv(body) else { continue };
+        let Some((_, oid_n)) = read_tlv(body) else {
+            continue;
+        };
         let oid = &body[..oid_n];
         body = &body[oid_n..];
         if let Some((b, bn)) = read_tlv(body) {
@@ -414,7 +445,9 @@ fn san_names(cert: &[u8]) -> Vec<(u8, String)> {
         if oid != SAN_OID {
             continue;
         }
-        let Some((names, _)) = read_tlv(value) else { continue };
+        let Some((names, _)) = read_tlv(value) else {
+            continue;
+        };
         let mut r = names.value;
         while let Some((name, nn)) = read_tlv(r) {
             r = &r[nn..];
@@ -428,9 +461,11 @@ fn san_names(cert: &[u8]) -> Vec<(u8, String)> {
 
 /// SKI from the leaf's `urn:dp:ski:` URI SAN.
 pub fn ski_from_leaf(cert: &[u8]) -> Option<String> {
-    san_names(cert)
-        .into_iter()
-        .find_map(|(tag, v)| (tag == 0x86).then(|| v.strip_prefix("urn:dp:ski:").map(String::from)).flatten())
+    san_names(cert).into_iter().find_map(|(tag, v)| {
+        (tag == 0x86)
+            .then(|| v.strip_prefix("urn:dp:ski:").map(String::from))
+            .flatten()
+    })
 }
 
 fn dns_names(cert: &[u8]) -> Vec<String> {
@@ -446,7 +481,12 @@ mod tests {
 
     #[test]
     fn asn1_times() {
-        let t = |tag, s: &str| asn1_time(&Tlv { tag, value: s.as_bytes() });
+        let t = |tag, s: &str| {
+            asn1_time(&Tlv {
+                tag,
+                value: s.as_bytes(),
+            })
+        };
         assert_eq!(t(0x17, "700101000000Z"), Some(0));
         assert_eq!(t(0x17, "260102030405Z"), Some(1_767_323_045));
         assert_eq!(t(0x18, "20491231235959Z"), Some(2_524_607_999));

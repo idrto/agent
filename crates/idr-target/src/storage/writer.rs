@@ -113,7 +113,10 @@ fn flush_batch(storage: &Storage, batch: &mut Vec<StorageCommand>) -> Result<()>
             }
             StorageCommand::PruneExpiredCommands { not_after } => {
                 let n = storage.prune_expired_commands(not_after)?;
-                debug!(event = "target.pruned_expired_processed_commands", pruned = n);
+                debug!(
+                    event = "target.pruned_expired_processed_commands",
+                    pruned = n
+                );
             }
             StorageCommand::Flush => {}
             StorageCommand::Shutdown => {}

@@ -19,7 +19,10 @@ const HEADER_MAX: usize = 64;
 
 pub enum Routed {
     /// A new control stream: hand it to [`crate::receive`].
-    Control { header: StreamHeader, stream: Framed },
+    Control {
+        header: StreamHeader,
+        stream: Framed,
+    },
     /// A data stream, delivered to the receiver waiting for it.
     Data,
     /// Bad header, timeout, or a data stream nobody accepted; already reset.
@@ -34,15 +37,14 @@ pub struct Router {
 impl Router {
     pub async fn route(&self, stream: Box<dyn LogicalStream>, timeout: Duration) -> Routed {
         let mut framed = Framed::new(stream);
-        let header = match tokio::time::timeout(timeout, framed.next::<StreamHeader>(HEADER_MAX))
-            .await
-        {
-            Ok(Ok(Some(h))) if h.magic == STREAM_MAGIC => h,
-            _ => {
-                let _ = framed.stream.reset(0).await;
-                return Routed::Refused;
-            }
-        };
+        let header =
+            match tokio::time::timeout(timeout, framed.next::<StreamHeader>(HEADER_MAX)).await {
+                Ok(Ok(Some(h))) if h.magic == STREAM_MAGIC => h,
+                _ => {
+                    let _ = framed.stream.reset(0).await;
+                    return Routed::Refused;
+                }
+            };
         match header.role {
             StreamRole::Control => Routed::Control {
                 header,

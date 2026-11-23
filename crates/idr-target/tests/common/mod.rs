@@ -13,7 +13,8 @@ use idr_core::{Connector, ConnectorRegistry, NamedService, PeerSession};
 use idr_protocol::signaling::SignalingMessageType;
 use idr_protocol::stream_mux::{StreamKind, StreamOpenMeta};
 use idr_protocol::webrtc_ice::{
-    build_rtc_ice_servers, IceRelayMode, IceServer, IceTransportPolicy, SessionIceConfig, StunPolicy, TurnAllocation,
+    build_rtc_ice_servers, IceRelayMode, IceServer, IceTransportPolicy, SessionIceConfig,
+    StunPolicy, TurnAllocation,
 };
 use idr_protocol::webrtc_signaling::{
     SourceAuthMode, WebRtcAnswer, WebRtcIceCandidate, WebRtcSessionAck, WebRtcSessionOffer,
@@ -136,7 +137,11 @@ impl WebRtcSignalingClient for LoopPresence {
         let session_id = req.connection_id;
         let sessions = WebRtcSessionManager::new(WebRtcConfig::default());
         sessions.try_acquire(session_id).unwrap().keep_alive();
-        let policy = if self.relay.is_some() { IceTransportPolicy::Relay } else { IceTransportPolicy::All };
+        let policy = if self.relay.is_some() {
+            IceTransportPolicy::Relay
+        } else {
+            IceTransportPolicy::All
+        };
         let ice = SessionIceConfig {
             relay_mode: IceRelayMode::Platform,
             stun_policy: StunPolicy::GoogleAndIdr,
@@ -151,7 +156,11 @@ impl WebRtcSignalingClient for LoopPresence {
             p2p_only: self.relay.is_none(),
         };
         let pending_ice = self.relay.is_some().then(|| ice.clone());
-        let target_ice = if self.relay.is_some() { build_rtc_ice_servers(&ice, &[]).unwrap() } else { Vec::new() };
+        let target_ice = if self.relay.is_some() {
+            build_rtc_ice_servers(&ice, &[]).unwrap()
+        } else {
+            Vec::new()
+        };
         let offer = WebRtcSessionOffer {
             version: req.version,
             message_type: SignalingMessageType::WebRtcSessionOffer,
@@ -301,12 +310,20 @@ pub async fn connect_to(presence: LoopPresence) -> SourceSession {
 
 /// A Source runtime over `presence` (relay-only when it carries TURN servers).
 pub async fn try_connect(presence: LoopPresence) -> idr_core::Result<SourceSession> {
-    let policy = if presence.relay.is_some() { IceTransportPolicy::Relay } else { IceTransportPolicy::All };
+    let policy = if presence.relay.is_some() {
+        IceTransportPolicy::Relay
+    } else {
+        IceTransportPolicy::All
+    };
     let mut runtime = SourceRuntime::with_auth(
         Box::new(presence),
         move || {
             Box::new(
-                NativePeer::new(NativePeerConfig { ice_transport_policy: policy, ..NativePeerConfig::default() }).unwrap(),
+                NativePeer::new(NativePeerConfig {
+                    ice_transport_policy: policy,
+                    ..NativePeerConfig::default()
+                })
+                .unwrap(),
             )
         },
         "loop-src",
@@ -316,4 +333,3 @@ pub async fn try_connect(presence: LoopPresence) -> idr_core::Result<SourceSessi
     );
     runtime.connect(FQHN).await
 }
-

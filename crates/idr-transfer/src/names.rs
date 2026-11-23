@@ -29,8 +29,8 @@ impl NamePolicy {
 
 const RESERVED: &[&str] = &[
     "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
-    "com9", "com¹", "com²", "com³", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7",
-    "lpt8", "lpt9", "lpt¹", "lpt²", "lpt³", "conin$", "conout$",
+    "com9", "com¹", "com²", "com³", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8",
+    "lpt9", "lpt¹", "lpt²", "lpt³", "conin$", "conout$",
 ];
 
 /// The platform-safe form of one component.
@@ -84,7 +84,10 @@ pub fn map_manifest(m: &Manifest, policy: NamePolicy) -> (Vec<Vec<String>>, Vec<
         // Parents precede children in a valid manifest; implicit parents map name by name.
         let parent: Vec<String> = match by_path.get(parent_orig) {
             Some(p) => p.clone(),
-            None => parent_orig.iter().map(|c| map_component(c, policy)).collect(),
+            None => parent_orig
+                .iter()
+                .map(|c| map_component(c, policy))
+                .collect(),
         };
         let leaf = e.path.last().unwrap();
         let base = map_component(leaf, policy);

@@ -28,7 +28,10 @@ impl Destination {
 /// Storage later opens `rel` *relative to a handle on `root`*
 /// ([`super::NativeSink::open_in`]), so a component swapped for a link after
 /// this check is refused rather than followed.
-pub fn resolve_destination(permitted: &[PathBuf], dest: &Path) -> Result<Destination, TransferErrorKind> {
+pub fn resolve_destination(
+    permitted: &[PathBuf],
+    dest: &Path,
+) -> Result<Destination, TransferErrorKind> {
     let dest = std::fs::canonicalize(dest).map_err(|_| TransferErrorKind::Unauthorized)?;
     permitted
         .iter()
@@ -41,7 +44,10 @@ pub fn resolve_destination(permitted: &[PathBuf], dest: &Path) -> Result<Destina
 }
 
 /// The canonical `dest` if permitted (see [`resolve_destination`]).
-pub fn permitted_destination(permitted: &[PathBuf], dest: &Path) -> Result<PathBuf, TransferErrorKind> {
+pub fn permitted_destination(
+    permitted: &[PathBuf],
+    dest: &Path,
+) -> Result<PathBuf, TransferErrorKind> {
     resolve_destination(permitted, dest).map(|d| d.path())
 }
 
@@ -68,7 +74,12 @@ mod imp {
         let mut avail = 0u64;
         // SAFETY: `wide` is NUL-terminated; out-pointers are valid or null.
         let ok = unsafe {
-            GetDiskFreeSpaceExW(wide.as_ptr(), &mut avail, std::ptr::null_mut(), std::ptr::null_mut())
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut avail,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
         };
         (ok != 0).then_some(avail)
     }
@@ -100,7 +111,10 @@ mod tests {
             Err(TransferErrorKind::Unauthorized)
         );
         assert_eq!(
-            permitted_destination(&permitted, &ok.join("sub").join("..").join("..").join("elsewhere")),
+            permitted_destination(
+                &permitted,
+                &ok.join("sub").join("..").join("..").join("elsewhere")
+            ),
             Err(TransferErrorKind::Unauthorized)
         );
         assert!(permitted_destination(&permitted, &root.path().join("missing")).is_err());

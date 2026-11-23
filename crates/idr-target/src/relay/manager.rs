@@ -104,7 +104,10 @@ impl RelayConnectionManager {
             quic.nudge_path_probe();
         }
         if count > 0 {
-            debug!(event = "relay.nudged_active_relay_quic_connections_for", count = count);
+            debug!(
+                event = "relay.nudged_active_relay_quic_connections_for",
+                count = count
+            );
         }
     }
 
@@ -343,7 +346,10 @@ impl RelayConnectionManager {
             store.remove(&relay_id);
         }
         self.idle.on_closed();
-        debug!(event = "relay.closed_idle_relay_connection", relay_id = relay_id);
+        debug!(
+            event = "relay.closed_idle_relay_connection",
+            relay_id = relay_id
+        );
     }
 
     pub fn spawn_idle_worker(self: &Arc<Self>) {
@@ -375,7 +381,10 @@ impl RelayConnectionManager {
             .collect();
         candidates.sort_by_key(|(t, _)| *t);
         if let Some((_, relay_id)) = candidates.first() {
-            info!(event = "relay.evicting_lru_idle_relay_connection", relay_id = relay_id);
+            info!(
+                event = "relay.evicting_lru_idle_relay_connection",
+                relay_id = relay_id
+            );
             if let Some(quic) = store
                 .lookup(relay_id)
                 .and_then(|(_, c)| c.entry.read().quic.clone())

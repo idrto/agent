@@ -26,15 +26,23 @@ use idr_transfer::policy::{PeerRule, PolicyEngine, ReceivePolicy};
 use idr_transfer::{Limits, Outcome, Outgoing};
 use idr_webrtc::native::NativePeerConfig;
 use idr_webrtc::NativePeer;
-use rcgen::{BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, SanType};
+use rcgen::{
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, SanType,
+};
 use sha2::Digest;
 
 // ---- PKI (as in the source-agent daemon tests) -------------------------------
 
 fn keys(seed: u8) -> (SigningKey, KeyPair) {
-    let mut der = vec![0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20];
+    let mut der = vec![
+        0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04,
+        0x20,
+    ];
     der.extend_from_slice(&[seed; 32]);
-    (SigningKey::from_bytes(&[seed; 32]), KeyPair::try_from(der.as_slice()).unwrap())
+    (
+        SigningKey::from_bytes(&[seed; 32]),
+        KeyPair::try_from(der.as_slice()).unwrap(),
+    )
 }
 
 fn params(cn: &str) -> CertificateParams {
@@ -57,18 +65,28 @@ impl Pki {
         let (_, root_key) = keys(1);
         let mut p = params("entity root");
         p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        Self { root: p.self_signed(&root_key).unwrap(), root_key }
+        Self {
+            root: p.self_signed(&root_key).unwrap(),
+            root_key,
+        }
     }
 
     fn device(&self, seed: u8, ski: &str, host: Option<&str>) -> LocalIdentity {
         let (sk, kp) = keys(seed);
         let mut p = params(ski);
-        p.subject_alt_names = vec![SanType::URI(format!("urn:dp:ski:{ski}").try_into().unwrap())];
+        p.subject_alt_names = vec![SanType::URI(
+            format!("urn:dp:ski:{ski}").try_into().unwrap(),
+        )];
         if let Some(h) = host {
-            p.subject_alt_names.push(SanType::DnsName(h.try_into().unwrap()));
+            p.subject_alt_names
+                .push(SanType::DnsName(h.try_into().unwrap()));
         }
         let leaf = p.signed_by(&kp, &self.root, &self.root_key).unwrap();
-        LocalIdentity { key: sk, ski: ski.into(), chain_pem: format!("{}{}", leaf.pem(), self.root.pem()) }
+        LocalIdentity {
+            key: sk,
+            ski: ski.into(),
+            chain_pem: format!("{}{}", leaf.pem(), self.root.pem()),
+        }
     }
 }
 
@@ -93,7 +111,13 @@ fn world() -> World {
     let pki = Pki::new();
     let target_dir = tempfile::tempdir().unwrap();
     let mut policy = ReceivePolicy::headless();
-    policy.peers.insert(SRC.into(), PeerRule { auto_accept: true, ..PeerRule::default() });
+    policy.peers.insert(
+        SRC.into(),
+        PeerRule {
+            auto_accept: true,
+            ..PeerRule::default()
+        },
+    );
     let (endpoint, connectors) = rt.block_on(async {
         let (ep, events) = TransferEndpoint::new(TransferConfig {
             identity: pki.device(4, TGT, Some(FQHN)),
@@ -154,7 +178,12 @@ fn engine(w: &World, interactive: bool) -> Eng {
     let (connectors, ep) = (w.connectors.clone(), w.endpoint.clone());
     let factory: idr_source::agent::RuntimeFactory = Arc::new(move || {
         SourceRuntime::with_auth(
-            Box::new(LoopPresence { connectors: connectors.clone(), transfers: Some(ep.clone()), attested_ski: Some(SRC.into()), relay: None }),
+            Box::new(LoopPresence {
+                connectors: connectors.clone(),
+                transfers: Some(ep.clone()),
+                attested_ski: Some(SRC.into()),
+                relay: None,
+            }),
             || Box::new(NativePeer::new(NativePeerConfig::default()).unwrap()),
             "ffi-src",
             "local",
@@ -182,10 +211,22 @@ fn engine(w: &World, interactive: bool) -> Eng {
 
 fn send(e: &Eng, paths: &[&Path]) -> [u8; 16] {
     let target = CString::new(FQHN).unwrap();
-    let owned: Vec<CString> = paths.iter().map(|p| CString::new(p.to_str().unwrap()).unwrap()).collect();
+    let owned: Vec<CString> = paths
+        .iter()
+        .map(|p| CString::new(p.to_str().unwrap()).unwrap())
+        .collect();
     let ptrs: Vec<*const c_char> = owned.iter().map(|c| c.as_ptr()).collect();
     let mut id = [0u8; 16];
-    let rc = unsafe { idr_transfer_send(e.e(), target.as_ptr(), ptrs.as_ptr(), ptrs.len(), id.as_mut_ptr(), std::ptr::null()) };
+    let rc = unsafe {
+        idr_transfer_send(
+            e.e(),
+            target.as_ptr(),
+            ptrs.as_ptr(),
+            ptrs.len(),
+            id.as_mut_ptr(),
+            std::ptr::null(),
+        )
+    };
     assert_eq!(rc, 0, "send: {}", last_error_message());
     id
 }
@@ -194,7 +235,10 @@ fn poll(e: &Eng, into: &mut Vec<IdrTransferEvent>) {
     let mut buf = [IdrTransferEvent::default(); 32];
     loop {
         let mut n = 0;
-        assert_eq!(unsafe { idr_transfer_poll_events(e.e(), buf.as_mut_ptr(), buf.len(), &mut n) }, 0);
+        assert_eq!(
+            unsafe { idr_transfer_poll_events(e.e(), buf.as_mut_ptr(), buf.len(), &mut n) },
+            0
+        );
         into.extend_from_slice(&buf[..n]);
         if n < buf.len() {
             return;
@@ -203,16 +247,29 @@ fn poll(e: &Eng, into: &mut Vec<IdrTransferEvent>) {
 }
 
 /// Poll until an event for `id` matches; returns it. All events land in `seen`.
-fn wait(e: &Eng, id: &[u8; 16], secs: u64, seen: &mut Vec<IdrTransferEvent>, want: impl Fn(&IdrTransferEvent) -> bool) -> IdrTransferEvent {
+fn wait(
+    e: &Eng,
+    id: &[u8; 16],
+    secs: u64,
+    seen: &mut Vec<IdrTransferEvent>,
+    want: impl Fn(&IdrTransferEvent) -> bool,
+) -> IdrTransferEvent {
     let deadline = Instant::now() + Duration::from_secs(secs);
     let mut from = seen.len();
     loop {
         poll(e, seen);
-        if let Some(ev) = seen[from..].iter().find(|ev| ev.transfer_id == *id && want(ev)) {
+        if let Some(ev) = seen[from..]
+            .iter()
+            .find(|ev| ev.transfer_id == *id && want(ev))
+        {
             return *ev;
         }
         from = seen.len();
-        assert!(Instant::now() < deadline, "no matching event; last: {:?}", seen.last());
+        assert!(
+            Instant::now() < deadline,
+            "no matching event; last: {:?}",
+            seen.last()
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -229,7 +286,9 @@ fn json(f: impl Fn(*mut c_char, usize) -> i32) -> serde_json::Value {
 }
 
 fn bytes(n: usize, seed: u8) -> Vec<u8> {
-    (0..n).map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 24) as u8 ^ seed).collect()
+    (0..n)
+        .map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 24) as u8 ^ seed)
+        .collect()
 }
 
 fn file(dir: &Path, name: &str, n: usize) -> PathBuf {
@@ -254,31 +313,61 @@ fn hex(id: &[u8; 16]) -> String {
 fn header_matches_rust() {
     let h = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/include/idr.h")).unwrap();
     let val = |name: &str| -> u32 {
-        let line = h.lines().find(|l| l.split_whitespace().any(|w| w.trim_end_matches(',') == name))
+        let line = h
+            .lines()
+            .find(|l| {
+                l.split_whitespace()
+                    .any(|w| w.trim_end_matches(',') == name)
+            })
             .unwrap_or_else(|| panic!("{name} missing from idr.h"));
         let code = line.split("/*").next().unwrap();
-        code.split(['=', ' ', ',']).filter_map(|t| t.trim().parse().ok()).next_back().unwrap()
+        code.split(['=', ' ', ','])
+            .filter_map(|t| t.trim().parse().ok())
+            .next_back()
+            .unwrap()
     };
     assert_eq!(val("IDR_ABI_VERSION"), ABI_VERSION);
-    assert_eq!(val("IDR_TRANSFER_ERROR_BASE"), IDR_TRANSFER_ERROR_BASE as u32);
+    assert_eq!(
+        val("IDR_TRANSFER_ERROR_BASE"),
+        IDR_TRANSFER_ERROR_BASE as u32
+    );
     for (n, v) in [
-        ("IDR_TEV_OFFERED", IDR_TEV_OFFERED), ("IDR_TEV_AWAITING_DECISION", IDR_TEV_AWAITING_DECISION),
-        ("IDR_TEV_ACCEPTED", IDR_TEV_ACCEPTED), ("IDR_TEV_PROGRESS", IDR_TEV_PROGRESS),
-        ("IDR_TEV_ENTRY_FAILED", IDR_TEV_ENTRY_FAILED), ("IDR_TEV_RENAMED", IDR_TEV_RENAMED),
-        ("IDR_TEV_LEASE_EXPIRING", IDR_TEV_LEASE_EXPIRING), ("IDR_TEV_PAUSED", IDR_TEV_PAUSED),
-        ("IDR_TEV_RESUMED", IDR_TEV_RESUMED), ("IDR_TEV_FINISHED", IDR_TEV_FINISHED),
-        ("IDR_TEV_INTERRUPTED", IDR_TEV_INTERRUPTED), ("IDR_TEV_RESYNC", IDR_TEV_RESYNC),
-        ("IDR_OUTCOME_COMPLETED", IDR_OUTCOME_COMPLETED), ("IDR_OUTCOME_COMPLETED_WITH_ERRORS", IDR_OUTCOME_COMPLETED_WITH_ERRORS),
-        ("IDR_OUTCOME_FAILED", IDR_OUTCOME_FAILED), ("IDR_OUTCOME_CANCELLED", IDR_OUTCOME_CANCELLED),
+        ("IDR_TEV_OFFERED", IDR_TEV_OFFERED),
+        ("IDR_TEV_AWAITING_DECISION", IDR_TEV_AWAITING_DECISION),
+        ("IDR_TEV_ACCEPTED", IDR_TEV_ACCEPTED),
+        ("IDR_TEV_PROGRESS", IDR_TEV_PROGRESS),
+        ("IDR_TEV_ENTRY_FAILED", IDR_TEV_ENTRY_FAILED),
+        ("IDR_TEV_RENAMED", IDR_TEV_RENAMED),
+        ("IDR_TEV_LEASE_EXPIRING", IDR_TEV_LEASE_EXPIRING),
+        ("IDR_TEV_PAUSED", IDR_TEV_PAUSED),
+        ("IDR_TEV_RESUMED", IDR_TEV_RESUMED),
+        ("IDR_TEV_FINISHED", IDR_TEV_FINISHED),
+        ("IDR_TEV_INTERRUPTED", IDR_TEV_INTERRUPTED),
+        ("IDR_TEV_RESYNC", IDR_TEV_RESYNC),
+        ("IDR_OUTCOME_COMPLETED", IDR_OUTCOME_COMPLETED),
+        (
+            "IDR_OUTCOME_COMPLETED_WITH_ERRORS",
+            IDR_OUTCOME_COMPLETED_WITH_ERRORS,
+        ),
+        ("IDR_OUTCOME_FAILED", IDR_OUTCOME_FAILED),
+        ("IDR_OUTCOME_CANCELLED", IDR_OUTCOME_CANCELLED),
         ("IDR_OUTCOME_REJECTED", IDR_OUTCOME_REJECTED),
     ] {
         assert_eq!(val(n), v, "{n}");
     }
     for k in 1..=19 {
         let kind = idr_protocol::transfer::TransferErrorKind::from_u32(k).unwrap();
-        assert_eq!(val(&format!("IDR_TERR_{}", kind.as_str().to_uppercase())), k, "{}", kind.as_str());
+        assert_eq!(
+            val(&format!("IDR_TERR_{}", kind.as_str().to_uppercase())),
+            k,
+            "{}",
+            kind.as_str()
+        );
     }
-    assert!(idr_protocol::transfer::TransferErrorKind::from_u32(20).is_none(), "new kind: add it to idr.h");
+    assert!(
+        idr_protocol::transfer::TransferErrorKind::from_u32(20).is_none(),
+        "new kind: add it to idr.h"
+    );
 }
 
 /// Files, a folder and a selection through `idr_transfer_send*`; list, status
@@ -296,10 +385,16 @@ fn send_files_folder_and_selection() {
     let done = wait(&e, &id, 60, &mut seen, finished(IDR_OUTCOME_COMPLETED));
     assert_eq!(done.entry, 0);
     assert_eq!(sha(&a), sha(&w.target_dir.path().join("a.bin")));
-    assert!(seen.iter().any(|ev| ev.transfer_id == id && ev.kind == IDR_TEV_PROGRESS && ev.bytes_total == (3 << 20) + 1000));
+    assert!(seen.iter().any(|ev| ev.transfer_id == id
+        && ev.kind == IDR_TEV_PROGRESS
+        && ev.bytes_total == (3 << 20) + 1000));
 
     let list = json(|b, n| unsafe { idr_transfer_list(e.e(), b, n) });
-    assert!(list.as_array().unwrap().iter().any(|t| t["id"] == hex(&id) && t["state"] == "completed"));
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t["id"] == hex(&id) && t["state"] == "completed"));
     let st = json(|b, n| unsafe { idr_transfer_status(e.e(), id.as_ptr(), b, n) });
     assert_eq!(st["summary"]["files"], 2);
     assert_eq!(st["path"], "host", "loopback runs host↔host (direct)");
@@ -314,7 +409,11 @@ fn send_files_folder_and_selection() {
     assert!(w.target_dir.path().join("Project/f299.txt").is_file());
     let batch = json(|b, n| unsafe { idr_transfer_entries(e.e(), fid.as_ptr(), 0, 10_000, b, n) });
     assert_eq!(batch["total"], 301, "folder + 300 files");
-    assert_eq!(batch["entries"].as_array().unwrap().len(), 256, "capped at 256 per call");
+    assert_eq!(
+        batch["entries"].as_array().unwrap().len(),
+        256,
+        "capped at 256 per call"
+    );
     let tail = json(|b, n| unsafe { idr_transfer_entries(e.e(), fid.as_ptr(), 256, 256, b, n) });
     assert_eq!(tail["entries"].as_array().unwrap().len(), 45);
     let mut small = [0 as c_char; 8];
@@ -330,34 +429,82 @@ fn send_files_folder_and_selection() {
     file(&docs, "keep/two.txt", 50);
     file(&docs, "skip/three.txt", 50);
     file(&docs, "top.txt", 50);
-    let (target, folder_c) = (CString::new(FQHN).unwrap(), CString::new(docs.to_str().unwrap()).unwrap());
-    let sel: Vec<CString> = ["keep", "top.txt"].iter().map(|s| CString::new(*s).unwrap()).collect();
+    let (target, folder_c) = (
+        CString::new(FQHN).unwrap(),
+        CString::new(docs.to_str().unwrap()).unwrap(),
+    );
+    let sel: Vec<CString> = ["keep", "top.txt"]
+        .iter()
+        .map(|s| CString::new(*s).unwrap())
+        .collect();
     let sel_ptrs: Vec<*const c_char> = sel.iter().map(|c| c.as_ptr()).collect();
     let mut sid = [0u8; 16];
     assert_eq!(
-        unsafe { idr_transfer_send_selection(e.e(), target.as_ptr(), folder_c.as_ptr(), sel_ptrs.as_ptr(), 2, sid.as_mut_ptr(), std::ptr::null()) },
+        unsafe {
+            idr_transfer_send_selection(
+                e.e(),
+                target.as_ptr(),
+                folder_c.as_ptr(),
+                sel_ptrs.as_ptr(),
+                2,
+                sid.as_mut_ptr(),
+                std::ptr::null(),
+            )
+        },
         0
     );
     wait(&e, &sid, 60, &mut seen, finished(IDR_OUTCOME_COMPLETED));
     let t = w.target_dir.path().join("Docs");
-    assert!(t.join("keep/one.txt").is_file() && t.join("keep/two.txt").is_file() && t.join("top.txt").is_file());
+    assert!(
+        t.join("keep/one.txt").is_file()
+            && t.join("keep/two.txt").is_file()
+            && t.join("top.txt").is_file()
+    );
     assert!(!t.join("skip").exists(), "unselected entry was sent");
     let escape = [CString::new("../a.bin").unwrap()];
     let esc_ptrs: Vec<*const c_char> = escape.iter().map(|c| c.as_ptr()).collect();
     assert_eq!(
-        unsafe { idr_transfer_send_selection(e.e(), target.as_ptr(), folder_c.as_ptr(), esc_ptrs.as_ptr(), 1, sid.as_mut_ptr(), std::ptr::null()) },
+        unsafe {
+            idr_transfer_send_selection(
+                e.e(),
+                target.as_ptr(),
+                folder_c.as_ptr(),
+                esc_ptrs.as_ptr(),
+                1,
+                sid.as_mut_ptr(),
+                std::ptr::null(),
+            )
+        },
         -(idr_core::IdrErrorKind::InvalidArgument as i32)
     );
 
     // Unknown ids, nulls and missing paths are errors, not crashes.
     let unknown = [9u8; 16];
-    assert_eq!(unsafe { idr_transfer_pause(e.e(), unknown.as_ptr()) }, -(idr_core::IdrErrorKind::InvalidArgument as i32));
-    assert_eq!(unsafe { idr_transfer_cancel(e.e(), std::ptr::null()) }, -(idr_core::IdrErrorKind::InvalidArgument as i32));
-    assert_eq!(unsafe { idr_transfer_cancel(std::ptr::null_mut(), id.as_ptr()) }, -(idr_core::IdrErrorKind::InvalidArgument as i32));
+    assert_eq!(
+        unsafe { idr_transfer_pause(e.e(), unknown.as_ptr()) },
+        -(idr_core::IdrErrorKind::InvalidArgument as i32)
+    );
+    assert_eq!(
+        unsafe { idr_transfer_cancel(e.e(), std::ptr::null()) },
+        -(idr_core::IdrErrorKind::InvalidArgument as i32)
+    );
+    assert_eq!(
+        unsafe { idr_transfer_cancel(std::ptr::null_mut(), id.as_ptr()) },
+        -(idr_core::IdrErrorKind::InvalidArgument as i32)
+    );
     let missing = CString::new(src.path().join("nope.bin").to_str().unwrap()).unwrap();
     let mut out = [0u8; 16];
     assert_eq!(
-        unsafe { idr_transfer_send(e.e(), target.as_ptr(), [missing.as_ptr()].as_ptr(), 1, out.as_mut_ptr(), std::ptr::null()) },
+        unsafe {
+            idr_transfer_send(
+                e.e(),
+                target.as_ptr(),
+                [missing.as_ptr()].as_ptr(),
+                1,
+                out.as_mut_ptr(),
+                std::ptr::null(),
+            )
+        },
         -(idr_core::IdrErrorKind::InvalidArgument as i32)
     );
     // A command on a finished transfer is a no-op, never a use-after-free.
@@ -373,14 +520,19 @@ fn pause_resume_cancel_while_polling() {
     let f = file(src.path(), "p.bin", 40 << 20);
     let id = send(&e, &[&f]);
     let mut seen = Vec::new();
-    wait(&e, &id, 60, &mut seen, |ev| ev.kind == IDR_TEV_PROGRESS && ev.bytes_done >= 2 << 20);
+    wait(&e, &id, 60, &mut seen, |ev| {
+        ev.kind == IDR_TEV_PROGRESS && ev.bytes_done >= 2 << 20
+    });
 
     let ptr = e.e() as usize;
     let cmds = std::thread::spawn(move || {
         let e = ptr as *mut IdrEngine;
         assert_eq!(unsafe { idr_transfer_pause(e, id.as_ptr()) }, 0);
         std::thread::sleep(Duration::from_millis(600));
-        assert_eq!(unsafe { idr_transfer_resume(e, id.as_ptr(), std::ptr::null()) }, 0);
+        assert_eq!(
+            unsafe { idr_transfer_resume(e, id.as_ptr(), std::ptr::null()) },
+            0
+        );
     });
     let until = Instant::now() + Duration::from_millis(400);
     while Instant::now() < until {
@@ -395,7 +547,9 @@ fn pause_resume_cancel_while_polling() {
 
     let g = file(src.path(), "c.bin", 40 << 20);
     let id = send(&e, &[&g]);
-    wait(&e, &id, 60, &mut seen, |ev| ev.kind == IDR_TEV_PROGRESS && ev.bytes_done >= 2 << 20);
+    wait(&e, &id, 60, &mut seen, |ev| {
+        ev.kind == IDR_TEV_PROGRESS && ev.bytes_done >= 2 << 20
+    });
     assert_eq!(unsafe { idr_transfer_cancel(e.e(), id.as_ptr()) }, 0);
     let done = wait(&e, &id, 30, &mut seen, |ev| ev.kind == IDR_TEV_FINISHED);
     assert_eq!(done.code, IDR_OUTCOME_CANCELLED);
@@ -413,13 +567,18 @@ fn destroy_mid_transfer_then_resume() {
     let id = {
         let e = engine(&w, false);
         let id = send(&e, &[&f]);
-        wait(&e, &id, 60, &mut seen, |ev| ev.kind == IDR_TEV_PROGRESS && ev.bytes_done >= 4 << 20);
+        wait(&e, &id, 60, &mut seen, |ev| {
+            ev.kind == IDR_TEV_PROGRESS && ev.bytes_done >= 4 << 20
+        });
         id
     }; // idr_engine_destroy here, transfer still running
     let e = engine(&w, false);
     let mut after = Vec::new();
     wait(&e, &id, 120, &mut after, finished(IDR_OUTCOME_COMPLETED));
-    let first = after.iter().find(|ev| ev.transfer_id == id && ev.kind == IDR_TEV_PROGRESS).expect("no progress after restart");
+    let first = after
+        .iter()
+        .find(|ev| ev.transfer_id == id && ev.kind == IDR_TEV_PROGRESS)
+        .expect("no progress after restart");
     assert!(first.bytes_done > 0, "restart resent from zero");
     assert_eq!(sha(&f), sha(&w.target_dir.path().join("restart.bin")));
 }
@@ -436,7 +595,11 @@ fn incoming_offer_accept_and_reject() {
     let wid = send(&e, &[&warm]);
     let mut seen = Vec::new();
     wait(&e, &wid, 60, &mut seen, finished(IDR_OUTCOME_COMPLETED));
-    let session = *w.endpoint.bound_sessions().first().expect("no bound session");
+    let session = *w
+        .endpoint
+        .bound_sessions()
+        .first()
+        .expect("no bound session");
 
     let offer = |name: &str| {
         let f = file(src.path(), name, 200_000);
@@ -445,7 +608,17 @@ fn incoming_offer_accept_and_reject() {
         let ep = w.endpoint.clone();
         w.rt.spawn(async move {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
-            ep.send(session, Outgoing { transfer_id: new_transfer_id(), manifest: m, files, resume: false }, rx).await
+            ep.send(
+                session,
+                Outgoing {
+                    transfer_id: new_transfer_id(),
+                    manifest: m,
+                    files,
+                    resume: false,
+                },
+                rx,
+            )
+            .await
         })
     };
 
@@ -454,7 +627,10 @@ fn incoming_offer_accept_and_reject() {
         loop {
             let from = seen.len();
             poll(&e, seen);
-            if let Some(ev) = seen[from..].iter().find(|ev| ev.kind == IDR_TEV_AWAITING_DECISION) {
+            if let Some(ev) = seen[from..]
+                .iter()
+                .find(|ev| ev.kind == IDR_TEV_AWAITING_DECISION)
+            {
                 return ev.transfer_id;
             }
             assert!(Instant::now() < deadline, "offer never awaited a decision");
@@ -465,23 +641,48 @@ fn incoming_offer_accept_and_reject() {
     let first = offer("incoming.bin");
     let pid = awaiting(&mut seen);
     let st = json(|b, n| unsafe { idr_transfer_status(e.e(), pid.as_ptr(), b, n) });
-    assert_eq!((st["state"].as_str(), st["direction"].as_str(), st["summary"]["files"].as_u64()), (Some("pending"), Some("incoming"), Some(1)));
+    assert_eq!(
+        (
+            st["state"].as_str(),
+            st["direction"].as_str(),
+            st["summary"]["files"].as_u64()
+        ),
+        (Some("pending"), Some("incoming"), Some(1))
+    );
     let picked = tempfile::tempdir().unwrap();
     let out = CString::new(picked.path().to_str().unwrap()).unwrap();
-    assert_eq!(unsafe { idr_transfer_accept(e.e(), pid.as_ptr(), out.as_ptr()) }, 0, "{}", last_error_message());
+    assert_eq!(
+        unsafe { idr_transfer_accept(e.e(), pid.as_ptr(), out.as_ptr()) },
+        0,
+        "{}",
+        last_error_message()
+    );
     assert_eq!(w.rt.block_on(first).unwrap(), Outcome::Completed);
-    assert!(picked.path().join("incoming.bin").is_file(), "not stored where the user picked");
+    assert!(
+        picked.path().join("incoming.bin").is_file(),
+        "not stored where the user picked"
+    );
     wait(&e, &pid, 30, &mut seen, finished(IDR_OUTCOME_COMPLETED));
     let ent = json(|b, n| unsafe { idr_transfer_entries(e.e(), pid.as_ptr(), 0, 10, b, n) });
-    assert_eq!(ent["entries"][0]["path"], "incoming.bin", "incoming manifest available for detail");
+    assert_eq!(
+        ent["entries"][0]["path"], "incoming.bin",
+        "incoming manifest available for detail"
+    );
 
     let second = offer("unwanted.bin");
     let pid = awaiting(&mut seen);
     assert_eq!(unsafe { idr_transfer_reject(e.e(), pid.as_ptr()) }, 0);
-    assert_eq!(w.rt.block_on(second).unwrap(), Outcome::Rejected(idr_protocol::transfer::TransferErrorKind::Rejected));
+    assert_eq!(
+        w.rt.block_on(second).unwrap(),
+        Outcome::Rejected(idr_protocol::transfer::TransferErrorKind::Rejected)
+    );
     assert!(!w.inbox.path().join("unwanted.bin").exists());
     // Deciding twice: the transfer layer refuses with a stable code.
     let rc = unsafe { idr_transfer_reject(e.e(), pid.as_ptr()) };
-    assert_eq!(rc, -(IDR_TRANSFER_ERROR_BASE + 5), "second reject → rejected");
+    assert_eq!(
+        rc,
+        -(IDR_TRANSFER_ERROR_BASE + 5),
+        "second reject → rejected"
+    );
     assert_eq!(last_error_message(), "rejected");
 }

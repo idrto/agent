@@ -27,7 +27,9 @@ use idr_transfer::native::manager::{DeferredSink, Link, Manager};
 use idr_transfer::native::NativeSink;
 use idr_transfer::policy::PolicyEngine;
 use idr_transfer::storage::{SourceFiles, StreamOpener};
-use idr_transfer::{receive, send, Command, Limits, Outcome, Outgoing, Routed, Router, TransferEvent};
+use idr_transfer::{
+    receive, send, Command, Limits, Outcome, Outgoing, Routed, Router, TransferEvent,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::{mpsc, oneshot, watch};
 use uuid::Uuid;
@@ -45,7 +47,10 @@ pub struct IoStream {
 
 impl IoStream {
     pub fn new(id: u32, io: DuplexStream) -> Self {
-        Self { id: StreamId(id), io }
+        Self {
+            id: StreamId(id),
+            io,
+        }
     }
 }
 
@@ -96,7 +101,11 @@ pub struct LocalStream {
 }
 
 /// Target-initiated open, served by the session loop.
-pub type OpenRequest = (String, StreamPriority, oneshot::Sender<Result<IoStream, String>>);
+pub type OpenRequest = (
+    String,
+    StreamPriority,
+    oneshot::Sender<Result<IoStream, String>>,
+);
 
 struct SessionEntry {
     peer: watch::Receiver<Option<VerifiedPeer>>,
@@ -144,7 +153,12 @@ pub struct SessionLocal {
 }
 
 impl TransferEndpoint {
-    pub fn new(cfg: TransferConfig) -> (Arc<Self>, mpsc::UnboundedReceiver<(TransferId, TransferEvent)>) {
+    pub fn new(
+        cfg: TransferConfig,
+    ) -> (
+        Arc<Self>,
+        mpsc::UnboundedReceiver<(TransferId, TransferEvent)>,
+    ) {
         let (events, rx) = mpsc::unbounded_channel();
         (
             Arc::new(Self {
@@ -159,7 +173,11 @@ impl TransferEndpoint {
 
     /// Start serving a session. `attested_ski` is the Presence-signed
     /// `offer.source.policy.ski`; without it nothing binds and nothing transfers.
-    pub fn start_session(self: &Arc<Self>, ctx: BindContext, attested_ski: Option<String>) -> SessionLocal {
+    pub fn start_session(
+        self: &Arc<Self>,
+        ctx: BindContext,
+        attested_ski: Option<String>,
+    ) -> SessionLocal {
         let (stream_tx, stream_rx) = mpsc::channel(16);
         let (peer_tx, peer_rx) = watch::channel(None);
         let (open_tx, open_rx) = mpsc::channel(16);
@@ -171,7 +189,10 @@ impl TransferEndpoint {
                 open: open_tx,
             },
         );
-        tokio::spawn(self.clone().serve(session_id, ctx, attested_ski, stream_rx, peer_tx));
+        tokio::spawn(
+            self.clone()
+                .serve(session_id, ctx, attested_ski, stream_rx, peer_tx),
+        );
         SessionLocal {
             streams: stream_tx,
             peer: peer_rx,
@@ -228,18 +249,36 @@ impl TransferEndpoint {
                     now: unix_now(),
                 };
                 let mut framed = Framed::new(Box::new(stream));
-                match bind_peer(&mut framed, BindRole::Answerer, &ctx, &self.cfg.identity, &trust, self.cfg.bind_timeout).await {
+                match bind_peer(
+                    &mut framed,
+                    BindRole::Answerer,
+                    &ctx,
+                    &self.cfg.identity,
+                    &trust,
+                    self.cfg.bind_timeout,
+                )
+                .await
+                {
                     Ok(peer) => {
                         tracing::info!(event = "webrtc.source_identity_bound_to_session", session_id = %session_id);
                         let _ = peer_tx.send(Some(peer.clone()));
                         published = self.publish(session_id, &peer);
-                        lease_timer = Some(self.clone().expire_lease(session_id, peer, peer_tx.clone(), running.clone()));
+                        lease_timer = Some(self.clone().expire_lease(
+                            session_id,
+                            peer,
+                            peer_tx.clone(),
+                            running.clone(),
+                        ));
                     }
-                    Err(code) => tracing::warn!(event = "webrtc.source_binding_failed", session_id = %session_id, code = code.as_str()),
+                    Err(code) => {
+                        tracing::warn!(event = "webrtc.source_binding_failed", session_id = %session_id, code = code.as_str())
+                    }
                 }
                 continue;
             }
-            let routed = router.route(Box::new(stream), self.cfg.limits.step_timeout).await;
+            let routed = router
+                .route(Box::new(stream), self.cfg.limits.step_timeout)
+                .await;
             if let Routed::Control { header, stream } = routed {
                 let this = self.clone();
                 let router = router.clone();
@@ -253,7 +292,8 @@ impl TransferEndpoint {
                     let mut consent = this.cfg.policy.consent(peer.clone(), prompt);
                     if let (Some(m), Some(p)) = (&this.cfg.manager, &peer) {
                         let sink = DeferredSink::new(m.clone(), this.cfg.receive_dir.clone());
-                        m.receive(&p.ski, p.path, &router, header, stream, sink, &mut consent).await;
+                        m.receive(&p.ski, p.path, &router, header, stream, sink, &mut consent)
+                            .await;
                         return;
                     }
                     let id = header.transfer_id;
@@ -268,7 +308,17 @@ impl TransferEndpoint {
                     let forward = this.forward(id, ev_rx);
                     let (cmd_tx, cmd_rx) = mpsc::channel(4);
                     running.lock().unwrap().push(cmd_tx);
-                    receive(&router, header, stream, &mut sink, &mut consent, &this.cfg.limits, ev_tx, cmd_rx).await;
+                    receive(
+                        &router,
+                        header,
+                        stream,
+                        &mut sink,
+                        &mut consent,
+                        &this.cfg.limits,
+                        ev_tx,
+                        cmd_rx,
+                    )
+                    .await;
                     forward.await;
                 });
             }
@@ -292,12 +342,18 @@ impl TransferEndpoint {
         let open = self.sessions.lock().unwrap().get(&session_id)?.open.clone();
         let mut links = self.links.lock().unwrap();
         let fresh = !links.contains_key(&peer.ski);
-        let (tx, g) = links.entry(peer.ski.clone()).or_insert_with(|| (watch::channel(None).0, 0));
+        let (tx, g) = links
+            .entry(peer.ski.clone())
+            .or_insert_with(|| (watch::channel(None).0, 0));
         *g += 1;
         if fresh {
             manager.set_link(&peer.ski, tx.subscribe());
         }
-        let _ = tx.send(Some(Arc::new(TargetLink { open, peer: peer.clone(), generation: *g })));
+        let _ = tx.send(Some(Arc::new(TargetLink {
+            open,
+            peer: peer.clone(),
+            generation: *g,
+        })));
         Some((peer.ski.clone(), *g))
     }
 
@@ -351,7 +407,8 @@ impl TransferEndpoint {
     ) -> Outcome {
         let entry = {
             let s = self.sessions.lock().unwrap();
-            s.get(&session_id).map(|e| (e.peer.borrow().clone(), e.open.clone()))
+            s.get(&session_id)
+                .map(|e| (e.peer.borrow().clone(), e.open.clone()))
         };
         let Some((Some(_peer), open)) = entry else {
             return Outcome::Rejected(TransferErrorKind::Unauthorized);
@@ -360,7 +417,10 @@ impl TransferEndpoint {
         let (ev_tx, ev_rx) = mpsc::unbounded_channel();
         let forward = self.forward(id, ev_rx);
         let mut opener = SessionStreams(open);
-        let (outcome, ()) = tokio::join!(send(&mut opener, req, &self.cfg.limits, ev_tx, cmds), forward);
+        let (outcome, ()) = tokio::join!(
+            send(&mut opener, req, &self.cfg.limits, ev_tx, cmds),
+            forward
+        );
         outcome
     }
 }

@@ -92,7 +92,10 @@ impl WebRtcSignalingClient for JsSignalingClient {
         }
 
         let json = serde_json::to_string(&request).map_err(|e| {
-            IdrError::new(IdrErrorKind::ProtocolError, format!("encode session request: {e}"))
+            IdrError::new(
+                IdrErrorKind::ProtocolError,
+                format!("encode session request: {e}"),
+            )
         })?;
 
         let p = self
@@ -104,7 +107,10 @@ impl WebRtcSignalingClient for JsSignalingClient {
                 &JsValue::from_str(&json),
             )
             .map_err(|e| {
-                IdrError::new(IdrErrorKind::SignalingFailed, format!("begin_session: {e:?}"))
+                IdrError::new(
+                    IdrErrorKind::SignalingFailed,
+                    format!("begin_session: {e:?}"),
+                )
             })?;
         if !p.is_undefined() && !p.is_null() {
             JsFuture::from(js_sys::Promise::from(p))
@@ -130,18 +136,20 @@ impl WebRtcSignalingClient for JsSignalingClient {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EphemeralSignaling for JsEphemeral {
     async fn next_message(&mut self) -> Result<SignalingMessage> {
-        self.rx.recv().await.ok_or_else(|| {
-            IdrError::new(IdrErrorKind::SignalingFailed, "signaling channel closed")
-        })
+        self.rx
+            .recv()
+            .await
+            .ok_or_else(|| IdrError::new(IdrErrorKind::SignalingFailed, "signaling channel closed"))
     }
 
     async fn send_ice(&mut self, candidate: WebRtcIceCandidate) -> Result<()> {
-        let json = serde_json::to_string(&candidate).map_err(|e| {
-            IdrError::new(IdrErrorKind::ProtocolError, format!("encode ice: {e}"))
-        })?;
+        let json = serde_json::to_string(&candidate)
+            .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("encode ice: {e}")))?;
         self.send_json
             .call1(&JsValue::NULL, &JsValue::from_str(&json))
-            .map_err(|e| IdrError::new(IdrErrorKind::SignalingFailed, format!("send_ice: {e:?}")))?;
+            .map_err(|e| {
+                IdrError::new(IdrErrorKind::SignalingFailed, format!("send_ice: {e:?}"))
+            })?;
         Ok(())
     }
 
@@ -165,9 +173,8 @@ impl EphemeralSignaling for JsEphemeral {
 
 /// Parse a Presence signaling JSON string into SignalingMessage.
 pub fn parse_signaling_message(raw: &str) -> Result<Option<SignalingMessage>> {
-    let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| {
-        IdrError::new(IdrErrorKind::ProtocolError, format!("signaling json: {e}"))
-    })?;
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("signaling json: {e}")))?;
     let msg_type = value
         .get("message_type")
         .and_then(|v| v.as_str())
@@ -183,9 +190,10 @@ pub fn parse_signaling_message(raw: &str) -> Result<Option<SignalingMessage>> {
         })),
         "webrtc_session_pending" | "session_pending" => {
             let session_id = parse_uuid(value.get("session_id"))?;
-            let ice: Option<SessionIceConfig> =
-                serde_json::from_value(value.get("ice").cloned().unwrap_or(serde_json::Value::Null))
-                    .ok();
+            let ice: Option<SessionIceConfig> = serde_json::from_value(
+                value.get("ice").cloned().unwrap_or(serde_json::Value::Null),
+            )
+            .ok();
             Ok(Some(SignalingMessage::Pending(SessionPending {
                 session_id,
                 ice,
@@ -236,9 +244,9 @@ pub fn parse_signaling_message(raw: &str) -> Result<Option<SignalingMessage>> {
 }
 
 fn parse_uuid(v: Option<&serde_json::Value>) -> Result<Uuid> {
-    let s = v.and_then(|x| x.as_str()).ok_or_else(|| {
-        IdrError::new(IdrErrorKind::ProtocolError, "missing session_id")
-    })?;
+    let s = v
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| IdrError::new(IdrErrorKind::ProtocolError, "missing session_id"))?;
     Uuid::parse_str(s)
         .map_err(|e| IdrError::new(IdrErrorKind::ProtocolError, format!("session_id: {e}")))
 }

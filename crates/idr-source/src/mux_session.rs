@@ -257,7 +257,10 @@ impl StreamDemux {
     }
 
     /// Wait for the Target's answer to our `Open` of `stream_id`.
-    pub fn expect_open(&mut self, stream_id: u32) -> oneshot::Receiver<std::result::Result<(), String>> {
+    pub fn expect_open(
+        &mut self,
+        stream_id: u32,
+    ) -> oneshot::Receiver<std::result::Result<(), String>> {
         let (tx, rx) = oneshot::channel();
         self.pending_opens.insert(stream_id, tx);
         rx
@@ -354,7 +357,10 @@ impl StreamDemux {
         };
         if incoming.try_send(accepted).is_err() {
             self.drop_stream(stream_id);
-            return refuse(OpenErrorCode::ResourceExhausted, "not accepting streams now");
+            return refuse(
+                OpenErrorCode::ResourceExhausted,
+                "not accepting streams now",
+            );
         }
         StreamFrame::OpenOk {
             stream_id,
@@ -404,7 +410,10 @@ impl StreamDemux {
                 self.inboxes.remove(&stream_id);
             }
             StreamFrame::Reset { stream_id, .. } => self.drop_stream(stream_id),
-            StreamFrame::WindowUpdate { stream_id: 0, credit } => {
+            StreamFrame::WindowUpdate {
+                stream_id: 0,
+                credit,
+            } => {
                 if let Some(c) = &self.conn_send {
                     c.grant(credit);
                 }
@@ -423,7 +432,9 @@ impl StreamDemux {
                     self.conn_send = Some(SendCredit::new(conn_window));
                 }
             }
-            StreamFrame::Open { stream_id, meta, .. } => {
+            StreamFrame::Open {
+                stream_id, meta, ..
+            } => {
                 replies.push(self.accept_open(stream_id, meta));
             }
             StreamFrame::OpenOk {

@@ -104,19 +104,29 @@ impl SourceConfig {
 }
 
 /// This device's DP identity as a binding identity (key + chain).
-pub fn local_identity(id: &dp_rust_mtls::DeviceIdentity) -> Result<idr_transfer::bind::LocalIdentity> {
-    let d = id.private_jwk.get("d").and_then(|v| v.as_str()).context("identity has no private key")?;
+pub fn local_identity(
+    id: &dp_rust_mtls::DeviceIdentity,
+) -> Result<idr_transfer::bind::LocalIdentity> {
+    let d = id
+        .private_jwk
+        .get("d")
+        .and_then(|v| v.as_str())
+        .context("identity has no private key")?;
     let chain = id
         .chain_pem
         .as_deref()
         .or(id.cert_pem.as_deref())
         .context("identity has no issued certificate (enroll first)")?;
-    idr_transfer::bind::LocalIdentity::from_jwk(d, &id.ski, chain).context("identity private key is not Ed25519")
+    idr_transfer::bind::LocalIdentity::from_jwk(d, &id.ski, chain)
+        .context("identity private key is not Ed25519")
 }
 
 /// Entity root(s) Targets must chain to: the configured PEM, else the root at
 /// the end of this device's own chain (root-issued devices).
-pub fn entity_roots(ft: &FileTransferSection, me: &idr_transfer::bind::LocalIdentity) -> Result<Vec<Vec<u8>>> {
+pub fn entity_roots(
+    ft: &FileTransferSection,
+    me: &idr_transfer::bind::LocalIdentity,
+) -> Result<Vec<Vec<u8>>> {
     let pem = match &ft.entity_root_path {
         Some(p) => Some(fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?),
         None => None,

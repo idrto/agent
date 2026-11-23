@@ -105,7 +105,12 @@ impl Queue {
     fn push(&mut self, ev: IdrTransferEvent) {
         if ev.kind == IDR_TEV_PROGRESS {
             // Replace this transfer's newest event if it is also progress.
-            if let Some(last) = self.events.iter_mut().rev().find(|e| e.transfer_id == ev.transfer_id) {
+            if let Some(last) = self
+                .events
+                .iter_mut()
+                .rev()
+                .find(|e| e.transfer_id == ev.transfer_id)
+            {
                 if last.kind == IDR_TEV_PROGRESS {
                     *last = ev;
                     return;
@@ -128,14 +133,20 @@ impl Queue {
 
     fn pop(&mut self) -> Option<IdrTransferEvent> {
         if std::mem::take(&mut self.resync) {
-            return Some(IdrTransferEvent { kind: IDR_TEV_RESYNC, ..Default::default() });
+            return Some(IdrTransferEvent {
+                kind: IDR_TEV_RESYNC,
+                ..Default::default()
+            });
         }
         self.events.pop_front()
     }
 }
 
 fn to_c(id: TransferId, ev: &TransferEvent) -> Option<IdrTransferEvent> {
-    let base = IdrTransferEvent { transfer_id: id, ..Default::default() };
+    let base = IdrTransferEvent {
+        transfer_id: id,
+        ..Default::default()
+    };
     Some(match ev {
         TransferEvent::Offered(s) => IdrTransferEvent {
             kind: IDR_TEV_OFFERED,
@@ -143,7 +154,10 @@ fn to_c(id: TransferId, ev: &TransferEvent) -> Option<IdrTransferEvent> {
             bytes_total: s.total_bytes,
             ..base
         },
-        TransferEvent::AwaitingDecision => IdrTransferEvent { kind: IDR_TEV_AWAITING_DECISION, ..base },
+        TransferEvent::AwaitingDecision => IdrTransferEvent {
+            kind: IDR_TEV_AWAITING_DECISION,
+            ..base
+        },
         TransferEvent::Accepted { approval } => IdrTransferEvent {
             kind: IDR_TEV_ACCEPTED,
             code: match approval {
@@ -169,19 +183,33 @@ fn to_c(id: TransferId, ev: &TransferEvent) -> Option<IdrTransferEvent> {
             code: *code as u32,
             ..base
         },
-        TransferEvent::Renamed { entry, .. } => IdrTransferEvent { kind: IDR_TEV_RENAMED, entry: *entry, ..base },
+        TransferEvent::Renamed { entry, .. } => IdrTransferEvent {
+            kind: IDR_TEV_RENAMED,
+            entry: *entry,
+            ..base
+        },
         TransferEvent::LeaseExpiring { secs_left } => IdrTransferEvent {
             kind: IDR_TEV_LEASE_EXPIRING,
             code: (*secs_left).min(u32::MAX as u64) as u32,
             ..base
         },
-        TransferEvent::Paused { by_peer } => IdrTransferEvent { kind: IDR_TEV_PAUSED, code: *by_peer as u32, ..base },
-        TransferEvent::Resumed { by_peer } => IdrTransferEvent { kind: IDR_TEV_RESUMED, code: *by_peer as u32, ..base },
+        TransferEvent::Paused { by_peer } => IdrTransferEvent {
+            kind: IDR_TEV_PAUSED,
+            code: *by_peer as u32,
+            ..base
+        },
+        TransferEvent::Resumed { by_peer } => IdrTransferEvent {
+            kind: IDR_TEV_RESUMED,
+            code: *by_peer as u32,
+            ..base
+        },
         TransferEvent::Finished(o) => {
             let err = o.code().map_or(0, |k| k as u32);
             let (kind, code) = match o {
                 Outcome::Completed => (IDR_TEV_FINISHED, IDR_OUTCOME_COMPLETED),
-                Outcome::CompletedWithErrors { .. } => (IDR_TEV_FINISHED, IDR_OUTCOME_COMPLETED_WITH_ERRORS),
+                Outcome::CompletedWithErrors { .. } => {
+                    (IDR_TEV_FINISHED, IDR_OUTCOME_COMPLETED_WITH_ERRORS)
+                }
                 Outcome::Failed(_) => (IDR_TEV_FINISHED, IDR_OUTCOME_FAILED),
                 Outcome::Cancelled => (IDR_TEV_FINISHED, IDR_OUTCOME_CANCELLED),
                 Outcome::Rejected(_) => (IDR_TEV_FINISHED, IDR_OUTCOME_REJECTED),
@@ -192,7 +220,13 @@ fn to_c(id: TransferId, ev: &TransferEvent) -> Option<IdrTransferEvent> {
                 Outcome::CompletedWithErrors { failed } => *failed,
                 _ => 0,
             };
-            IdrTransferEvent { kind, code, entry: err, files_failed, ..base }
+            IdrTransferEvent {
+                kind,
+                code,
+                entry: err,
+                files_failed,
+                ..base
+            }
         }
     })
 }
@@ -227,7 +261,11 @@ impl Engine {
     }
 
     /// Enable file transfer with `runtimes`, proving the engine's DP identity.
-    pub fn enable_transfers_with(&self, s: TransferSettings, runtimes: RuntimeFactory) -> Result<()> {
+    pub fn enable_transfers_with(
+        &self,
+        s: TransferSettings,
+        runtimes: RuntimeFactory,
+    ) -> Result<()> {
         let id = self
             .identity
             .lock()
@@ -242,21 +280,42 @@ impl Engine {
             .chain_pem
             .as_deref()
             .or(id.cert_pem.as_deref())
-            .ok_or_else(|| err(IdrErrorKind::NotInitialized, "identity has no issued certificate (enroll first)"))?;
+            .ok_or_else(|| {
+                err(
+                    IdrErrorKind::NotInitialized,
+                    "identity has no issued certificate (enroll first)",
+                )
+            })?;
         let me = LocalIdentity::from_jwk(d, &id.ski, chain)
             .ok_or_else(|| err(IdrErrorKind::InvalidArgument, "identity key is not Ed25519"))?;
         self.start_transfers(s, me, runtimes)
     }
 
     /// Enable file transfer as `me` (embedders holding the binding identity directly, tests).
-    pub fn start_transfers(&self, s: TransferSettings, me: LocalIdentity, runtimes: RuntimeFactory) -> Result<()> {
+    pub fn start_transfers(
+        &self,
+        s: TransferSettings,
+        me: LocalIdentity,
+        runtimes: RuntimeFactory,
+    ) -> Result<()> {
         let mut slot = self.transfers.lock();
         if slot.is_some() {
-            return Err(err(IdrErrorKind::InvalidArgument, "transfers already enabled"));
+            return Err(err(
+                IdrErrorKind::InvalidArgument,
+                "transfers already enabled",
+            ));
         }
-        let roots = entity_roots(s.entity_root_pem.as_deref(), &me.chain_pem)
-            .ok_or_else(|| err(IdrErrorKind::InvalidArgument, "no entity root: pass entity_root_pem"))?;
-        let mut policy = if s.interactive { ReceivePolicy::interactive() } else { ReceivePolicy::headless() };
+        let roots = entity_roots(s.entity_root_pem.as_deref(), &me.chain_pem).ok_or_else(|| {
+            err(
+                IdrErrorKind::InvalidArgument,
+                "no entity root: pass entity_root_pem",
+            )
+        })?;
+        let mut policy = if s.interactive {
+            ReceivePolicy::interactive()
+        } else {
+            ReceivePolicy::headless()
+        };
         policy.lease = s.lease;
         std::fs::create_dir_all(&s.receive_dir)
             .map_err(|e| err(IdrErrorKind::InvalidArgument, format!("receive_dir: {e}")))?;
@@ -323,7 +382,12 @@ impl Engine {
         })
     }
 
-    pub fn transfer_send_selection(&self, target: &str, folder: &std::path::Path, selected: &[String]) -> Result<TransferId> {
+    pub fn transfer_send_selection(
+        &self,
+        target: &str,
+        folder: &std::path::Path,
+        selected: &[String],
+    ) -> Result<TransferId> {
         let _rt = self.rt.enter();
         self.with_transfers(|t| {
             t.daemon
@@ -333,7 +397,11 @@ impl Engine {
     }
 
     /// Run a manager command on a known transfer. Ok(Err(kind)): the transfer layer refused.
-    pub fn transfer_command(&self, id: &TransferId, cmd: TransferCommand) -> Result<std::result::Result<(), TransferErrorKind>> {
+    pub fn transfer_command(
+        &self,
+        id: &TransferId,
+        cmd: TransferCommand,
+    ) -> Result<std::result::Result<(), TransferErrorKind>> {
         let manager: Arc<Manager> = self.with_transfers(|t| Ok(t.daemon.manager().clone()))?;
         if manager.status(id).is_none() {
             return Err(err(IdrErrorKind::InvalidArgument, "unknown transfer"));
@@ -432,7 +500,9 @@ unsafe fn read_id(id: *const u8) -> Option<TransferId> {
 }
 
 unsafe fn str_arg<'a>(p: *const c_char) -> Option<&'a str> {
-    (!p.is_null()).then(|| CStr::from_ptr(p).to_str().ok()).flatten()
+    (!p.is_null())
+        .then(|| CStr::from_ptr(p).to_str().ok())
+        .flatten()
 }
 
 unsafe fn str_list(items: *const *const c_char, n: usize) -> Option<Vec<String>> {
@@ -446,35 +516,49 @@ unsafe fn str_list(items: *const *const c_char, n: usize) -> Option<Vec<String>>
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn idr_transfer_enable(e: *mut crate::ffi::IdrEngine, cfg: *const IdrTransferConfig) -> c_int {
-    guarded!("idr_transfer_enable", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        clear_last_error();
-        let (Some(eng), false) = (engine(e), cfg.is_null()) else { return invalid("null argument") };
-        let c = &*cfg;
-        if c.abi_version != crate::ABI_VERSION {
-            set_last_error_kind(IdrErrorKind::IncompatibleVersion, "abi_version mismatch");
-            return -(IdrErrorKind::IncompatibleVersion as c_int);
+pub unsafe extern "C" fn idr_transfer_enable(
+    e: *mut crate::ffi::IdrEngine,
+    cfg: *const IdrTransferConfig,
+) -> c_int {
+    guarded!(
+        "idr_transfer_enable",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            clear_last_error();
+            let (Some(eng), false) = (engine(e), cfg.is_null()) else {
+                return invalid("null argument");
+            };
+            let c = &*cfg;
+            if c.abi_version != crate::ABI_VERSION {
+                set_last_error_kind(IdrErrorKind::IncompatibleVersion, "abi_version mismatch");
+                return -(IdrErrorKind::IncompatibleVersion as c_int);
+            }
+            if (c.struct_size as usize) < std::mem::size_of::<IdrTransferConfig>() {
+                return invalid("struct_size too small");
+            }
+            let (Some(data_dir), Some(receive_dir)) = (cstr(c.data_dir), cstr(c.receive_dir))
+            else {
+                return invalid("data_dir and receive_dir are required");
+            };
+            let settings = TransferSettings {
+                data_dir: data_dir.into(),
+                receive_dir: receive_dir.into(),
+                entity_root_pem: cstr(c.entity_root_pem),
+                interactive: c.interactive != 0,
+                any_destination: c.any_destination != 0,
+                lease: lease_from_minutes((c.lease_minutes != 0).then_some(c.lease_minutes as u64)),
+                offer_expiry: Duration::from_secs(if c.offer_expiry_seconds == 0 {
+                    300
+                } else {
+                    c.offer_expiry_seconds as u64
+                }),
+            };
+            match eng.enable_transfers(settings) {
+                Ok(()) => 0,
+                Err(e) => fail(e),
+            }
         }
-        if (c.struct_size as usize) < std::mem::size_of::<IdrTransferConfig>() {
-            return invalid("struct_size too small");
-        }
-        let (Some(data_dir), Some(receive_dir)) = (cstr(c.data_dir), cstr(c.receive_dir)) else {
-            return invalid("data_dir and receive_dir are required");
-        };
-        let settings = TransferSettings {
-            data_dir: data_dir.into(),
-            receive_dir: receive_dir.into(),
-            entity_root_pem: cstr(c.entity_root_pem),
-            interactive: c.interactive != 0,
-            any_destination: c.any_destination != 0,
-            lease: lease_from_minutes((c.lease_minutes != 0).then_some(c.lease_minutes as u64)),
-            offer_expiry: Duration::from_secs(if c.offer_expiry_seconds == 0 { 300 } else { c.offer_expiry_seconds as u64 }),
-        };
-        match eng.enable_transfers(settings) {
-            Ok(()) => 0,
-            Err(e) => fail(e),
-        }
-    })
+    )
 }
 
 /// Send files (one or more) or one folder: `paths` are absolute local paths.
@@ -487,21 +571,30 @@ pub unsafe extern "C" fn idr_transfer_send(
     out_id: *mut u8,
     ctx_json: *const c_char,
 ) -> c_int {
-    guarded!("idr_transfer_send", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        let _call = crate::ffi::ctx_span("idr_transfer_send", ctx_json).entered();
-        clear_last_error();
-        let (Some(eng), Some(target), Some(paths), false) = (engine(e), str_arg(target_fqhn), str_list(paths, n_paths), out_id.is_null()) else {
-            return invalid("null or invalid argument");
-        };
-        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        match eng.transfer_send(target, &paths) {
-            Ok(id) => {
-                std::ptr::copy_nonoverlapping(id.as_ptr(), out_id, 16);
-                0
+    guarded!(
+        "idr_transfer_send",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            let _call = crate::ffi::ctx_span("idr_transfer_send", ctx_json).entered();
+            clear_last_error();
+            let (Some(eng), Some(target), Some(paths), false) = (
+                engine(e),
+                str_arg(target_fqhn),
+                str_list(paths, n_paths),
+                out_id.is_null(),
+            ) else {
+                return invalid("null or invalid argument");
+            };
+            let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+            match eng.transfer_send(target, &paths) {
+                Ok(id) => {
+                    std::ptr::copy_nonoverlapping(id.as_ptr(), out_id, 16);
+                    0
+                }
+                Err(e) => fail(e),
             }
-            Err(e) => fail(e),
         }
-    })
+    )
 }
 
 /// Send a selection inside `folder`: `selected` are `/`-separated paths relative to it.
@@ -515,27 +608,37 @@ pub unsafe extern "C" fn idr_transfer_send_selection(
     out_id: *mut u8,
     ctx_json: *const c_char,
 ) -> c_int {
-    guarded!("idr_transfer_send_selection", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        let _call = crate::ffi::ctx_span("idr_transfer_send_selection", ctx_json).entered();
-        clear_last_error();
-        let (Some(eng), Some(target), Some(folder), Some(sel), false) =
-            (engine(e), str_arg(target_fqhn), str_arg(folder), str_list(selected, n_selected), out_id.is_null())
-        else {
-            return invalid("null or invalid argument");
-        };
-        match eng.transfer_send_selection(target, std::path::Path::new(folder), &sel) {
-            Ok(id) => {
-                std::ptr::copy_nonoverlapping(id.as_ptr(), out_id, 16);
-                0
+    guarded!(
+        "idr_transfer_send_selection",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            let _call = crate::ffi::ctx_span("idr_transfer_send_selection", ctx_json).entered();
+            clear_last_error();
+            let (Some(eng), Some(target), Some(folder), Some(sel), false) = (
+                engine(e),
+                str_arg(target_fqhn),
+                str_arg(folder),
+                str_list(selected, n_selected),
+                out_id.is_null(),
+            ) else {
+                return invalid("null or invalid argument");
+            };
+            match eng.transfer_send_selection(target, std::path::Path::new(folder), &sel) {
+                Ok(id) => {
+                    std::ptr::copy_nonoverlapping(id.as_ptr(), out_id, 16);
+                    0
+                }
+                Err(e) => fail(e),
             }
-            Err(e) => fail(e),
         }
-    })
+    )
 }
 
 unsafe fn command(e: *mut crate::ffi::IdrEngine, id: *const u8, cmd: TransferCommand) -> c_int {
     clear_last_error();
-    let (Some(eng), Some(id)) = (engine(e), read_id(id)) else { return invalid("null argument") };
+    let (Some(eng), Some(id)) = (engine(e), read_id(id)) else {
+        return invalid("null argument");
+    };
     match eng.transfer_command(&id, cmd) {
         Ok(Ok(())) => 0,
         Ok(Err(k)) => {
@@ -548,27 +651,46 @@ unsafe fn command(e: *mut crate::ffi::IdrEngine, id: *const u8, cmd: TransferCom
 
 /// Accept a pending incoming offer; `out_dir` NULL = the configured receive_dir.
 #[no_mangle]
-pub unsafe extern "C" fn idr_transfer_accept(e: *mut crate::ffi::IdrEngine, id: *const u8, out_dir: *const c_char) -> c_int {
-    guarded!("idr_transfer_accept", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        if !out_dir.is_null() && str_arg(out_dir).is_none() {
-            return invalid("invalid utf8 out_dir");
+pub unsafe extern "C" fn idr_transfer_accept(
+    e: *mut crate::ffi::IdrEngine,
+    id: *const u8,
+    out_dir: *const c_char,
+) -> c_int {
+    guarded!(
+        "idr_transfer_accept",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            if !out_dir.is_null() && str_arg(out_dir).is_none() {
+                return invalid("invalid utf8 out_dir");
+            }
+            command(
+                e,
+                id,
+                TransferCommand::Accept(str_arg(out_dir).map(PathBuf::from)),
+            )
         }
-        command(e, id, TransferCommand::Accept(str_arg(out_dir).map(PathBuf::from)))
-    })
+    )
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn idr_transfer_reject(e: *mut crate::ffi::IdrEngine, id: *const u8) -> c_int {
-    guarded!("idr_transfer_reject", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        command(e, id, TransferCommand::Reject)
-    })
+pub unsafe extern "C" fn idr_transfer_reject(
+    e: *mut crate::ffi::IdrEngine,
+    id: *const u8,
+) -> c_int {
+    guarded!(
+        "idr_transfer_reject",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        { command(e, id, TransferCommand::Reject) }
+    )
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn idr_transfer_pause(e: *mut crate::ffi::IdrEngine, id: *const u8) -> c_int {
-    guarded!("idr_transfer_pause", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        command(e, id, TransferCommand::Pause)
-    })
+    guarded!(
+        "idr_transfer_pause",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        { command(e, id, TransferCommand::Pause) }
+    )
 }
 
 #[no_mangle]
@@ -577,51 +699,86 @@ pub unsafe extern "C" fn idr_transfer_resume(
     id: *const u8,
     ctx_json: *const c_char,
 ) -> c_int {
-    guarded!("idr_transfer_resume", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        let _call = crate::ffi::ctx_span("idr_transfer_resume", ctx_json).entered();
-        command(e, id, TransferCommand::Resume)
-    })
+    guarded!(
+        "idr_transfer_resume",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            let _call = crate::ffi::ctx_span("idr_transfer_resume", ctx_json).entered();
+            command(e, id, TransferCommand::Resume)
+        }
+    )
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn idr_transfer_cancel(e: *mut crate::ffi::IdrEngine, id: *const u8) -> c_int {
-    guarded!("idr_transfer_cancel", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        command(e, id, TransferCommand::Cancel)
-    })
+pub unsafe extern "C" fn idr_transfer_cancel(
+    e: *mut crate::ffi::IdrEngine,
+    id: *const u8,
+) -> c_int {
+    guarded!(
+        "idr_transfer_cancel",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        { command(e, id, TransferCommand::Cancel) }
+    )
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn idr_transfer_retry_failed(e: *mut crate::ffi::IdrEngine, id: *const u8) -> c_int {
-    guarded!("idr_transfer_retry_failed", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        command(e, id, TransferCommand::Retry)
-    })
+pub unsafe extern "C" fn idr_transfer_retry_failed(
+    e: *mut crate::ffi::IdrEngine,
+    id: *const u8,
+) -> c_int {
+    guarded!(
+        "idr_transfer_retry_failed",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        { command(e, id, TransferCommand::Retry) }
+    )
 }
 
 /// JSON array of transfers (same shape as `source-agent transfer list --json`).
 #[no_mangle]
-pub unsafe extern "C" fn idr_transfer_list(e: *mut crate::ffi::IdrEngine, buf: *mut c_char, capacity: usize) -> c_int {
-    guarded!("idr_transfer_list", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        clear_last_error();
-        let (Some(eng), false) = (engine(e), buf.is_null() || capacity == 0) else { return invalid("null argument") };
-        match eng.transfer_list_json() {
-            Ok(json) => crate::ffi::copy_json_to_buf(json, buf, capacity),
-            Err(e) => fail(e),
+pub unsafe extern "C" fn idr_transfer_list(
+    e: *mut crate::ffi::IdrEngine,
+    buf: *mut c_char,
+    capacity: usize,
+) -> c_int {
+    guarded!(
+        "idr_transfer_list",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            clear_last_error();
+            let (Some(eng), false) = (engine(e), buf.is_null() || capacity == 0) else {
+                return invalid("null argument");
+            };
+            match eng.transfer_list_json() {
+                Ok(json) => crate::ffi::copy_json_to_buf(json, buf, capacity),
+                Err(e) => fail(e),
+            }
         }
-    })
+    )
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn idr_transfer_status(e: *mut crate::ffi::IdrEngine, id: *const u8, buf: *mut c_char, capacity: usize) -> c_int {
-    guarded!("idr_transfer_status", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        clear_last_error();
-        let (Some(eng), Some(id), false) = (engine(e), read_id(id), buf.is_null() || capacity == 0) else {
-            return invalid("null argument");
-        };
-        match eng.transfer_status_json(&id) {
-            Ok(json) => crate::ffi::copy_json_to_buf(json, buf, capacity),
-            Err(e) => fail(e),
+pub unsafe extern "C" fn idr_transfer_status(
+    e: *mut crate::ffi::IdrEngine,
+    id: *const u8,
+    buf: *mut c_char,
+    capacity: usize,
+) -> c_int {
+    guarded!(
+        "idr_transfer_status",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            clear_last_error();
+            let (Some(eng), Some(id), false) =
+                (engine(e), read_id(id), buf.is_null() || capacity == 0)
+            else {
+                return invalid("null argument");
+            };
+            match eng.transfer_status_json(&id) {
+                Ok(json) => crate::ffi::copy_json_to_buf(json, buf, capacity),
+                Err(e) => fail(e),
+            }
         }
-    })
+    )
 }
 
 /// `{"total","first","entries":[{entry,path,kind,size,failed,stored_as}]}`, at most 256 entries.
@@ -634,16 +791,22 @@ pub unsafe extern "C" fn idr_transfer_entries(
     buf: *mut c_char,
     capacity: usize,
 ) -> c_int {
-    guarded!("idr_transfer_entries", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        clear_last_error();
-        let (Some(eng), Some(id), false) = (engine(e), read_id(id), buf.is_null() || capacity == 0) else {
-            return invalid("null argument");
-        };
-        match eng.transfer_entries_json(&id, first, max) {
-            Ok(json) => crate::ffi::copy_json_to_buf(json, buf, capacity),
-            Err(e) => fail(e),
+    guarded!(
+        "idr_transfer_entries",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            clear_last_error();
+            let (Some(eng), Some(id), false) =
+                (engine(e), read_id(id), buf.is_null() || capacity == 0)
+            else {
+                return invalid("null argument");
+            };
+            match eng.transfer_entries_json(&id, first, max) {
+                Ok(json) => crate::ffi::copy_json_to_buf(json, buf, capacity),
+                Err(e) => fail(e),
+            }
         }
-    })
+    )
 }
 
 /// Drain up to `max_events`. Safe to call from any one thread at a time, while
@@ -655,19 +818,25 @@ pub unsafe extern "C" fn idr_transfer_poll_events(
     max_events: usize,
     out_count: *mut usize,
 ) -> c_int {
-    guarded!("idr_transfer_poll_events", -(::idr_core::IdrErrorKind::Panic as c_int), {
-        clear_last_error();
-        let (Some(eng), false) = (engine(e), out.is_null() || out_count.is_null()) else { return invalid("null argument") };
-        let dest = std::slice::from_raw_parts_mut(out, max_events);
-        let mut n = 0;
-        while n < max_events {
-            let Some(ev) = eng.transfer_poll() else { break };
-            dest[n] = ev;
-            n += 1;
+    guarded!(
+        "idr_transfer_poll_events",
+        -(::idr_core::IdrErrorKind::Panic as c_int),
+        {
+            clear_last_error();
+            let (Some(eng), false) = (engine(e), out.is_null() || out_count.is_null()) else {
+                return invalid("null argument");
+            };
+            let dest = std::slice::from_raw_parts_mut(out, max_events);
+            let mut n = 0;
+            while n < max_events {
+                let Some(ev) = eng.transfer_poll() else { break };
+                dest[n] = ev;
+                n += 1;
+            }
+            *out_count = n;
+            0
         }
-        *out_count = n;
-        0
-    })
+    )
 }
 
 #[cfg(test)]
@@ -675,7 +844,12 @@ mod tests {
     use super::*;
 
     fn ev(kind: u32, id: u8, bytes: u64) -> IdrTransferEvent {
-        IdrTransferEvent { kind, transfer_id: [id; 16], bytes_done: bytes, ..Default::default() }
+        IdrTransferEvent {
+            kind,
+            transfer_id: [id; 16],
+            bytes_done: bytes,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -686,10 +860,17 @@ mod tests {
         q.push(ev(IDR_TEV_PROGRESS, 1, 20));
         q.push(ev(IDR_TEV_FINISHED, 1, 0));
         q.push(ev(IDR_TEV_PROGRESS, 1, 30));
-        let got: Vec<_> = std::iter::from_fn(|| q.pop()).map(|e| (e.kind, e.transfer_id[0], e.bytes_done)).collect();
+        let got: Vec<_> = std::iter::from_fn(|| q.pop())
+            .map(|e| (e.kind, e.transfer_id[0], e.bytes_done))
+            .collect();
         assert_eq!(
             got,
-            [(IDR_TEV_PROGRESS, 1, 20), (IDR_TEV_PROGRESS, 2, 5), (IDR_TEV_FINISHED, 1, 0), (IDR_TEV_PROGRESS, 1, 30)]
+            [
+                (IDR_TEV_PROGRESS, 1, 20),
+                (IDR_TEV_PROGRESS, 2, 5),
+                (IDR_TEV_FINISHED, 1, 0),
+                (IDR_TEV_PROGRESS, 1, 30)
+            ]
         );
     }
 

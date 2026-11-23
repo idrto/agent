@@ -26,10 +26,10 @@ use wasm_bindgen::JsCast;
 use crate::host::peer::{parse_peer_event, JsPeerHost, JsPeerTransport};
 use crate::host::signaling::{parse_signaling_message, JsSignalingClient, JsSignalingHost};
 
-#[cfg(target_arch = "wasm32")]
-use wasmtimer::tokio::timeout as async_timeout;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::timeout as async_timeout;
+#[cfg(target_arch = "wasm32")]
+use wasmtimer::tokio::timeout as async_timeout;
 
 type PeerTxSlot = Arc<StdMutex<Option<mpsc::UnboundedSender<PeerEvent>>>>;
 type SigInbox = Arc<StdMutex<Option<mpsc::UnboundedSender<SignalingMessage>>>>;
@@ -208,7 +208,10 @@ impl WasmEngine {
             }
         }
         Err(js_err(last_err.unwrap_or_else(|| {
-            IdrError::new(IdrErrorKind::SignalingFailed, "no Presence server reachable")
+            IdrError::new(
+                IdrErrorKind::SignalingFailed,
+                "no Presence server reachable",
+            )
         })))
     }
 
@@ -223,10 +226,7 @@ impl WasmEngine {
             let p = pre
                 .call1(&JsValue::NULL, &JsValue::from_str(wss_url))
                 .map_err(|e| {
-                    IdrError::new(
-                        IdrErrorKind::SignalingFailed,
-                        format!("preconnect: {e:?}"),
-                    )
+                    IdrError::new(IdrErrorKind::SignalingFailed, format!("preconnect: {e:?}"))
                 })?;
             if !p.is_undefined() && !p.is_null() {
                 let _ = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(p))
@@ -282,8 +282,8 @@ impl WasmEngine {
             .borrow_mut()
             .take()
             .ok_or_else(|| JsValue::from_str("not connected"))?;
-        let already_have_catalog = !slot.session.catalog_entries().is_empty()
-            || !slot.session.named_services().is_empty();
+        let already_have_catalog =
+            !slot.session.catalog_entries().is_empty() || !slot.session.named_services().is_empty();
         if !already_have_catalog {
             if let Err(e) = slot.session.refresh_named_services().await {
                 if slot.session.catalog_entries().is_empty()
@@ -303,7 +303,8 @@ impl WasmEngine {
                 .map(|n| idr_protocol::stream_mux::ServiceCatalogEntry::name_only(n.clone()))
                 .collect()
         };
-        let json = serde_json::to_string(&entries).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let json =
+            serde_json::to_string(&entries).map_err(|e| JsValue::from_str(&e.to_string()))?;
         *self.session.borrow_mut() = Some(slot);
         Ok(json)
     }
@@ -396,8 +397,7 @@ impl WasmEngine {
                 .streams
                 .get_mut(&stream_id)
                 .ok_or_else(|| JsValue::from_str("unknown stream"))?;
-            match async_timeout(std::time::Duration::from_millis(50), stream.read(&mut buf)).await
-            {
+            match async_timeout(std::time::Duration::from_millis(50), stream.read(&mut buf)).await {
                 Ok(Ok(n)) => break n, // data (n>0) or real EOF (n==0)
                 Ok(Err(e)) => {
                     *self.session.borrow_mut() = Some(slot);

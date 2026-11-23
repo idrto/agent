@@ -91,7 +91,9 @@ impl Journal {
     pub fn updated_at(path: &Path) -> Option<i64> {
         let conn = Connection::open(path).ok()?;
         let v: Vec<u8> = conn
-            .query_row("SELECT v FROM meta WHERE k = 'updated_at'", [], |r| r.get(0))
+            .query_row("SELECT v FROM meta WHERE k = 'updated_at'", [], |r| {
+                r.get(0)
+            })
             .ok()?;
         Some(i64::from_be_bytes(v.try_into().ok()?))
     }
@@ -160,14 +162,17 @@ impl Journal {
              ON CONFLICT(id) DO UPDATE SET verified = 1",
             [entry],
         )?;
-        self.conn.execute("DELETE FROM block WHERE entry = ?1", [entry])?;
+        self.conn
+            .execute("DELETE FROM block WHERE entry = ?1", [entry])?;
         self.touch()
     }
 
     /// Start `entry` over (it failed and its data was removed).
     pub fn reset(&self, entry: u32) -> R<()> {
-        self.conn.execute("DELETE FROM block WHERE entry = ?1", [entry])?;
-        self.conn.execute("DELETE FROM entry WHERE id = ?1", [entry])?;
+        self.conn
+            .execute("DELETE FROM block WHERE entry = ?1", [entry])?;
+        self.conn
+            .execute("DELETE FROM entry WHERE id = ?1", [entry])?;
         Ok(())
     }
 }

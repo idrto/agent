@@ -1,7 +1,9 @@
 use crate::config::{Config, WebRtcByorServerConfig};
 use crate::identity::TargetIdentity;
 use idr_protocol::crypto;
-use idr_protocol::signaling::{PresenceRole, SignalingMessageType, TargetRegistration, TargetUnregistration};
+use idr_protocol::signaling::{
+    PresenceRole, SignalingMessageType, TargetRegistration, TargetUnregistration,
+};
 use idr_protocol::webrtc_ice::IceRelayMode;
 use idr_protocol::webrtc_signaling::{
     default_webrtc_capabilities, BringYourOwnRelay, ByorIceServer, TargetWebRtcRegistration,

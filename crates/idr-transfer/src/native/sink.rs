@@ -111,7 +111,11 @@ impl NativeSink {
     /// swapped in after the destination was checked.
     pub fn open_in(root: &Path, rel: &Path) -> io::Result<Self> {
         let base = Dir::open_ambient_dir(root, ambient_authority())?;
-        let dir = if rel.as_os_str().is_empty() { base } else { base.open_dir(rel)? };
+        let dir = if rel.as_os_str().is_empty() {
+            base
+        } else {
+            base.open_dir(rel)?
+        };
         Ok(Self {
             root: dir,
             root_path: root.join(rel),
@@ -137,7 +141,10 @@ impl NativeSink {
 
     /// Remove staging of transfers idle longer than `max_age`. Returns how many.
     pub fn sweep(&self, max_age: Duration) -> io::Result<u32> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
         let mut removed = 0;
         for entry in self.root.entries()? {
             let entry = entry?;
@@ -209,7 +216,11 @@ impl NativeSink {
     /// Rename `from` (in `from_dir`) into `to_dir` as `name`, or `name (n)` if taken.
     fn place(from_dir: &Dir, from: &str, to_dir: &Dir, name: &str) -> Result<String> {
         for n in 1..=MAX_NUMBERED {
-            let candidate = if n == 1 { name.to_string() } else { numbered(name, n) };
+            let candidate = if n == 1 {
+                name.to_string()
+            } else {
+                numbered(name, n)
+            };
             match rename_noreplace(from_dir, from, to_dir, &candidate) {
                 Ok(()) => return Ok(candidate),
                 Err(RenameError::Exists) => continue,
@@ -246,8 +257,12 @@ impl Sink for NativeSink {
             self.open_existing(&staging_name, digest)?
         } else {
             private_dir(&self.root, &staging_name).map_err(storage)?;
-            Journal::create(&staging_path.join(journal::FILE), digest, &manifest.encode())
-                .map_err(storage)?
+            Journal::create(
+                &staging_path.join(journal::FILE),
+                digest,
+                &manifest.encode(),
+            )
+            .map_err(storage)?
         };
         let staging = self.root.open_dir(&staging_name).map_err(storage)?;
         for sub in ["p", "t"] {
@@ -263,18 +278,34 @@ impl Sink for NativeSink {
 
         let mut points = Vec::new();
         for row in journal.entries().map_err(storage)? {
-            let size = manifest.entries.get(row.id as usize).ok_or(StorageFailed)?.size;
+            let size = manifest
+                .entries
+                .get(row.id as usize)
+                .ok_or(StorageFailed)?
+                .size;
             if row.verified {
-                points.push(ResumePoint { entry: row.id, verified: size, complete: true });
+                points.push(ResumePoint {
+                    entry: row.id,
+                    verified: size,
+                    complete: true,
+                });
             } else {
                 let good = Self::verify_partial(&parts, &journal, row.id)?;
                 if good > 0 {
-                    points.push(ResumePoint { entry: row.id, verified: good, complete: false });
+                    points.push(ResumePoint {
+                        entry: row.id,
+                        verified: good,
+                        complete: false,
+                    });
                 }
             }
         }
         // Partial files with no journal row hold nothing proven.
-        for e in manifest.entries.iter().filter(|e| e.kind == EntryKind::File) {
+        for e in manifest
+            .entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::File)
+        {
             if !points.iter().any(|p| p.entry == e.id) {
                 let _ = parts.remove_file(e.id.to_string());
             }
@@ -322,8 +353,15 @@ impl Sink for NativeSink {
             Self::close_writer(o)?;
             let mut opts = open_rw();
             opts.create(true);
-            let file = o.parts.open_with(entry.to_string(), &opts).map_err(storage)?;
-            o.writer = Some(Writer { entry, file, block: Sha256::new() });
+            let file = o
+                .parts
+                .open_with(entry.to_string(), &opts)
+                .map_err(storage)?;
+            o.writer = Some(Writer {
+                entry,
+                file,
+                block: Sha256::new(),
+            });
         }
         let w = o.writer.as_mut().unwrap();
         let len = w.file.metadata().map_err(storage)?.len();
@@ -442,7 +480,13 @@ impl Sink for NativeSink {
             }
             // else: an earlier finish moved it and stopped before cleanup.
         }
-        let Open { staging_name, journal, parts, tree, .. } = o;
+        let Open {
+            staging_name,
+            journal,
+            parts,
+            tree,
+            ..
+        } = o;
         drop((journal, parts, tree));
         self.root.remove_dir_all(&staging_name).map_err(storage)
     }
@@ -451,7 +495,15 @@ impl Sink for NativeSink {
         let Some(o) = self.cur.take() else {
             return Ok(());
         };
-        let Open { staging_name, journal, parts, tree, writer, dirs, .. } = o;
+        let Open {
+            staging_name,
+            journal,
+            parts,
+            tree,
+            writer,
+            dirs,
+            ..
+        } = o;
         drop((journal, parts, tree, writer, dirs));
         match self.root.remove_dir_all(&staging_name) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(storage(e)),

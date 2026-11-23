@@ -17,9 +17,9 @@ mod limits;
 pub mod manifest;
 pub mod mem;
 pub mod names;
-pub mod policy;
 #[cfg(feature = "native")]
 pub mod native;
+pub mod policy;
 mod receiver;
 mod router;
 mod sender;

@@ -19,8 +19,14 @@ pub struct PeerConnectRequest {
 
 #[derive(Debug, Clone)]
 pub enum PeerEvent {
-    LocalDescription { sdp_type: String, sdp: String },
-    LocalCandidate { candidate: String, mid: String },
+    LocalDescription {
+        sdp_type: String,
+        sdp: String,
+    },
+    LocalCandidate {
+        candidate: String,
+        mid: String,
+    },
     GatheringComplete,
     DataChannelOpen,
     DataChannelClosed,

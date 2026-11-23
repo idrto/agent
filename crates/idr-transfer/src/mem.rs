@@ -6,12 +6,14 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use idr_protocol::transfer::{
-    EntryKind, Manifest, ManifestEntry, ManifestKind, ResumePoint, Sha256Digest,
-    TransferErrorKind, TransferId,
+    EntryKind, Manifest, ManifestEntry, ManifestKind, ResumePoint, Sha256Digest, TransferErrorKind,
+    TransferId,
 };
 
 use crate::storage::{Approval, Consent, EntryReader, OfferInfo, Result, Sink, SourceFiles};
-use TransferErrorKind::{ChangedDuringTransfer, ConflictingManifest, SourceReadFailed, StorageFailed};
+use TransferErrorKind::{
+    ChangedDuringTransfer, ConflictingManifest, SourceReadFailed, StorageFailed,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct MemFile {
@@ -145,13 +147,21 @@ impl MemSink {
 
     pub fn partial_len(&self, id: &TransferId, entry: u32) -> u64 {
         let st = self.state.lock().unwrap();
-        st.held[id].partial.get(&entry).map_or(0, |p| p.len() as u64)
+        st.held[id]
+            .partial
+            .get(&entry)
+            .map_or(0, |p| p.len() as u64)
     }
 
     /// Flip one persisted byte of a partial entry.
     pub fn tamper(&self, id: &TransferId, entry: u32, at: usize) {
         let mut st = self.state.lock().unwrap();
-        st.held.get_mut(id).unwrap().partial.get_mut(&entry).unwrap()[at] ^= 0xff;
+        st.held
+            .get_mut(id)
+            .unwrap()
+            .partial
+            .get_mut(&entry)
+            .unwrap()[at] ^= 0xff;
     }
 
     pub fn fail_writes_to(&self, entry: Option<u32>) {
@@ -194,7 +204,9 @@ impl Sink for MemSink {
         }
         // Unpersisted bytes past the last checkpoint are gone after a restart.
         let Held {
-            partial, checkpoint, ..
+            partial,
+            checkpoint,
+            ..
         } = held;
         for (entry, data) in partial.iter_mut() {
             data.truncate(checkpoint.get(entry).copied().unwrap_or(0) as usize);

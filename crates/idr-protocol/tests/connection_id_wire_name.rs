@@ -7,7 +7,9 @@ fn every_connection_id_field_keeps_the_session_id_wire_name() {
     let mut checked = 0;
     for file in ["webrtc_signaling.rs", "signaling.rs", "quic_control.rs"] {
         let path = format!("{}/src/{file}", env!("CARGO_MANIFEST_DIR"));
-        let text = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\r\n", "\n");
         let lines: Vec<&str> = text.lines().collect();
         for (i, l) in lines.iter().enumerate() {
             if l.trim() == "pub connection_id: Uuid," {
@@ -30,6 +32,9 @@ fn json_key_is_session_id_not_connection_id() {
     )
     .unwrap();
     let out = serde_json::to_string(&hello).unwrap();
-    assert!(out.contains(r#""session_id":"7f3e0c52-9a43-4b8e-8d0e-6a6f2b0f6e10""#), "{out}");
+    assert!(
+        out.contains(r#""session_id":"7f3e0c52-9a43-4b8e-8d0e-6a6f2b0f6e10""#),
+        "{out}"
+    );
     assert!(!out.contains("connection_id"), "{out}");
 }

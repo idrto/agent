@@ -71,7 +71,10 @@ impl ProbeScheduler {
             .last_generation
             .load(std::sync::atomic::Ordering::SeqCst);
         if msg.probe_generation <= prev {
-            debug!(event = "webrtc.skipping_stale_probe_generation", generation = msg.probe_generation);
+            debug!(
+                event = "webrtc.skipping_stale_probe_generation",
+                generation = msg.probe_generation
+            );
             return Ok(());
         }
         self.last_generation
@@ -137,7 +140,10 @@ impl ProbeScheduler {
         let report = TurnProbeReport::sign(unsigned, self.identity.signing_key())?;
         let json = serde_json::to_string(&report)?;
         outbox.send_json(&json).await?;
-        debug!(event = "webrtc.sent_turn_probe_report", generation = msg.probe_generation);
+        debug!(
+            event = "webrtc.sent_turn_probe_report",
+            generation = msg.probe_generation
+        );
         Ok(())
     }
 
