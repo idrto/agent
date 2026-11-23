@@ -317,3 +317,10 @@ events:
 
   target.sdk.note: { kind: event, level: INFO, attrs: [], owner: idr_target, note: "free-text SDK diagnostic (msg is redacted); migrate sites to named events over time" }
   target.phase.completed: { kind: event, level: INFO, attrs: [phase, duration_ms, outcome], owner: idr_target }
+
+  # email issue report (D15)
+  diag.report.started:            { kind: event, level: INFO, attrs: [], owner: idr_target_app }
+  diag.report.built:              { kind: event, level: INFO, attrs: [bytes, files, window_s], owner: idr_target_app }
+  diag.report.mail_opened:        { kind: event, level: INFO, attrs: [], owner: idr_target_app }
+  diag.report.mail_launch_failed: { kind: event, level: WARN, attrs: [reason], owner: idr_target_app }
+  diag.report.deleted:            { kind: event, level: INFO, attrs: [], owner: idr_target_app }

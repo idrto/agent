@@ -229,11 +229,51 @@ checks/doctor.json    output of existing doctor/diagnostics reachability checks
 ### 4.2 Building and sharing a bundle, V1
 
 - **Builder:** `DiagnosticBundle.collect()` in `idr_telemetry`.
-  - **GUI:** the "Report a problem" screen builds the bundle, shows a summary (size, time range, included categories), and offers "Show in folder".
+  - **GUI:** the "Report an issue" screen builds the bundle, shows a summary (size, time range, included categories), and offers "Show in folder".
   - **CLI:** `idrs diag report` / `idr diag report` (`--window 2h`, `--note`, `--out <path>`) prints the path and the `report_id`.
   - Spawned agents are asked over IPC to flush first: `{"cmd":"diag.flush"}`.
 - **Redaction runs again** over every string at build time, using the current redactor version, so bugs fixed since the logs were written are applied.
 - **V1 has no upload.** The user attaches the zip to their support message or issue themselves and quotes the `report_id`. Building a bundle never sends anything.
+
+### 4.2a Report an issue by email, V1 (Target GUI first; decision D15)
+
+The "Report an issue" screen of `idr_target_app` is also the V1 support channel. The user describes the problem, the app builds the bundle (§4.1), and the app opens the user's own email program with a prefilled message. **The app never sends or uploads anything.** The user attaches the ZIP and presses Send themselves.
+
+**Flow**
+
+1. **Entry points.** Settings/Diagnostics → "Report an issue", and the unclean-exit banner ("The app closed unexpectedly. Report it?").
+2. **Describe.** A text box (what happened, what you expected; required, max 2000 characters) and a time-window choice: last 2 h (default) or last 24 h.
+3. **Build.** `DiagnosticBundle.collect()` after the writer-controlled drain (§2.1 step 7), with re-redaction (§4.2). The screen shows the result before anything leaves it: size, time range, included categories, `report_id`, and "View contents" (opens the unpacked list; every file can be read).
+4. **Open the email program** with the button "Open email". The app builds a `mailto:` link and launches it with `url_launcher`.
+   - **To:** `dev10@advcomm.ca` (a constant in the app, not user input).
+   - **Subject:** `IDR issue report <report_id>`, e.g. `IDR issue report 01a20908-3a1d-706f-9566-176d8947efbf`.
+   - **Body (plain text):** the user's description, then a short fixed block: app version and flavor, OS name and version, CPU architecture, `report_id`, bundle file name and size, and the line "Please attach the ZIP file named above." It holds **no** logs, no FQHN, no email address, no account or device identifiers, and nothing that is not in the preview shown to the user.
+   - **Attachment:** none. `mailto:` cannot attach files, and the app does not try to (no MAPI or scripting of the mail client). The app instead **shows the ZIP in its folder** (`reveal` in Explorer/Finder) next to a "Copy path" button, with the text "Attach this file to the email, then send it."
+5. **Nothing happens until the user acts.** Closing the screen sends nothing. The user can still delete the bundle (button "Delete report").
+
+**Size limits.** `mailto:` links are limited (about 2000 characters on Windows mail clients). The app keeps the whole link under 1800 characters after percent-encoding: the description is truncated in the link (with "(truncated; full text in the ZIP)") and always stored in full in `manifest.json` → `user_note`. The ZIP is capped at 25 MiB, the common mail-attachment limit: if the 2 h window is larger, the app lowers the DEBUG/INFO tail first and tells the user which part was left out.
+
+**Fallback when no email program works** (no default handler, the launch fails, or the user uses webmail):
+
+- The screen always offers, whether or not the launch worked:
+  - "Copy email address", "Copy subject", "Copy message" (the same text as the body above), and "Copy path of the ZIP".
+  - "Show in folder".
+  - A short instruction: "Send an email to dev10@advcomm.ca with this subject and message, and attach the ZIP."
+- If `launchUrl` returns false or throws, the app says so plainly ("No email program was found") and expands the same copy actions. It records `diag.report.mail_launch_failed` (no address or text in the record).
+
+**Privacy protection**
+
+- **Consent is the gesture.** The bundle stays on the device. Nothing is attached or sent by the app; the user sees the ZIP and the message before they send it (R-PRIV-6).
+- **Description screening.** The user's text is redacted with the normal redactor before it goes into the link or `manifest.json`, but it is the user's own words, so the screen also warns: "Do not include passwords or tokens." Redaction of tokens, emails and paths still applies.
+- **Minimal body.** Only the fixed block above is added. Version, OS and architecture are public-class values (§5.1).
+- **No personal identifiers in the email text.** The sender's address comes from their own mail program, which is theirs to control. Account, FQHN and device IDs appear only inside the ZIP, as pseudonymous records already allowed in bundles (§5.1), and the preview lists them.
+- **ZIP contents** follow §4.1; nothing is added for email. Personal-class and secret-class values never reach a bundle (§5.2).
+- **Local cleanup.** Reports older than 7 days are deleted at start-up; at most 5 are kept (§1.3).
+- **Recipient is fixed.** No other address can be entered in this flow; the constant is in one place and changed only by a reviewed commit.
+
+**Events (registered in `spec/telemetry/events.yaml`):** `diag.report.started`, `diag.report.built{bytes, files, window_s}`, `diag.report.mail_opened`, `diag.report.mail_launch_failed{reason}`, `diag.report.deleted`. None carries the description, address or path.
+
+**Later surfaces.** The same flow reuses `DiagnosticBundle` for the Source CLI (`idrs diag report` prints the same subject, body and address, since a CLI cannot reliably open a mail client) and a Source GUI. They are not in the first slice.
 
 ### 4.3 Upload and consent, V2
 

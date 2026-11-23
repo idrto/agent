@@ -230,7 +230,7 @@ The package contains only:
   - `AppLifecycleListener` (records `app.lifecycle.changed`)
   - the log directory from `path_provider` (`getApplicationSupportDirectory()/logs`)
 - `NavigatorObserver` → `ui.screen.viewed` (a route name, never route arguments).
-- **No UI widgets.** The "Report a problem" screen belongs to the app and uses `DiagnosticBundle`, per the package-first rule.
+- **No UI widgets.** The "Report an issue" screen belongs to the app and uses `DiagnosticBundle`, per the package-first rule.
 
 ### 2.6 Non-Rust, non-Dart servers
 
@@ -381,7 +381,7 @@ sequenceDiagram
  │ source-agent  ──┘                          │            │ coturn    ─┘ text            │
  │   + flight recorder (RAM) → flush on error │            │      │ journald/podman        │
  │   + crash/ records                         │            │ ------------- V2 ----------- │
- │         │ user: "Report a problem"         │            │  Grafana Alloy (per host)    │
+ │         │ user: "Report an issue"         │            │  Grafana Alloy (per host)    │
  │         ▼ V1: export zip, user attaches it │            │      │ parse, redact         │
  │  DiagnosticBundle.zip (report_id)          │  V2 HTTPS  │  diag-ingest ──► object store │
  │         └──────────────────────────────────┼──────────► │      ▼                       │

@@ -34,6 +34,7 @@
 | **D12** | Wire `telemetry`: signed or excluded | decided (V2) | Excluded from canonicalization by every signer and verifier, the Presence-built offer included |
 | **D13** | Enterprise uploads | deferred to V2 | Allowed with consent; an admin policy can disable them |
 | **D14** | Native library compatibility | **decided 2026-11-23** | **The app and its native libraries and agent binaries are upgraded together.** The existing exact `ABI_VERSION` match stays. There is no support for old apps loading new libraries, and no capability negotiation. The ABI version is bumped when the signatures change. |
+| **D15** | Email-based issue reporting (V1) | **adopted 2026-11-23** | A "Report an issue" screen in `idr_target_app` builds the local bundle and opens the default mail program via `mailto:` to `dev10@advcomm.ca` with a prefilled subject and body; the user attaches the ZIP and sends it. The app never sends or uploads. Fallback: copy actions and Show in folder. Details: [04 §4.2a](04-storage-crash-diagnostics-privacy.md). `url_launcher` is the one new dependency of this flow (ADR-0019 amendment). Open: confirm the recipient address and the 25 MiB cap with support. |
 
 ## 2. External review findings (2026-11-23): resolution
 

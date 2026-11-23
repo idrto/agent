@@ -202,3 +202,4 @@ attributes:
   via: { type: string, class: public }
   local_type: { type: string, class: public }
   remote_type: { type: string, class: public }
+  files: { type: int, class: public }

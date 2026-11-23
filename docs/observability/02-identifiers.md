@@ -97,7 +97,7 @@
 | | |
 |---|---|
 | **Purpose** | Links a user-submitted report (or an automatically captured local bundle) to its contents and to server-side storage |
-| **Created** | When the user opens "Report a problem", or when a crash or stall auto-capture runs |
+| **Created** | When the user opens "Report an issue", or when a crash or stall auto-capture runs |
 | **Format** | UUIDv7. **V1** uses the full UUID everywhere: the bundle file name, `manifest.json`, and the text the user copies into a support message. |
 | **Display code (V2, with uploads)** | A short code is needed only when users read it out to support. A UUIDv7 **prefix must not be used**, because its first 48 bits are the timestamp. The code is 10 Crockford-base32 characters built from **the 74 random bits** (`rand_a` + `rand_b`), formatted `XXXXX-XXXXX`. `diag-ingest` checks it for uniqueness on upload and returns a different code on collision. The stored key is always the full UUID. |
 | **Lifetime** | As long as the bundle exists: 7 days locally, 30 days on the server (V2), or until the user deletes it |

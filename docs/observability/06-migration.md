@@ -54,7 +54,7 @@ A rule that applies everywhere: nothing is preserved just because it exists.
 | D20 | `sourceId = email` | `idr_source.dart:283` | **Product change, flagged** | `device.ski`, or an opaque ID ([09 D9](09-decisions-risks-approval.md)). This also removes the email from TURN usernames and coturn logs. |
 | D21 | No crash hooks; `idr_target_app/main.dart:12-15` | — | ADD | `Telemetry.init` + `TelemetryFlutter.install` + `runGuarded` |
 | D22 | `HealthMonitor` restart and budget | `health_monitor.dart:30` | IMPROVE | Emit `agent.process.restarted` / `crash_budget_exceeded` |
-| D23 | GUI `DiagnosticsSection` | `home_screen.dart:566-660` | IMPROVE | Add a "Report a problem" entry; reachability results go into `checks/doctor.json` |
+| D23 | GUI `DiagnosticsSection` | `home_screen.dart:566-660` | IMPROVE | Add a "Report an issue" entry; reachability results go into `checks/doctor.json` |
 | D24 | Agent IPC without request IDs | `agent_ipc.dart:40-50` | IMPROVE | Add the `ctx` field (full local context); span `agent.ipc.request` |
 | D25 | Demo and example prints | `idr_target/example/main.dart`; `idr_dart_sdk/example` (in-memory list) | KEEP (examples) but remove `auth: ${s.data}` (`example/main.dart:137,271`) | — |
 | D26 | `idr_dart_sdk`, `idr_ui_views` | — | none | No logging today. They are unused by the apps; migrate only if they come back into use. |

@@ -69,6 +69,7 @@ AI agents must read this file and [03](03-log-schema-and-events.md) before addin
 - **R-PRIV-4.** dp-sdk crates do not log and do not depend on `tracing`. Callers log outcomes (`crypto.*` events) without material.
 - **R-PRIV-5.** HTTP errors never carry raw response bodies into `error.message`.
 - **R-PRIV-6.** Nothing leaves the device without explicit, per-bundle user consent.
+- **R-PRIV-8.** An email report (D15) opens the mail program with a fixed recipient and a body of the user's redacted description plus the fixed version/OS block only. It carries no logs and no identifiers. The app never attaches, sends or uploads; the user attaches the ZIP. A failed launch shows the copy-and-folder fallback.
 
 ### Reliability and performance
 
