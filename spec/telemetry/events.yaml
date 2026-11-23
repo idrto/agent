@@ -336,3 +336,15 @@ events:
   agent.restart.scheduled:         { kind: event, level: INFO,  attrs: [attempt, delay_ms, exit_code], owner: idr_target }
   agent.restart.budget_exceeded:   { kind: event, level: WARN,  attrs: [restarts, exit_code], owner: idr_target }
   target.sdk.agent_output:         { kind: event, level: DEBUG, attrs: [source], owner: idr_target }
+
+  # HTTP client spans (P1-31)
+  http.client.request:            { kind: span,  level: INFO , attrs: [http.request.method, http.response.status_code, http.request_id, server.address, server.port, url.path], owner: idr_session }
+
+  # Target state and step diagnostics
+  target.state.changed:    { kind: event, level: INFO, attrs: [from, to, since_ms], owner: idr_target, note: "since_ms = time spent in the previous state" }
+  target.attention.raised: { kind: event, level: WARN, attrs: [code, status, agent_status], owner: idr_target }
+  target.attention.cleared: { kind: event, level: INFO, attrs: [code], owner: idr_target }
+  target.tls.changed:      { kind: event, level: INFO, attrs: [from, to], owner: idr_target }
+  target.agent.launching:  { kind: event, level: INFO, attrs: [], owner: idr_target }
+  agent.status.changed:    { kind: event, level: INFO, attrs: [from, to], owner: idr_target }
+  target.phase.slow:       { kind: event, level: WARN, attrs: [phase, duration_ms, outcome, threshold_ms], owner: idr_target }

@@ -211,3 +211,5 @@ attributes:
   restarts: { type: int, class: public }
   attempt: { type: int, class: public }
   delay_ms: { type: int, class: public }
+  since_ms: { type: int, class: public }
+  threshold_ms: { type: int, class: public }

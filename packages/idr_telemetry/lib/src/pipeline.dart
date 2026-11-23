@@ -368,6 +368,7 @@ class Pipeline {
 /// Human-readable single line for a terminal.
 String prettyLine(Record r) {
   final sb = StringBuffer('${r.ts.length >= 23 ? r.ts.substring(11, 23) : r.ts} ${r.level.label.padRight(5)} ${r.event}');
+  if (r.durationMs != null) sb.write(" duration_ms=${r.durationMs!.round()}");
   if (r.msg != null) sb.write(' — ${r.msg}');
   if (r.error != null) {
     sb.write(' error.type=${r.error!.type}');
