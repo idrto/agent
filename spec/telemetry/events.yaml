@@ -44,8 +44,8 @@ events:
   auth.session.restore_failed:    { kind: event, level: WARN,  attrs: [], owner: idr_session }
   auth.sign_in:                   { kind: span,  level: INFO,  attrs: [auth.method], owner: idr_session }
   auth.sign_in.failed:            { kind: event, level: ERROR, attrs: [auth.method], owner: idr_session }
-  auth.token.refreshed:           { kind: event, level: DEBUG, attrs: [token.kind, token.expires_in_s], owner: any }
-  auth.token.refresh_failed:      { kind: event, level: WARN,  attrs: [token.kind], owner: any }
+  auth.token.refreshed:           { kind: event, level: INFO , attrs: [token.kind, token.expires_in_s, duration_ms], owner: any }
+  auth.token.refresh_failed:      { kind: event, level: WARN,  attrs: [token.kind, duration_ms], owner: any }
   entitlement.token.minted:       { kind: event, level: INFO,  attrs: [token.expires_in_s], owner: idr_target }
   entitlement.token.mint_failed:  { kind: event, level: ERROR, attrs: [], owner: idr_target }
   entitlement.token.rejected:     { kind: event, level: ERROR, attrs: [rejected_by], owner: idr_target }
@@ -348,3 +348,4 @@ events:
   target.agent.launching:  { kind: event, level: INFO, attrs: [], owner: idr_target }
   agent.status.changed:    { kind: event, level: INFO, attrs: [from, to], owner: idr_target }
   target.phase.slow:       { kind: event, level: WARN, attrs: [phase, duration_ms, outcome, threshold_ms], owner: idr_target }
+  target.start.billing_unreachable: { kind: event, level: INFO, attrs: [], owner: idr_target, note: "start-up skipped the subscription call" }
