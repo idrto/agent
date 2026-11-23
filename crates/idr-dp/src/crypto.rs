@@ -6,6 +6,7 @@ use dp_rust_mtls::{
     ski_from_csr_pem, ski_from_public_b64url, GeneratedEd25519, MtlsError,
     SignClientCertFromCsrParams, SignIntermediateCaParams,
 };
+use idr_telemetry::Secret;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -20,7 +21,7 @@ pub enum DpCryptoError {
 /// PEM + JWK key material matching Dart `Ed25519KeyMaterial`.
 #[derive(Debug, Clone, Serialize)]
 pub struct Ed25519KeyMaterialJson {
-    pub private_pem: String,
+    pub private_pem: Secret<String>,
     pub public_pem: String,
     pub public_b64url: String,
     pub public_jwk: serde_json::Value,
@@ -30,7 +31,7 @@ pub struct Ed25519KeyMaterialJson {
 impl From<GeneratedEd25519> for Ed25519KeyMaterialJson {
     fn from(g: GeneratedEd25519) -> Self {
         Self {
-            private_pem: g.private_pem,
+            private_pem: g.private_pem.into(),
             public_pem: g.public_pem,
             public_b64url: g.public_b64url,
             public_jwk: g.public_jwk,
@@ -174,14 +175,14 @@ mod tests {
     #[test]
     fn keygen_csr_ski_sign_roundtrip() {
         let mat = generate_ed25519_material().expect("keygen");
-        assert!(mat.private_pem.contains("PRIVATE KEY"));
+        assert!(mat.private_pem.expose().contains("PRIVATE KEY"));
         assert!(!mat.public_b64url.is_empty());
         assert_eq!(ski(&mat.public_b64url), mat.ski);
-        let csr = build_csr(&mat.private_pem, "smoke.test.idrto.local").expect("csr");
+        let csr = build_csr(&mat.private_pem.expose(), "smoke.test.idrto.local").expect("csr");
         assert!(csr.contains("CERTIFICATE REQUEST"));
-        let sig = sign(&mat.private_pem, b"hello").expect("sign");
+        let sig = sign(&mat.private_pem.expose(), b"hello").expect("sign");
         assert!(!sig.is_empty());
-        let sig_j = sign_json(&mat.private_pem, r#"{"a":1}"#).expect("sign_json");
+        let sig_j = sign_json(&mat.private_pem.expose(), r#"{"a":1}"#).expect("sign_json");
         assert!(!sig_j.is_empty());
     }
 
@@ -189,7 +190,7 @@ mod tests {
     fn sign_csr_with_ca_jwk_issues_leaf_and_chain() {
         let ca = create_self_signed_ca("unused-cn").expect("ca");
         let mat = generate_ed25519_material().expect("device");
-        let csr = build_csr(&mat.private_pem, "device--acme.example").expect("csr");
+        let csr = build_csr(&mat.private_pem.expose(), "device--acme.example").expect("csr");
         let jwk = serde_json::to_string(&ca.private_jwk).expect("jwk json");
         // Helper re-derives CA with common_name = issuer_ski.
         let signed = sign_csr_with_ca_jwk(&csr, &jwk, &ca.ski, Some("device--acme.example"))
@@ -222,7 +223,7 @@ mod tests {
         assert!(verify_ed25519_cert_against_issuer(&zone_pem, &root_pem).unwrap());
 
         let member = generate_ed25519_material().expect("member");
-        let csr = build_csr(&member.private_pem, "laptop--a@acme.com").expect("csr");
+        let csr = build_csr(&member.private_pem.expose(), "laptop--a@acme.com").expect("csr");
         let chain = format!("{zone_pem}{root_pem}");
         let json = sign_csr_with_issuer_chain_json(
             &csr,

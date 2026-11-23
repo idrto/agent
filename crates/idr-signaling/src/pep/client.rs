@@ -103,12 +103,12 @@ impl PepClient {
                             IdrError::new(IdrErrorKind::ProtocolError, e.to_string())
                         })?;
                         session.send_bytes(&frame).await?;
-                        debug!(ski = %id.ski, "presented dp.credential.v1 to PEP");
+                        debug!(event = "presence.credential_presented", device.ski = %id.ski);
                     }
                     return Ok(session);
                 }
                 Err(e) => {
-                    warn!(presence_id = %server.presence_id, error = %e, "PEP connect failed");
+                    warn!(event = "presence.connect_failed", presence.id = %server.presence_id, error.type = "presence_connect_failed", error.message = %e);
                     last_err = Some(e);
                 }
             }
@@ -164,7 +164,7 @@ impl PepClient {
                 tokio::time::sleep(self.cfg.transport_fallback_delay).await;
             }
             let label = transport_label(choice);
-            debug!(transport = label, presence = %server.presence_id, "attempting PEP connect");
+            debug!(event = "presence.connect_attempt", network.transport = label, presence.id = %server.presence_id);
             let result = match choice {
                 PresenceTransportChoice::Quic(addr) => self.connect_quic(&quic, server, addr).await,
                 PresenceTransportChoice::Wss => {
@@ -180,7 +180,7 @@ impl PepClient {
             match result {
                 Ok(s) => return Ok(s),
                 Err(e) => {
-                    warn!(transport = label, error = %e, "PEP transport failed");
+                    warn!(event = "signaling.transport.disconnected", network.transport = label, reason = "transport_failed", error.type = "presence_transport_failed", error.message = %e);
                     last_err = Some(e);
                 }
             }
@@ -222,7 +222,7 @@ impl WebRtcSignalingClient for PepClient {
         session.send_json(&req_json).await?;
         Ok(Box::new(PepEphemeral {
             session,
-            session_id: request.session_id,
+            session_id: request.connection_id,
         }))
     }
 }

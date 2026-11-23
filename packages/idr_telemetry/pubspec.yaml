@@ -1,0 +1,14 @@
+name: idr_telemetry
+description: >-
+  IDR unified logging, tracing and diagnostics (idr.log/1) for pure Dart: Zone-scoped
+  spans and correlation IDs, redaction, rotating JSONL files with run ownership, flight
+  recorder, crash capture and local diagnostic bundles. See docs/observability.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0

@@ -11,7 +11,7 @@ pub fn ice_servers_to_urls(servers: &[IceServer]) -> Vec<String> {
             out.push(embed_credentials(
                 url,
                 server.username.as_deref(),
-                server.credential.as_deref(),
+                server.credential.as_ref().map(|c| c.expose().as_str()),
             ));
         }
     }

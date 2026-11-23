@@ -10,6 +10,8 @@ dependencies:
   idr_core_ffi:
     path: ../idr_core_ffi
   ffi: ^2.1.0
+  idr_telemetry:
+    path: ../idr_telemetry
 
 dev_dependencies:
   lints: ^4.0.0

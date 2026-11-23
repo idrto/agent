@@ -133,7 +133,7 @@ impl WebRtcSignalingClient for LoopPresence {
         &mut self,
         req: WebRtcSessionRequest,
     ) -> idr_core::Result<Box<dyn EphemeralSignaling>> {
-        let session_id = req.session_id;
+        let session_id = req.connection_id;
         let sessions = WebRtcSessionManager::new(WebRtcConfig::default());
         sessions.try_acquire(session_id).unwrap().keep_alive();
         let policy = if self.relay.is_some() { IceTransportPolicy::Relay } else { IceTransportPolicy::All };
@@ -156,7 +156,7 @@ impl WebRtcSignalingClient for LoopPresence {
             version: req.version,
             message_type: SignalingMessageType::WebRtcSessionOffer,
             message_id: Uuid::new_v4(),
-            session_id,
+            connection_id: session_id,
             target_fqhn: FQHN.into(),
             source: {
                 let mut source = req.source;
@@ -246,7 +246,7 @@ impl EphemeralSignaling for LoopChannel {
                 "webrtc_session_ack" => {
                     let ack: WebRtcSessionAck = serde_json::from_value(v).unwrap();
                     return Ok(SignalingMessage::SessionAck {
-                        session_id: ack.session_id,
+                        session_id: ack.connection_id,
                         result: ack.result,
                         detail: ack.detail,
                     });

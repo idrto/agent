@@ -12,7 +12,7 @@ pub fn build_client_hello(
     QuicControlMessage::ClientHello(ClientHello {
         protocol_version: PROTOCOL_VERSION,
         message_id: Uuid::new_v4(),
-        session_id: auth.session_id,
+        connection_id: auth.session_id,
         target_fqhn: auth.target_fqhn.clone(),
         target_identity: target_identity.to_string(),
         connection_token: auth.connection_token.clone(),

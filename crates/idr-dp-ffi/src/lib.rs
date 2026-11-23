@@ -28,6 +28,40 @@ fn clear_error() {
     LAST_ERROR.with(|e| *e.borrow_mut() = None);
 }
 
+/// Panic code for `idr_dp_*` exports (`-1`..`-3` are argument/encoding errors).
+pub const IDR_DP_ERR_PANIC: c_int = -4;
+
+/// Runs an export body under `idr_telemetry::ffi_guard` (docs/observability/04 §3.1): no
+/// panic crosses the ABI. A panic poisons the engine, sets the last error and returns
+/// `$on_panic`; once poisoned, every guarded export fails fast.
+macro_rules! dp_guarded {
+    ($name:literal, $on_panic:expr, $body:block) => {{
+        let mut finished = false;
+        let out = ::idr_telemetry::ffi_guard($name, $on_panic, || {
+            // The inner closure makes `return` in an export body return from the closure.
+            #[allow(clippy::redundant_closure_call)]
+            let r = (|| $body)();
+            finished = true;
+            r
+        });
+        if !finished {
+            set_error(concat!(
+                $name,
+                ": panicked; native library is poisoned, restart it"
+            ));
+        }
+        out
+    }};
+}
+
+/// Like `dp_guarded!` without the fail-fast check (frees and `idr_dp_last_error`).
+macro_rules! dp_caught {
+    ($name:literal, $on_panic:expr, $body:block) => {{
+        #[allow(clippy::redundant_closure_call)]
+        ::idr_telemetry::ffi_catch($name, $on_panic, || (|| $body)())
+    }};
+}
+
 unsafe fn write_cstring(out: *mut *mut c_char, s: String) -> c_int {
     match CString::new(s) {
         Ok(c) => {
@@ -44,25 +78,29 @@ unsafe fn write_cstring(out: *mut *mut c_char, s: String) -> c_int {
 /// Free a string returned by this ABI.
 #[no_mangle]
 pub unsafe extern "C" fn idr_dp_string_free(ptr: *mut c_char) {
-    if !ptr.is_null() {
-        drop(CString::from_raw(ptr));
-    }
+    dp_caught!("idr_dp_string_free", (), {
+        if !ptr.is_null() {
+            drop(CString::from_raw(ptr));
+        }
+    })
 }
 
 /// Last error message (valid until next call). Returns null if none.
 #[no_mangle]
 pub unsafe extern "C" fn idr_dp_last_error() -> *const c_char {
-    thread_local! {
-        static BUF: RefCell<Option<CString>> = RefCell::new(None);
-    }
-    LAST_ERROR.with(|e| {
-        let msg = e.borrow().clone();
-        BUF.with(|b| {
-            *b.borrow_mut() = msg.and_then(|m| CString::new(m).ok());
-            b.borrow()
-                .as_ref()
-                .map(|c| c.as_ptr())
-                .unwrap_or(ptr::null())
+    dp_caught!("idr_dp_last_error", std::ptr::null(), {
+        thread_local! {
+            static BUF: RefCell<Option<CString>> = RefCell::new(None);
+        }
+        LAST_ERROR.with(|e| {
+            let msg = e.borrow().clone();
+            BUF.with(|b| {
+                *b.borrow_mut() = msg.and_then(|m| CString::new(m).ok());
+                b.borrow()
+                    .as_ref()
+                    .map(|c| c.as_ptr())
+                    .unwrap_or(ptr::null())
+            })
         })
     })
 }
@@ -70,18 +108,20 @@ pub unsafe extern "C" fn idr_dp_last_error() -> *const c_char {
 /// Generate Ed25519 key material JSON (private_pem, public_pem, public_b64url, public_jwk, ski).
 #[no_mangle]
 pub unsafe extern "C" fn idr_dp_generate_ed25519(out_json: *mut *mut c_char) -> c_int {
-    clear_error();
-    if out_json.is_null() {
-        set_error("null out_json");
-        return -1;
-    }
-    match generate_ed25519_json() {
-        Ok(json) => write_cstring(out_json, json),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
+    dp_guarded!("idr_dp_generate_ed25519", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if out_json.is_null() {
+            set_error("null out_json");
+            return -1;
         }
-    }
+        match generate_ed25519_json() {
+            Ok(json) => write_cstring(out_json, json),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
+        }
+    })
 }
 
 /// Build PKCS#10 CSR PEM for an existing private key + FQHN.
@@ -91,32 +131,34 @@ pub unsafe extern "C" fn idr_dp_build_csr(
     fqhn: *const c_char,
     out_pem: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if private_pem.is_null() || fqhn.is_null() || out_pem.is_null() {
-        set_error("null argument");
-        return -1;
-    }
-    let pem = match CStr::from_ptr(private_pem).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("private_pem not utf8");
-            return -2;
+    dp_guarded!("idr_dp_build_csr", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if private_pem.is_null() || fqhn.is_null() || out_pem.is_null() {
+            set_error("null argument");
+            return -1;
         }
-    };
-    let host = match CStr::from_ptr(fqhn).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("fqhn not utf8");
-            return -2;
+        let pem = match CStr::from_ptr(private_pem).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("private_pem not utf8");
+                return -2;
+            }
+        };
+        let host = match CStr::from_ptr(fqhn).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("fqhn not utf8");
+                return -2;
+            }
+        };
+        match build_csr(pem, host) {
+            Ok(csr) => write_cstring(out_pem, csr),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
         }
-    };
-    match build_csr(pem, host) {
-        Ok(csr) => write_cstring(out_pem, csr),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
-        }
-    }
+    })
 }
 
 /// Sign message bytes → base64url signature.
@@ -127,30 +169,32 @@ pub unsafe extern "C" fn idr_dp_sign(
     msg_len: usize,
     out_b64: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if private_pem.is_null() || out_b64.is_null() || (msg.is_null() && msg_len > 0) {
-        set_error("null argument");
-        return -1;
-    }
-    let pem = match CStr::from_ptr(private_pem).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("private_pem not utf8");
-            return -2;
+    dp_guarded!("idr_dp_sign", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if private_pem.is_null() || out_b64.is_null() || (msg.is_null() && msg_len > 0) {
+            set_error("null argument");
+            return -1;
         }
-    };
-    let bytes = if msg_len == 0 {
-        &[][..]
-    } else {
-        slice::from_raw_parts(msg, msg_len)
-    };
-    match sign(pem, bytes) {
-        Ok(sig) => write_cstring(out_b64, sig),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
+        let pem = match CStr::from_ptr(private_pem).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("private_pem not utf8");
+                return -2;
+            }
+        };
+        let bytes = if msg_len == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(msg, msg_len)
+        };
+        match sign(pem, bytes) {
+            Ok(sig) => write_cstring(out_b64, sig),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
         }
-    }
+    })
 }
 
 /// Sign JSON UTF-8 → base64url signature.
@@ -160,32 +204,34 @@ pub unsafe extern "C" fn idr_dp_sign_json(
     json: *const c_char,
     out_b64: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if private_pem.is_null() || json.is_null() || out_b64.is_null() {
-        set_error("null argument");
-        return -1;
-    }
-    let pem = match CStr::from_ptr(private_pem).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("private_pem not utf8");
-            return -2;
+    dp_guarded!("idr_dp_sign_json", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if private_pem.is_null() || json.is_null() || out_b64.is_null() {
+            set_error("null argument");
+            return -1;
         }
-    };
-    let body = match CStr::from_ptr(json).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("json not utf8");
-            return -2;
+        let pem = match CStr::from_ptr(private_pem).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("private_pem not utf8");
+                return -2;
+            }
+        };
+        let body = match CStr::from_ptr(json).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("json not utf8");
+                return -2;
+            }
+        };
+        match sign_json(pem, body) {
+            Ok(sig) => write_cstring(out_b64, sig),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
         }
-    };
-    match sign_json(pem, body) {
-        Ok(sig) => write_cstring(out_b64, sig),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
-        }
-    }
+    })
 }
 
 /// SKI from public key base64url (`x`).
@@ -194,19 +240,21 @@ pub unsafe extern "C" fn idr_dp_ski(
     public_b64url: *const c_char,
     out_ski: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if public_b64url.is_null() || out_ski.is_null() {
-        set_error("null argument");
-        return -1;
-    }
-    let x = match CStr::from_ptr(public_b64url).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("public_b64url not utf8");
-            return -2;
+    dp_guarded!("idr_dp_ski", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if public_b64url.is_null() || out_ski.is_null() {
+            set_error("null argument");
+            return -1;
         }
-    };
-    write_cstring(out_ski, ski(x))
+        let x = match CStr::from_ptr(public_b64url).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("public_b64url not utf8");
+                return -2;
+            }
+        };
+        write_cstring(out_ski, ski(x))
+    })
 }
 
 /// Self-signed CA cert PEM from a CA private JWK (JSON) + common name (= CA SKI by convention).
@@ -216,32 +264,34 @@ pub unsafe extern "C" fn idr_dp_ca_cert_pem_from_jwk(
     common_name: *const c_char,
     out_pem: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if ca_private_jwk_json.is_null() || common_name.is_null() || out_pem.is_null() {
-        set_error("null argument");
-        return -1;
-    }
-    let jwk = match CStr::from_ptr(ca_private_jwk_json).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("ca_private_jwk_json not utf8");
-            return -2;
+    dp_guarded!("idr_dp_ca_cert_pem_from_jwk", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if ca_private_jwk_json.is_null() || common_name.is_null() || out_pem.is_null() {
+            set_error("null argument");
+            return -1;
         }
-    };
-    let cn = match CStr::from_ptr(common_name).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("common_name not utf8");
-            return -2;
+        let jwk = match CStr::from_ptr(ca_private_jwk_json).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("ca_private_jwk_json not utf8");
+                return -2;
+            }
+        };
+        let cn = match CStr::from_ptr(common_name).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("common_name not utf8");
+                return -2;
+            }
+        };
+        match ca_cert_pem_from_jwk_json(jwk, cn) {
+            Ok(pem) => write_cstring(out_pem, pem),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
         }
-    };
-    match ca_cert_pem_from_jwk_json(jwk, cn) {
-        Ok(pem) => write_cstring(out_pem, pem),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
-        }
-    }
+    })
 }
 
 /// Sign device CSR with admin CA private JWK → JSON `{leaf_pem, chain_pem}`.
@@ -254,54 +304,56 @@ pub unsafe extern "C" fn idr_dp_sign_csr(
     host: *const c_char,
     out_json: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if csr_pem.is_null()
-        || ca_private_jwk_json.is_null()
-        || issuer_ski.is_null()
-        || out_json.is_null()
-    {
-        set_error("null argument");
-        return -1;
-    }
-    let csr = match CStr::from_ptr(csr_pem).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("csr_pem not utf8");
-            return -2;
+    dp_guarded!("idr_dp_sign_csr", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if csr_pem.is_null()
+            || ca_private_jwk_json.is_null()
+            || issuer_ski.is_null()
+            || out_json.is_null()
+        {
+            set_error("null argument");
+            return -1;
         }
-    };
-    let jwk = match CStr::from_ptr(ca_private_jwk_json).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("ca_private_jwk_json not utf8");
-            return -2;
-        }
-    };
-    let issuer = match CStr::from_ptr(issuer_ski).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            set_error("issuer_ski not utf8");
-            return -2;
-        }
-    };
-    let host_opt = if host.is_null() {
-        None
-    } else {
-        match CStr::from_ptr(host).to_str() {
-            Ok(s) => Some(s),
+        let csr = match CStr::from_ptr(csr_pem).to_str() {
+            Ok(s) => s,
             Err(_) => {
-                set_error("host not utf8");
+                set_error("csr_pem not utf8");
                 return -2;
             }
+        };
+        let jwk = match CStr::from_ptr(ca_private_jwk_json).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("ca_private_jwk_json not utf8");
+                return -2;
+            }
+        };
+        let issuer = match CStr::from_ptr(issuer_ski).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error("issuer_ski not utf8");
+                return -2;
+            }
+        };
+        let host_opt = if host.is_null() {
+            None
+        } else {
+            match CStr::from_ptr(host).to_str() {
+                Ok(s) => Some(s),
+                Err(_) => {
+                    set_error("host not utf8");
+                    return -2;
+                }
+            }
+        };
+        match sign_csr_with_ca_jwk_json(csr, jwk, issuer, host_opt) {
+            Ok(json) => write_cstring(out_json, json),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
         }
-    };
-    match sign_csr_with_ca_jwk_json(csr, jwk, issuer, host_opt) {
-        Ok(json) => write_cstring(out_json, json),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
-        }
-    }
+    })
 }
 
 /// Borrow a required UTF-8 C string argument; sets the last error on failure.
@@ -328,35 +380,37 @@ pub unsafe extern "C" fn idr_dp_sign_csr_with_chain(
     host: *const c_char,
     out_json: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if out_json.is_null() {
-        set_error("null argument");
-        return -1;
-    }
-    let args = (|| {
-        Ok::<_, c_int>((
-            arg(csr_pem, "csr_pem")?,
-            arg(ca_private_jwk_json, "ca_private_jwk_json")?,
-            arg(issuer_ski, "issuer_ski")?,
-            arg(issuer_chain_pem, "issuer_chain_pem")?,
-            if host.is_null() {
-                None
-            } else {
-                Some(arg(host, "host")?)
-            },
-        ))
-    })();
-    let (csr, jwk, issuer, chain, host) = match args {
-        Ok(a) => a,
-        Err(code) => return code,
-    };
-    match sign_csr_with_issuer_chain_json(csr, jwk, issuer, chain, host) {
-        Ok(json) => write_cstring(out_json, json),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
+    dp_guarded!("idr_dp_sign_csr_with_chain", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if out_json.is_null() {
+            set_error("null argument");
+            return -1;
         }
-    }
+        let args = (|| {
+            Ok::<_, c_int>((
+                arg(csr_pem, "csr_pem")?,
+                arg(ca_private_jwk_json, "ca_private_jwk_json")?,
+                arg(issuer_ski, "issuer_ski")?,
+                arg(issuer_chain_pem, "issuer_chain_pem")?,
+                if host.is_null() {
+                    None
+                } else {
+                    Some(arg(host, "host")?)
+                },
+            ))
+        })();
+        let (csr, jwk, issuer, chain, host) = match args {
+            Ok(a) => a,
+            Err(code) => return code,
+        };
+        match sign_csr_with_issuer_chain_json(csr, jwk, issuer, chain, host) {
+            Ok(json) => write_cstring(out_json, json),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
+        }
+    })
 }
 
 /// Zone / subordinate CA cert PEM (CA, path length 0) for a child public JWK,
@@ -369,28 +423,30 @@ pub unsafe extern "C" fn idr_dp_sign_intermediate_ca(
     parent_common_name: *const c_char,
     out_pem: *mut *mut c_char,
 ) -> c_int {
-    clear_error();
-    if out_pem.is_null() {
-        set_error("null argument");
-        return -1;
-    }
-    let args = (|| {
-        Ok::<_, c_int>((
-            arg(child_public_jwk_json, "child_public_jwk_json")?,
-            arg(child_common_name, "child_common_name")?,
-            arg(parent_private_jwk_json, "parent_private_jwk_json")?,
-            arg(parent_common_name, "parent_common_name")?,
-        ))
-    })();
-    let (child, child_cn, parent, parent_cn) = match args {
-        Ok(a) => a,
-        Err(code) => return code,
-    };
-    match sign_intermediate_ca_json(child, child_cn, parent, parent_cn) {
-        Ok(pem) => write_cstring(out_pem, pem),
-        Err(e) => {
-            set_error(e.to_string());
-            -3
+    dp_guarded!("idr_dp_sign_intermediate_ca", IDR_DP_ERR_PANIC, {
+        clear_error();
+        if out_pem.is_null() {
+            set_error("null argument");
+            return -1;
         }
-    }
+        let args = (|| {
+            Ok::<_, c_int>((
+                arg(child_public_jwk_json, "child_public_jwk_json")?,
+                arg(child_common_name, "child_common_name")?,
+                arg(parent_private_jwk_json, "parent_private_jwk_json")?,
+                arg(parent_common_name, "parent_common_name")?,
+            ))
+        })();
+        let (child, child_cn, parent, parent_cn) = match args {
+            Ok(a) => a,
+            Err(code) => return code,
+        };
+        match sign_intermediate_ca_json(child, child_cn, parent, parent_cn) {
+            Ok(pem) => write_cstring(out_pem, pem),
+            Err(e) => {
+                set_error(e.to_string());
+                -3
+            }
+        }
+    })
 }

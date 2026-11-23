@@ -55,8 +55,9 @@ pub async fn send<O: StreamOpener + ?Sized, F: SourceFiles>(
     events: EventTx,
     mut cmds: mpsc::Receiver<Command>,
 ) -> Outcome {
+    let id = req.transfer_id;
     let outcome = run(opener, req, limits, &events, &mut cmds).await;
-    tracing::info!(outcome = ?outcome.code(), "transfer send finished");
+    crate::events::log_outcome("send", &id, &outcome);
     let _ = events.send(TransferEvent::Finished(outcome.clone()));
     outcome
 }

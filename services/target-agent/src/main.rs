@@ -26,7 +26,7 @@ use idr_target::relay::connector::RelayConnector;
 use idr_target::relay::{IdleScheduler, RelayConnectionManager, RelayReadiness};
 use idr_target::shutdown::ShutdownCoordinator;
 use idr_target::storage::{Storage, StorageWriter};
-use idr_target::telemetry::{init_tracing, Metrics};
+use idr_target::telemetry::Metrics;
 use idr_target::webrtc::WebRtcSessionManager;
 
 #[derive(Parser, Debug)]
@@ -243,7 +243,16 @@ async fn main() -> Result<()> {
 
 async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -> Result<()> {
     let cfg = Config::load(&config_path).context("load configuration")?;
-    init_tracing(&cfg.telemetry.log_level, cfg.telemetry.log_json)?;
+    let _telemetry = idr_telemetry::init_binary(
+        "target-agent",
+        env!("CARGO_PKG_VERSION"),
+        idr_telemetry::BinaryDefaults {
+            filter: &cfg.telemetry.log_level,
+            json_stdout: cfg.telemetry.log_json,
+            files: true,
+        },
+    )
+    .context("init telemetry")?;
 
     let fqhn = fqhn::canonicalize(&cfg.target.fqhn).context("canonicalize target FQHN")?;
     info!(%fqhn, "starting target-agent");

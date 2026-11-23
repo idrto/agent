@@ -353,7 +353,7 @@ impl Consent for PeerConsent {
             return Err(k);
         }
         self.admitted = Some((*offer.transfer_id, true));
-        tracing::info!(approval = ?approval, "transfer offer approved");
+        tracing::info!(event = "transfer.approved", reason = ?approval);
         Ok(approval)
     }
 

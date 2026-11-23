@@ -102,7 +102,8 @@ mod tests {
                 "d": d,
                 "x": x,
                 "alg": "EdDSA"
-            }),
+            })
+            .into(),
             cert_pem: None,
             chain_pem: None,
             credential: CapabilityCredential {

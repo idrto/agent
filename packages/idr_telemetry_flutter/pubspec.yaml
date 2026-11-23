@@ -1,0 +1,22 @@
+name: idr_telemetry_flutter
+description: >-
+  Flutter hooks for idr_telemetry: framework and platform error capture, app lifecycle,
+  route views, and the per-platform log directory. No UI widgets.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  idr_telemetry:
+    path: ../idr_telemetry
+  path_provider: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^4.0.0

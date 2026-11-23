@@ -43,7 +43,8 @@ fn mock_round_trip_bytes() {
 
     let fqhn = CString::new("demo.idr.to").unwrap();
     let mut session = 0u64;
-    let rc = unsafe { idr_connect(engine, fqhn.as_ptr(), &mut session) };
+    let ctx = CString::new(r#"{"traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01","session_id":"019372b4-6b1e-7cc2-9a59-0b5c9f0e2a11"}"#).unwrap();
+    let rc = unsafe { idr_connect(engine, fqhn.as_ptr(), &mut session, ctx.as_ptr()) };
     assert_eq!(rc, 0, "connect failed");
     assert!(session > 0);
 
@@ -63,7 +64,7 @@ fn mock_round_trip_bytes() {
 
     let service = CString::new("http").unwrap();
     let mut stream = 0u64;
-    let rc = unsafe { idr_open_stream(engine, session, service.as_ptr(), &mut stream) };
+    let rc = unsafe { idr_open_stream(engine, session, service.as_ptr(), &mut stream, std::ptr::null()) };
     assert_eq!(rc, 0, "open_stream failed");
 
     unsafe {

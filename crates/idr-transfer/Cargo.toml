@@ -13,6 +13,7 @@ default = []
 native = ["dep:cap-std", "dep:cap-fs-ext", "dep:rusqlite", "dep:rustix", "dep:windows-sys", "dep:serde_json", "tokio/net", "tokio/io-util"]
 
 [dependencies]
+uuid = { workspace = true }
 idr-core = { workspace = true }
 unicode-normalization = "0.1"
 cap-std = { version = "3", optional = true }
@@ -36,6 +37,8 @@ rustix = { version = "1", features = ["fs", "process"], optional = true }
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_IO", "Wdk_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_Pipes"], optional = true }
 
 [dev-dependencies]
+idr-telemetry = { workspace = true, features = ["subscriber"] }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 rcgen = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time", "io-util", "test-util"] }

@@ -17,7 +17,7 @@ use crate::error::set_last_error;
 use crate::mock_backend;
 
 /// 3: file transfer (`idr_transfer_*`).
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// Auth mode codes for `idr_engine_config_t.auth_mode`.
 pub const IDR_AUTH_BEARER: u32 = 0;
@@ -171,10 +171,20 @@ impl Engine {
     }
 
     pub fn connect(&self, target_fqhn: &str) -> Result<u64> {
+        let started = std::time::Instant::now();
         let mut runtime = self.runtime.lock();
         let session = match self.rt.block_on(runtime.connect(target_fqhn)) {
             Ok(s) => s,
             Err(e) => {
+                // The one place that decides this attempt failed (07 R-LOG-5): lower layers
+                // return the error with context and do not log it.
+                tracing::warn!(
+                    event = "connection.attempt.failed",
+                    target.fqhn = target_fqhn,
+                    error.type = e.kind.as_str(),
+                    error.message = %e.message,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                );
                 set_last_error(&e);
                 return Err(e);
             }
@@ -191,6 +201,13 @@ impl Engine {
             .event_tx
             .try_send(EngineEvent::Connected { session_id: id });
         Ok(id)
+    }
+
+    /// The wire connection id (UUID) behind an FFI session handle, if known.
+    pub fn connection_id(&self, session_id: u64) -> Option<String> {
+        let sessions = self.sessions.lock();
+        let id = sessions.get(&session_id)?.session.connection_id();
+        (!id.is_empty()).then(|| id.to_string())
     }
 
     pub fn disconnect(&self, session_id: u64) -> Result<()> {

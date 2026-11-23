@@ -170,7 +170,7 @@ mod imp {
                 Ok(c) if c.uid() == me => {
                     tokio::spawn(serve_conn(stream, handler.clone()));
                 }
-                _ => tracing::warn!("IPC connection from another user refused"),
+                _ => tracing::warn!(event = "agent.ipc.failed", error.type = "ipc_peer_refused", "IPC connection from another user refused"),
             }
         }
     }

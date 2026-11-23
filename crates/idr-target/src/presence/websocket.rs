@@ -693,7 +693,7 @@ impl PresenceClientTask {
     ) -> Result<CachedCommandResult> {
         let descriptor = StableRelayDescriptor::from(cmd.relay.clone());
         let auth = ConnectionAuthorization {
-            session_id: cmd.session_id,
+            session_id: cmd.connection_id,
             target_fqhn: cmd.target_fqhn.clone(),
             target_identity: self.identity.public_key_base64url(),
             connection_token: cmd.connection_token,

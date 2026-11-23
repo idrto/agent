@@ -12,6 +12,7 @@ members = [
     "crates/idr-wasm",
     "crates/idr-target",
     "crates/idr-transfer",
+    "crates/idr-telemetry",
     "services/target-agent",
     "services/source-agent",
     "services/mock-presence",
@@ -28,6 +29,7 @@ default-members = [
     "crates/idr-wasm",
     "crates/idr-target",
     "crates/idr-transfer",
+    "crates/idr-telemetry",
     "services/target-agent",
     "services/source-agent",
     "services/mock-presence",
@@ -93,6 +95,7 @@ idr-c-api = { path = "crates/idr-c-api" }
 idr-wasm = { path = "crates/idr-wasm" }
 idr-target = { path = "crates/idr-target" }
 idr-transfer = { path = "crates/idr-transfer" }
+idr-telemetry = { path = "crates/idr-telemetry", default-features = false }
 
 # MSVC: opt-level 0 makes cmake build libdatachannel as Debug (/MDd), which can't
 # link against Rust's release CRT. Any opt-level > 0 selects RelWithDebInfo (/MD).

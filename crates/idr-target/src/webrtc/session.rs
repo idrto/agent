@@ -44,7 +44,7 @@ pub struct SessionRuntime {
 
 pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
     let rt = Arc::new(rt);
-    let session_id = rt.offer.session_id;
+    let session_id = rt.offer.connection_id;
     tracing::info!(
         %session_id,
         sdp_len = rt.offer.sdp.sdp.len(),
@@ -146,7 +146,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                                 version: PROTOCOL_VERSION,
                                 message_type: SignalingMessageType::WebRtcAnswer,
                                 message_id: Uuid::new_v4(),
-                                session_id,
+                                connection_id: session_id,
                                 sdp: SessionDescription {
                                     sdp_type: desc.sdp_type,
                                     sdp: desc.sdp,
@@ -163,7 +163,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                             version: PROTOCOL_VERSION,
                             message_type: SignalingMessageType::WebRtcIceCandidate,
                             message_id: Uuid::new_v4(),
-                            session_id,
+                            connection_id: session_id,
                             candidate: c.candidate,
                             mid: c.mid,
                             signature: None,
@@ -175,7 +175,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                             version: PROTOCOL_VERSION,
                             message_type: SignalingMessageType::WebRtcIceComplete,
                             message_id: Uuid::new_v4(),
-                            session_id,
+                            connection_id: session_id,
                         };
                         let _ = rt.outbox.send_json(&serde_json::to_string(&msg)?).await;
                     }
@@ -349,7 +349,7 @@ async fn send_session_ack(
         version: PROTOCOL_VERSION,
         message_type: SignalingMessageType::WebRtcSessionAck,
         message_id: Uuid::new_v4(),
-        session_id,
+        connection_id: session_id,
         result,
         detail,
     };
@@ -561,7 +561,7 @@ async fn open_via_registry(
         service_name,
     ) {
         warn!(
-            session_id = %rt.offer.session_id,
+            session_id = %rt.offer.connection_id,
             service = service_name,
             zone = ?source_policy.and_then(|p| p.zone.as_deref()),
             ski = ?source_policy.map(|p| p.ski.as_str()),

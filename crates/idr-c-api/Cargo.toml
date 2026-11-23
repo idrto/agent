@@ -18,8 +18,11 @@ default = ["mock"]
 mock = []
 # Real libdatachannel offerer + Presence QUIC signaling.
 native = ["idr-webrtc/native", "idr-signaling/quic", "idr-source/native-signaling", "idr-source/dp"]
+# Exports `idr_test_panic` for the panic-injection test. Never in release builds.
+test-hooks = []
 
 [dependencies]
+idr-telemetry = { workspace = true, features = ["subscriber"] }
 async-trait = "0.1"
 idr-core = { workspace = true, features = ["net"] }
 idr-protocol = { workspace = true }
@@ -47,3 +50,7 @@ rcgen = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 uuid = { workspace = true }
+
+[[test]]
+name = "ffi_panic"
+required-features = ["test-hooks"]

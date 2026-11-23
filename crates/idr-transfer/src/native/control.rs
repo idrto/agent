@@ -42,7 +42,7 @@ pub fn queue_paths(manager: &Arc<Manager>, peer: &str, paths: &[PathBuf]) -> Res
                 .map_err(|e| QueueError(e.to_string()))?;
             let found = enumerate(&root, &[vec![name]]).map_err(|e| QueueError(e.to_string()))?;
             if found.skipped > 0 {
-                tracing::info!(skipped = found.skipped, "links and special files left out");
+                tracing::info!(event = "transfer.entries_skipped", count = found.skipped as u64, "links and special files left out");
             }
             let m = build(ManifestKind::Folder, found.selected, &Limits::default())
                 .map_err(|k| QueueError(format!("folder can't be sent: {}", k.as_str())))?;
@@ -121,7 +121,7 @@ impl Handler for Control {
             Request::Send { target, paths } => match queue_paths(m, &target, &paths) {
                 Ok(t) => Response::ok(info_json(&m.status(&t).unwrap())),
                 Err(e) => {
-                    tracing::warn!(error = %e, "transfer send refused");
+                    tracing::warn!(event = "agent.ipc.failed", ipc.cmd = "send", error.type = "transfer_send_refused", error.message = %e);
                     Response::err("invalid_argument")
                 }
             },

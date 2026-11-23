@@ -1,7 +1,7 @@
 /// Shared ABI constants and event kinds (mirrors `idr.h`).
 library;
 
-const int idrAbiVersion = 3;
+const int idrAbiVersion = 4;
 
 const int idrAuthBearer = 0;
 const int idrAuthDeviceToken = 1;
@@ -35,6 +35,9 @@ class IdrErrorCode {
   static const int protocolError = 17;
   static const int incompatibleVersion = 18;
   static const int internalError = 19;
+
+  /// A panic was caught at the C ABI; the native engine is poisoned (restart it).
+  static const int panic = 20;
 }
 
 /// `-(idrTransferErrorBase + kind)` when the transfer layer refuses a call.

@@ -59,7 +59,7 @@ impl Router {
                         }
                     },
                     None => {
-                        tracing::warn!("transfer data stream without an accepted offer; reset");
+                        tracing::warn!(event = "transfer.stream_unexpected", error.type = "stream_without_offer", "transfer data stream without an accepted offer; reset");
                         let _ = framed.stream.reset(0).await;
                         Routed::Refused
                     }

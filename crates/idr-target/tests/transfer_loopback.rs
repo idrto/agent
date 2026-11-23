@@ -628,7 +628,7 @@ async fn relayed_transfer_reports_turn_on_both_peers() {
     let servers = vec![idr_protocol::webrtc_ice::IceServer {
         urls: vec![env("IDR_TEST_TURN_URL")],
         username: Some(env("IDR_TEST_TURN_USER")),
-        credential: Some(env("IDR_TEST_TURN_PASS")),
+        credential: Some(env("IDR_TEST_TURN_PASS").into()),
     }];
     let mut w = world_via(Setup { attest: true, source_ski: SOURCE_SKI }, Some(servers)).await;
     assert!(target_bound(&w).await);

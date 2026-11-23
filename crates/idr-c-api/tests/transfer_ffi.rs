@@ -185,7 +185,7 @@ fn send(e: &Eng, paths: &[&Path]) -> [u8; 16] {
     let owned: Vec<CString> = paths.iter().map(|p| CString::new(p.to_str().unwrap()).unwrap()).collect();
     let ptrs: Vec<*const c_char> = owned.iter().map(|c| c.as_ptr()).collect();
     let mut id = [0u8; 16];
-    let rc = unsafe { idr_transfer_send(e.e(), target.as_ptr(), ptrs.as_ptr(), ptrs.len(), id.as_mut_ptr()) };
+    let rc = unsafe { idr_transfer_send(e.e(), target.as_ptr(), ptrs.as_ptr(), ptrs.len(), id.as_mut_ptr(), std::ptr::null()) };
     assert_eq!(rc, 0, "send: {}", last_error_message());
     id
 }
@@ -335,7 +335,7 @@ fn send_files_folder_and_selection() {
     let sel_ptrs: Vec<*const c_char> = sel.iter().map(|c| c.as_ptr()).collect();
     let mut sid = [0u8; 16];
     assert_eq!(
-        unsafe { idr_transfer_send_selection(e.e(), target.as_ptr(), folder_c.as_ptr(), sel_ptrs.as_ptr(), 2, sid.as_mut_ptr()) },
+        unsafe { idr_transfer_send_selection(e.e(), target.as_ptr(), folder_c.as_ptr(), sel_ptrs.as_ptr(), 2, sid.as_mut_ptr(), std::ptr::null()) },
         0
     );
     wait(&e, &sid, 60, &mut seen, finished(IDR_OUTCOME_COMPLETED));
@@ -345,7 +345,7 @@ fn send_files_folder_and_selection() {
     let escape = [CString::new("../a.bin").unwrap()];
     let esc_ptrs: Vec<*const c_char> = escape.iter().map(|c| c.as_ptr()).collect();
     assert_eq!(
-        unsafe { idr_transfer_send_selection(e.e(), target.as_ptr(), folder_c.as_ptr(), esc_ptrs.as_ptr(), 1, sid.as_mut_ptr()) },
+        unsafe { idr_transfer_send_selection(e.e(), target.as_ptr(), folder_c.as_ptr(), esc_ptrs.as_ptr(), 1, sid.as_mut_ptr(), std::ptr::null()) },
         -(idr_core::IdrErrorKind::InvalidArgument as i32)
     );
 
@@ -357,7 +357,7 @@ fn send_files_folder_and_selection() {
     let missing = CString::new(src.path().join("nope.bin").to_str().unwrap()).unwrap();
     let mut out = [0u8; 16];
     assert_eq!(
-        unsafe { idr_transfer_send(e.e(), target.as_ptr(), [missing.as_ptr()].as_ptr(), 1, out.as_mut_ptr()) },
+        unsafe { idr_transfer_send(e.e(), target.as_ptr(), [missing.as_ptr()].as_ptr(), 1, out.as_mut_ptr(), std::ptr::null()) },
         -(idr_core::IdrErrorKind::InvalidArgument as i32)
     );
     // A command on a finished transfer is a no-op, never a use-after-free.
@@ -380,7 +380,7 @@ fn pause_resume_cancel_while_polling() {
         let e = ptr as *mut IdrEngine;
         assert_eq!(unsafe { idr_transfer_pause(e, id.as_ptr()) }, 0);
         std::thread::sleep(Duration::from_millis(600));
-        assert_eq!(unsafe { idr_transfer_resume(e, id.as_ptr()) }, 0);
+        assert_eq!(unsafe { idr_transfer_resume(e, id.as_ptr(), std::ptr::null()) }, 0);
     });
     let until = Instant::now() + Duration::from_millis(400);
     while Instant::now() < until {

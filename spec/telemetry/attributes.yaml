@@ -1,0 +1,154 @@
+# idr.log/1 attribute registry. See docs/observability/03 §3.3 and 04 §5.1.
+# type: string | int | float | bool | string[]     class: public | id | pseudonymous | network
+# Classes `personal` and `secret` can never be registered (04 §5.2). Every string is redacted regardless.
+version: 1
+
+attributes:
+  # generic
+  reason:                     { type: string, class: public }
+  from:                       { type: string, class: public }
+  to:                         { type: string, class: public }
+  phase:                      { type: string, class: public }
+  source:                     { type: string, class: public }
+  key:                        { type: string, class: public }
+  field:                      { type: string, class: public }
+  kind:                       { type: string, class: public }
+  label:                      { type: string, class: public }
+  direction:                  { type: string, class: public }
+  route:                      { type: string, class: public }
+  count:                      { type: int,    class: public }
+  bytes:                      { type: int,    class: public }
+  duration_ms:                { type: float,  class: public }
+  elapsed_ms:                 { type: float,  class: public }
+  setup_ms:                   { type: float,  class: public }
+  wait_ms:                    { type: float,  class: public }
+  uptime_ms:                  { type: int,    class: public }
+  stall_ms:                   { type: int,    class: public }
+  no_progress_ms:             { type: int,    class: public }
+  backoff_ms:                 { type: int,    class: public }
+  window_s:                   { type: int,    class: public }
+  ttl_s:                      { type: int,    class: public }
+  attempts:                   { type: int,    class: public }
+  repeat:                     { type: int,    class: public }
+  exit_code:                  { type: int,    class: public }
+  signal:                     { type: string, class: public }
+  outcome:                    { type: string, class: public }
+  final:                      { type: bool,   class: public }
+  rtt_ms:                     { type: float,  class: public }
+  rate_bps:                   { type: float,  class: public }
+  avg_bps:                    { type: float,  class: public }
+  retries:                    { type: int,    class: public }
+  event.name:                 { type: string, class: public }
+
+  # resource (app.started)
+  os.type:                    { type: string, class: public }
+  os.version:                 { type: string, class: public }
+  host.arch:                  { type: string, class: public }
+  device.model:               { type: string, class: public }
+  app.flavor:                 { type: string, class: public }
+  process.pid:                { type: int,    class: public }
+  parent_app_session_id:      { type: string, class: id }
+  previous_app_session_id:    { type: string, class: id }
+  child_app_session_id:       { type: string, class: id }
+  locale:                     { type: string, class: public }
+  tz.offset_min:              { type: int,    class: public }
+  build.commit:               { type: string, class: public }
+  telemetry.schema_version:   { type: string, class: public }
+  config.effective:           { type: string, class: public }
+  crash_record:               { type: bool,   class: public }
+  open_operations:            { type: "string[]", class: public }
+  clock.offset_ms:            { type: int,    class: public }
+  network.type:               { type: string, class: public }
+  network.metered:            { type: bool,   class: public }
+
+  # ui / cli
+  screen:                     { type: string, class: public }
+  action:                     { type: string, class: public }
+  gate:                       { type: string, class: public }
+  command:                    { type: string, class: public }
+
+  # auth / billing
+  auth.method:                { type: string, class: public }
+  auth.age_s:                 { type: int,    class: public }
+  token.kind:                 { type: string, class: public }
+  token.expires_in_s:         { type: int,    class: public }
+  rejected_by:                { type: string, class: public }
+  plan.code:                  { type: string, class: public }
+  seat.state:                 { type: string, class: public }
+  user.hash:                  { type: string, class: pseudonymous }
+  entity.id:                  { type: string, class: pseudonymous }
+  device.ski:                 { type: string, class: pseudonymous }
+
+  # errors / http (OTel semconv)
+  error.type:                 { type: string, class: public }
+  http.request.method:        { type: string, class: public }
+  http.response.status_code:  { type: int,    class: public }
+  http.request_id:            { type: string, class: id }
+  url.path:                   { type: string, class: public }
+  server.address:             { type: string, class: pseudonymous }
+  server.port:                { type: int,    class: public }
+  client.address:             { type: string, class: network }
+  network.transport:          { type: string, class: public }
+  network.protocol.name:      { type: string, class: public }
+
+  # session / connection / signaling / webrtc / turn / presence
+  target.fqhn:                { type: string, class: pseudonymous }
+  transport:                  { type: string, class: public }
+  transport.preference:       { type: string, class: public }
+  transport.selected:         { type: string, class: public }
+  retry.attempt:              { type: int,    class: public }
+  retry.delay_ms:             { type: int,    class: public }
+  connection.age_ms:          { type: int,    class: public }
+  connection.epoch:           { type: int,    class: public }
+  last_rx_ago_ms:             { type: int,    class: public }
+  bytes.rx:                   { type: int,    class: public }
+  bytes.tx:                   { type: int,    class: public }
+  message.type:               { type: string, class: public }
+  message.id:                 { type: string, class: id }
+  webrtc.ice_state:           { type: string, class: public }
+  webrtc.candidate_pair.type: { type: string, class: public }
+  candidate.type:             { type: string, class: public }
+  candidate.protocol:         { type: string, class: public }
+  candidates.local.types:     { type: "string[]", class: public }
+  candidates.remote.types:    { type: "string[]", class: public }
+  turn.used:                  { type: bool,   class: public }
+  turn.node_id:               { type: string, class: pseudonymous }
+  presence.id:                { type: string, class: pseudonymous }
+  presence.generation:        { type: int,    class: public }
+  relay.id:                   { type: string, class: pseudonymous }
+  relay.command_id:           { type: string, class: id }
+  relay.count:                { type: int,    class: public }
+  tenant.id:                  { type: string, class: pseudonymous }
+  tls.sni:                    { type: string, class: pseudonymous }
+
+  # streams / transfers
+  stream.id:                  { type: int,    class: public }
+  stream.state:               { type: string, class: public }
+  service.name:               { type: string, class: public }
+  entries:                    { type: int,    class: public }
+  entry.index:                { type: int,    class: public }
+  bytes.total:                { type: int,    class: public }
+  bytes.done:                 { type: int,    class: public }
+  buffered_amount:            { type: int,    class: public }
+  peer.window:                { type: int,    class: public }
+  resume_points:              { type: int,    class: public }
+  expected_digest_prefix:     { type: string, class: public }
+
+  # agent / ipc / ffi
+  agent.kind:                 { type: string, class: public }
+  agent.telemetry:            { type: string, class: public }
+  restart.count:              { type: int,    class: public }
+  stderr_tail:                { type: "string[]", class: public }
+  ipc.cmd:                    { type: string, class: public }
+  ffi.handle:                 { type: int,    class: public }
+  ffi.fn:                     { type: string, class: public }
+  ffi.code:                   { type: int,    class: public }
+  panic.message:              { type: string, class: public }
+  panic.location:             { type: string, class: public }
+  thread:                     { type: string, class: public }
+  entries.failed:             { type: int,    class: public }
+  sdp.type:                   { type: string, class: public }
+  sdp.len:                    { type: int,    class: public }
+  context:                    { type: string, class: public }
+  run:                        { type: string, class: public }
+  ring:                       { type: "string[]", class: public }

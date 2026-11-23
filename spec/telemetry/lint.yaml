@@ -1,0 +1,39 @@
+# Scope of the telemetry CI lints (docs/observability/07 §3). Paths are relative to the
+# agent repo root. Add a package to these lists in the PR that migrates it (06 §6).
+
+# Event/span names and attribute keys must be registered (R-LOG-1, R-LOG-2).
+event_names:
+  - crates/idr-telemetry/src
+  - crates/idr-source/src
+  - crates/idr-signaling/src
+  - crates/idr-webrtc/src
+  - crates/idr-transfer/src
+  - crates/idr-c-api/src
+  - packages/idr_telemetry/lib
+  - packages/idr_telemetry_flutter/lib
+
+# print/debugPrint/developer.log/stderr (Dart lib), println!/eprintln!/dbg! (Rust lib) (R-LIB-1).
+banned_apis:
+  dart:
+    - packages/idr_telemetry/lib
+    - packages/idr_telemetry_flutter/lib
+  rust:
+    - crates/idr-telemetry/src
+
+# derive(Debug) on secret-holding structs (R-PRIV-1). Runs on every crate from day one;
+# public, non-secret fields that match the name heuristic are listed below with the reason.
+secrets_debug:
+  - crates
+  - services
+  - ../dp-sdk/packages
+secrets_debug_allow:
+  - crates/idr-signaling/src/discovery.rs::DiscoveryConfig   # public key (verifies Presence discovery documents), not a secret
+  - crates/idr-target/src/config.rs::PresenceConfig   # discovery_key is a public key (verifies Presence discovery documents), not a secret
+  - services/source-agent/src/config.rs::PresenceSection   # discovery_key is a public key (verifies Presence discovery documents), not a secret
+
+# Only composition points may depend on tracing-subscriber (R-LIB-2).
+tracing_subscriber_allowed:
+  - idr-telemetry
+
+# dp-sdk crates never depend on tracing, log or idr-telemetry (R-PRIV-4).
+dp_sdk_root: ../dp-sdk

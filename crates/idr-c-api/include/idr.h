@@ -9,7 +9,12 @@
 extern "C" {
 #endif
 
-#define IDR_ABI_VERSION 3
+#define IDR_ABI_VERSION 4
+
+/* Every export catches panics: a panic returns IDR_ERR_PANIC (pointer exports: NULL),
+ * sets the last error to code 20, writes a crash record and poisons the engine; later
+ * calls fail fast with IDR_ERR_PANIC. idr_last_error_* stay usable. */
+#define IDR_ERR_PANIC (-20)
 
 #define IDR_AUTH_BEARER 0
 #define IDR_AUTH_DEVICE_TOKEN 1
@@ -52,7 +57,10 @@ uint32_t idr_abi_version(void);
 idr_engine_t *idr_engine_create(const idr_engine_config_t *config);
 void idr_engine_destroy(idr_engine_t *engine);
 
-int idr_connect(idr_engine_t *engine, const char *target_fqhn, uint64_t *out_session);
+/* ctx_json (nullable, ABI 4): {"traceparent","session_id","operation_id","transfer_id"} from the
+ * host's current span; the engine parents its work from it (docs/observability/01 §4.2). */
+int idr_connect(idr_engine_t *engine, const char *target_fqhn, uint64_t *out_session,
+                const char *ctx_json);
 int idr_disconnect(idr_engine_t *engine, uint64_t session_id);
 
 /** JSON array of Target named services (fetched over DataChannel after connect). */
@@ -67,7 +75,7 @@ int idr_session_named_service_catalog(idr_engine_t *engine, uint64_t session_id,
                                       size_t capacity);
 
 int idr_open_stream(idr_engine_t *engine, uint64_t session_id, const char *service,
-                    uint64_t *out_stream);
+                    uint64_t *out_stream, const char *ctx_json);
 
 int idr_stream_write(idr_engine_t *engine, uint64_t session_id, uint64_t stream_id,
                      const uint8_t *buf, size_t len, size_t *out_written);
@@ -180,17 +188,17 @@ int idr_transfer_enable(idr_engine_t *engine, const idr_transfer_config_t *confi
 
 /* Files (one or more) or one folder, as absolute paths. */
 int idr_transfer_send(idr_engine_t *engine, const char *target_fqhn, const char *const *paths,
-                      size_t n_paths, uint8_t out_id[16]);
+                      size_t n_paths, uint8_t out_id[16], const char *ctx_json);
 /* A selection inside `folder`: `/`-separated paths relative to it. */
 int idr_transfer_send_selection(idr_engine_t *engine, const char *target_fqhn, const char *folder,
                                 const char *const *selected, size_t n_selected,
-                                uint8_t out_id[16]);
+                                uint8_t out_id[16], const char *ctx_json);
 
 /* out_dir NULL = receive_dir. */
 int idr_transfer_accept(idr_engine_t *engine, const uint8_t id[16], const char *out_dir);
 int idr_transfer_reject(idr_engine_t *engine, const uint8_t id[16]);
 int idr_transfer_pause(idr_engine_t *engine, const uint8_t id[16]);
-int idr_transfer_resume(idr_engine_t *engine, const uint8_t id[16]);
+int idr_transfer_resume(idr_engine_t *engine, const uint8_t id[16], const char *ctx_json);
 int idr_transfer_cancel(idr_engine_t *engine, const uint8_t id[16]);
 int idr_transfer_retry_failed(idr_engine_t *engine, const uint8_t id[16]);
 
@@ -206,6 +214,14 @@ int idr_transfer_poll_events(idr_engine_t *engine, idr_transfer_event_t *out_eve
 
 uint32_t idr_last_error_code(void);
 int idr_last_error_message(char *buf, size_t capacity);
+
+/* Telemetry for the in-process engine (ABI 4). config_json: {"service" (host service dir),
+ * "log_root", "app_session_id" (the host's), "filter"}. 0 on success, -1 invalid, -2 failed. */
+int idr_telemetry_init(const char *config_json);
+/* Drain the flight recorder to disk (before a diagnostic bundle). */
+int idr_telemetry_flush(void);
+/* Write remaining records and app.stopping (host shutdown). */
+int idr_telemetry_shutdown(void);
 
 #ifdef __cplusplus
 }

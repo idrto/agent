@@ -1,0 +1,23 @@
+{
+  "description": "Local context (ctx_json) used across FFI, isolates and IPC. See docs/observability/01 §4.2. Invalid fields are dropped individually; the rest is kept.",
+  "cases": [
+    {"input": "{\"traceparent\":\"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\",\"session_id\":\"019372b4-6b1e-7cc2-9a59-0b5c9f0e2a11\",\"operation_id\":null,\"transfer_id\":null}",
+     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+     "session_id": "019372b4-6b1e-7cc2-9a59-0b5c9f0e2a11", "operation_id": null, "transfer_id": null, "invalid": []},
+    {"input": "{\"traceparent\":\"garbage\",\"session_id\":\"019372b4-6b1e-7cc2-9a59-0b5c9f0e2a11\"}",
+     "traceparent": null, "session_id": "019372b4-6b1e-7cc2-9a59-0b5c9f0e2a11", "operation_id": null, "transfer_id": null,
+     "invalid": ["traceparent"]},
+    {"input": "{\"session_id\":\"NOT-A-UUID\",\"transfer_id\":\"019372B4-6B1E-7CC2-9A59-0B5C9F0E2A11\"}",
+     "traceparent": null, "session_id": null, "operation_id": null, "transfer_id": null,
+     "invalid": ["session_id", "transfer_id"], "note": "uppercase UUIDs are invalid"},
+    {"input": "{\"unknown\":1}", "traceparent": null, "session_id": null, "operation_id": null, "transfer_id": null, "invalid": []},
+    {"input": "not json", "traceparent": null, "session_id": null, "operation_id": null, "transfer_id": null, "invalid": ["ctx"]},
+    {"input": "", "traceparent": null, "session_id": null, "operation_id": null, "transfer_id": null, "invalid": []}
+  ],
+  "format": [
+    {"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "session_id": "019372b4-6b1e-7cc2-9a59-0b5c9f0e2a11",
+     "operation_id": null, "transfer_id": null,
+     "output": "{\"traceparent\":\"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\",\"session_id\":\"019372b4-6b1e-7cc2-9a59-0b5c9f0e2a11\"}",
+     "note": "null fields are omitted; key order traceparent, session_id, operation_id, transfer_id"}
+  ]
+}

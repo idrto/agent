@@ -16,4 +16,5 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
+idr-telemetry = { workspace = true, features = ["subscriber"] }
 idr-dp = { workspace = true }

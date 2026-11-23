@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://idr.to/spec/telemetry/log-record.schema.json",
+  "title": "idr.log/1 record",
+  "description": "One JSON Lines record emitted by any IDR process. See docs/observability/03-log-schema-and-events.md.",
+  "type": "object",
+  "required": ["schema", "kind", "ts", "seq", "level", "event", "service", "service_version", "component", "app_session_id"],
+  "additionalProperties": false,
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "trace_id": { "type": "string", "pattern": "^(?!0{32})[0-9a-f]{32}$" },
+    "span_id": { "type": "string", "pattern": "^(?!0{16})[0-9a-f]{16}$" },
+    "ts": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$" },
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$" },
+    "attr_value": {
+      "oneOf": [
+        { "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" },
+        { "type": "array", "items": { "type": ["string", "number", "boolean"] } }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "message": { "type": "string" },
+        "code": { "type": ["integer", "string"] },
+        "stack": { "type": "string" },
+        "cause": { "$ref": "#/$defs/error" }
+      }
+    }
+  },
+  "properties": {
+    "schema": { "const": "idr.log/1" },
+    "kind": { "enum": ["log", "span", "crash"] },
+    "ts": { "$ref": "#/$defs/ts" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "level": { "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"] },
+    "event": { "$ref": "#/$defs/name" },
+    "msg": { "type": "string" },
+    "service": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+    "service_version": { "type": "string", "minLength": 1 },
+    "component": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*$" },
+    "app_session_id": { "$ref": "#/$defs/uuid" },
+    "trace_id": { "$ref": "#/$defs/trace_id" },
+    "span_id": { "$ref": "#/$defs/span_id" },
+    "parent_span_id": { "$ref": "#/$defs/span_id" },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["trace_id", "span_id"], "additionalProperties": false,
+        "properties": { "trace_id": { "$ref": "#/$defs/trace_id" }, "span_id": { "$ref": "#/$defs/span_id" } }
+      }
+    },
+    "start_ts": { "$ref": "#/$defs/ts" },
+    "duration_ms": { "type": "number", "minimum": 0 },
+    "status": { "enum": ["ok", "error"] },
+    "session_id": { "$ref": "#/$defs/uuid" },
+    "connection_id": { "$ref": "#/$defs/uuid" },
+    "transfer_id": { "$ref": "#/$defs/uuid" },
+    "operation_id": { "$ref": "#/$defs/uuid" },
+    "report_id": { "$ref": "#/$defs/uuid" },
+    "error": { "$ref": "#/$defs/error" },
+    "attrs": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*$" },
+      "additionalProperties": { "$ref": "#/$defs/attr_value" }
+    },
+    "dropped": { "type": "integer", "minimum": 0 },
+    "flushed": { "const": true }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "span" } } },
+      "then": { "required": ["trace_id", "span_id", "start_ts", "duration_ms", "status"] }
+    },
+    {
+      "if": { "properties": { "level": { "enum": ["WARN", "ERROR", "FATAL"] }, "kind": { "const": "log" } } },
+      "then": { "required": ["error"] }
+    }
+  ]
+}

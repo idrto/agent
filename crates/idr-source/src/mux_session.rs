@@ -372,7 +372,7 @@ impl StreamDemux {
                     match tx.try_send(bytes) {
                         Ok(()) => {}
                         Err(mpsc::error::TrySendError::Full(_)) => {
-                            tracing::warn!(stream_id, "Target overran stream window; resetting");
+                            tracing::warn!(event = "stream.window_overrun", stream.id = stream_id as u64, error.type = "stream_window_overrun", "Target overran stream window; resetting");
                             self.drop_stream(stream_id);
                             replies.push(StreamFrame::Reset {
                                 stream_id,

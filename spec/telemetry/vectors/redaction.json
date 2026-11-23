@@ -1,0 +1,43 @@
+{
+  "description": "Redaction rules and vectors (docs/observability/04 §5.2). Rules apply in order to every string value of a record. Patterns use the common subset of Rust `regex` and Dart `RegExp` (no lookaround, no inline flags; `ci` = case-insensitive). `$1` = first capture group.",
+  "version": 1,
+  "rules": [
+    {"name": "pem",         "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----", "ci": false, "replace": "[REDACTED PRIVATE KEY]"},
+    {"name": "sdp",         "pattern": "v=0(?:\\r?\\n[a-z]=[^\\r\\n]*)+", "ci": false, "replace": "[REDACTED SDP]"},
+    {"name": "ice",         "pattern": "(candidate:)[^\\r\\n\"']+", "ci": false, "replace": "$1[REDACTED]"},
+    {"name": "fingerprint", "pattern": "(a=fingerprint:)[^\\r\\n\"']+", "ci": false, "replace": "$1[REDACTED]"},
+    {"name": "jwt",         "pattern": "\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*", "ci": false, "replace": "[REDACTED JWT]"},
+    {"name": "bearer",      "pattern": "(Bearer\\s+)[A-Za-z0-9._~+/=-]+", "ci": true, "replace": "$1[REDACTED]"},
+    {"name": "url_query",   "pattern": "(https?://[^\\s?#\"'<>]+)\\?[^\\s#\"'<>]*", "ci": true, "replace": "$1?[REDACTED]"},
+    {"name": "query_param", "pattern": "([?&](?:token|ott|code|access_token|refresh_token|key|secret|signature|password)=)[^&\\s\"]+", "ci": true, "replace": "$1[REDACTED]"},
+    {"name": "json_secret", "pattern": "(\"(?:token|accessToken|access_token|refreshToken|refresh_token|sessionCookie|cookie|privateKey|private_key|private_jwk|secret|client_secret|password|api_key|apiKey|authorization|session_token|connection_token|auth_token|credential|d)\"\\s*:\\s*\")[^\"]*\"", "ci": false, "replace": "$1[REDACTED]\""},
+    {"name": "cookie",      "pattern": "((?:set-)?cookie:\\s*)[^\\r\\n]+", "ci": true, "replace": "$1[REDACTED]"},
+    {"name": "email",       "pattern": "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+", "ci": false, "replace": "[REDACTED EMAIL]"},
+    {"name": "home_win",    "pattern": "\\b[A-Za-z]:[\\\\/]+Users[\\\\/]+[^\\\\/\\s\"']+", "ci": true, "replace": "~"},
+    {"name": "home_unix",   "pattern": "(^|[\\s\"'=(:])/(?:home|Users)/[^/\\s\"']+", "ci": false, "replace": "$1~"},
+    {"name": "ipv6",        "algorithm": "Split the text into words: maximal runs of [0-9A-Za-z_:.%]. If a word contains %, the address is the part before the first % and the rest (zone) is kept verbatim; otherwise the address is the whole word minus one trailing . or : (kept verbatim). The address is a candidate when it is non-empty, contains only [0-9A-Fa-f:.], at least two : and at least one hex digit. If it parses as an IPv6 address (Rust Ipv6Addr::from_str, Dart Uri.parseIPv6Address) it is replaced by [REDACTED IP].", "replace": "[REDACTED IP]"},
+    {"name": "ipv4",        "pattern": "\\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\b", "ci": false, "replace": "[REDACTED IP]"}
+  ],
+  "cases": [
+    {"name": "plain text unchanged", "input": "connection established in 48 ms (HTTP 200)", "expected": "connection established in 48 ms (HTTP 200)"},
+    {"name": "pem", "input": "key -----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA\n-----END PRIVATE KEY----- end", "expected": "key [REDACTED PRIVATE KEY] end"},
+    {"name": "jwt", "input": "token eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl ok", "expected": "token [REDACTED JWT] ok"},
+    {"name": "bearer", "input": "Authorization: bearer abc.DEF-123", "expected": "Authorization: bearer [REDACTED]"},
+    {"name": "url query", "input": "GET https://auth.idr.to/cb?code=abc&state=xyz failed", "expected": "GET https://auth.idr.to/cb?[REDACTED] failed"},
+    {"name": "bare query param", "input": "params ?slug=acme&token=s3cr3t", "expected": "params ?slug=acme&token=[REDACTED]"},
+    {"name": "json secrets", "input": "{\"accessToken\":\"tok\",\"d\":\"priv\",\"x\":\"pub\"}", "expected": "{\"accessToken\":\"[REDACTED]\",\"d\":\"[REDACTED]\",\"x\":\"pub\"}"},
+    {"name": "cookie", "input": "Set-Cookie: session=abc; Path=/", "expected": "Set-Cookie: [REDACTED]"},
+    {"name": "email", "input": "signed in as alice.smith+idr@example.co.uk now", "expected": "signed in as [REDACTED EMAIL] now"},
+    {"name": "windows home", "input": "open C:\\Users\\alice\\AppData\\Local\\IDR\\x.log", "expected": "open ~\\AppData\\Local\\IDR\\x.log"},
+    {"name": "unix home", "input": "path=/home/bob/.idr/agent.toml and /Users/carol/x", "expected": "path=~/.idr/agent.toml and ~/x"},
+    {"name": "url path not a home", "input": "see https://docs.idr.to/home/guide", "expected": "see https://docs.idr.to/home/guide"},
+    {"name": "ipv4", "input": "peer 203.0.113.7:3478 via relay", "expected": "peer [REDACTED IP]:3478 via relay"},
+    {"name": "ipv6", "input": "peer [2001:db8::1]:443 and fe80::1%eth0.", "expected": "peer [[REDACTED IP]]:443 and [REDACTED IP]%eth0."},
+    {"name": "rust paths are not ipv6", "input": "at idr_core::ffi and idr_target::webrtc::session", "expected": "at idr_core::ffi and idr_target::webrtc::session"},
+    {"name": "times and macs are not ipv6", "input": "at 2026-11-21T10:12:40.183512Z mac aa:bb:cc:dd:ee:ff 10:12:40", "expected": "at 2026-11-21T10:12:40.183512Z mac aa:bb:cc:dd:ee:ff 10:12:40"},
+    {"name": "ice candidate", "input": "a=candidate:1 1 udp 2122260223 192.168.1.20 54400 typ host", "expected": "a=candidate:[REDACTED]"},
+    {"name": "sdp blob", "input": "offer v=0\r\no=- 46117 2 IN IP4 127.0.0.1\r\ns=-", "expected": "offer [REDACTED SDP]"},
+    {"name": "fqhn with embedded email", "input": "Connected to gpu-box--a@b.com.idr.to", "expected": "Connected to [REDACTED EMAIL]"},
+    {"name": "idempotent", "input": "[REDACTED IP] [REDACTED EMAIL] [REDACTED JWT] ~/x", "expected": "[REDACTED IP] [REDACTED EMAIL] [REDACTED JWT] ~/x"}
+  ]
+}

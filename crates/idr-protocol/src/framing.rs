@@ -41,7 +41,7 @@ mod tests {
         let msg = QuicControlMessage::ClientHello(ClientHello {
             protocol_version: 1,
             message_id: Uuid::new_v4(),
-            session_id: Uuid::new_v4(),
+            connection_id: Uuid::new_v4(),
             target_fqhn: "a.example.idr.to".into(),
             target_identity: "id".into(),
             connection_token: "tok".into(),

@@ -1,3 +1,4 @@
+use idr_telemetry::Secret;
 use std::fmt;
 
 use idr_protocol::signaling::RelayDescriptor;
@@ -48,7 +49,7 @@ pub struct ConnectionAuthorization {
     pub session_id: uuid::Uuid,
     pub target_fqhn: String,
     pub target_identity: String,
-    pub connection_token: String,
+    pub connection_token: Secret<String>,
     pub connection_epoch: u64,
     pub command_id: uuid::Uuid,
     /// Relay-issued ensure command expiry; used for mobility warm reconnect.

@@ -1,0 +1,180 @@
+# idr.log/1 event and span registry. See docs/observability/03-log-schema-and-events.md.
+# Every event/span name used in code must appear here (CI: idr_diag lint-events).
+# Fields: kind (event|span), level, attrs (required attribute keys, all declared in attributes.yaml),
+#         persist_start (spans only), owner (component prefix), deprecated_since (optional).
+version: 1
+
+domains: [app, ui, auth, billing, enroll, entitlement, registration, session, connection, signaling,
+          webrtc, relay, turn, presence, stream, transfer, agent, ffi, crypto, dns, usage, diag, config,
+          telemetry, target, source]
+
+events:
+  # ---- process / app (all processes) ----
+  app.started:                    { kind: event, level: INFO,  attrs: [os.type, os.version, host.arch, process.pid], owner: telemetry }
+  app.startup.completed:          { kind: event, level: INFO,  attrs: [duration_ms], owner: any }
+  app.lifecycle.changed:          { kind: event, level: INFO,  attrs: [from, to], owner: idr_telemetry_flutter }
+  app.network.changed:            { kind: event, level: INFO,  attrs: [network.type], owner: any }
+  app.stopping:                   { kind: event, level: INFO,  attrs: [reason], owner: telemetry }
+  app.clock.offset_measured:      { kind: event, level: INFO,  attrs: [clock.offset_ms, source], owner: any }
+  app.heartbeat:                  { kind: event, level: DEBUG, attrs: [], owner: telemetry }
+  app.unresponsive:               { kind: event, level: WARN,  attrs: [stall_ms], owner: telemetry }
+  app.previous_exit_unclean:      { kind: event, level: WARN,  attrs: [previous_app_session_id, crash_record, open_operations], owner: telemetry }
+  config.changed:                 { kind: event, level: INFO,  attrs: [key], owner: any }
+  diag.records.dropped:           { kind: event, level: WARN,  attrs: [count, bytes, reason], owner: telemetry }
+  diag.record.oversized:          { kind: event, level: WARN,  attrs: [event.name, bytes], owner: telemetry }
+  diag.sink.unavailable:          { kind: event, level: WARN,  attrs: [reason], owner: telemetry }
+  diag.sink.degraded:             { kind: event, level: WARN,  attrs: [reason], owner: telemetry }
+  diag.bundle.created:            { kind: event, level: INFO,  attrs: [bytes, window_s], owner: telemetry }
+  diag.log.unstructured:          { kind: event, level: any,   attrs: [], owner: any, note: "events without an event= field (third-party or not yet migrated); counted by migration lint" }
+  app.crashed:                    { kind: event, level: FATAL, attrs: [panic.message], owner: telemetry }
+  telemetry.context.invalid:      { kind: event, level: DEBUG, attrs: [field], owner: telemetry }
+  telemetry.config.deprecated:    { kind: event, level: WARN,  attrs: [key], owner: telemetry }
+
+  # ---- ui ----
+  ui.screen.viewed:               { kind: event, level: INFO,  attrs: [screen], owner: idr_telemetry_flutter }
+  ui.action.invoked:              { kind: event, level: INFO,  attrs: [action], owner: app }
+  ui.gate.shown:                  { kind: event, level: INFO,  attrs: [gate], owner: app }
+  ui.error.shown:                 { kind: event, level: INFO,  attrs: [screen], owner: app }
+  ui.framework.error:             { kind: event, level: ERROR, attrs: [], owner: idr_telemetry_flutter }
+  ui.command.invoked:             { kind: event, level: INFO,  attrs: [command], owner: idr_cli_core }
+  ui.command.completed:           { kind: event, level: INFO,  attrs: [command, exit_code, duration_ms], owner: idr_cli_core }
+
+  # ---- auth / billing / entitlement / enroll / registration ----
+  auth.session.restored:          { kind: event, level: INFO,  attrs: [], owner: idr_session }
+  auth.session.restore_failed:    { kind: event, level: WARN,  attrs: [], owner: idr_session }
+  auth.sign_in:                   { kind: span,  level: INFO,  attrs: [auth.method], owner: idr_session }
+  auth.sign_in.failed:            { kind: event, level: ERROR, attrs: [auth.method], owner: idr_session }
+  auth.token.refreshed:           { kind: event, level: DEBUG, attrs: [token.kind, token.expires_in_s], owner: any }
+  auth.token.refresh_failed:      { kind: event, level: WARN,  attrs: [token.kind], owner: any }
+  entitlement.token.minted:       { kind: event, level: INFO,  attrs: [token.expires_in_s], owner: idr_target }
+  entitlement.token.mint_failed:  { kind: event, level: ERROR, attrs: [], owner: idr_target }
+  entitlement.token.rejected:     { kind: event, level: ERROR, attrs: [rejected_by], owner: idr_target }
+  billing.plan.checked:           { kind: event, level: INFO,  attrs: [plan.code, seat.state], owner: any }
+  enroll.request.submitted:       { kind: event, level: INFO,  attrs: [], owner: any }
+  enroll.state_changed:           { kind: event, level: INFO,  attrs: [from, to], owner: any }
+  enroll.approved:                { kind: event, level: INFO,  attrs: [], owner: any }
+  enroll.rejected:                { kind: event, level: INFO,  attrs: [], owner: any }
+  registration.host.registered:   { kind: event, level: INFO,  attrs: [target.fqhn], owner: idr_target }
+  registration.host.failed:       { kind: event, level: ERROR, attrs: [], owner: idr_target }
+
+  # ---- session / connection / signaling / webrtc ----
+  session.started:                { kind: event, level: INFO,  attrs: [target.fqhn], owner: source }
+  session.state_changed:          { kind: event, level: INFO,  attrs: [from, to], owner: any }
+  session.ended:                  { kind: event, level: INFO,  attrs: [reason, attempts, duration_ms], owner: any }
+  source.connect:                 { kind: span,  level: INFO,  attrs: [target.fqhn], persist_start: true, owner: source }
+  source.connect.attempt:         { kind: span,  level: INFO,  attrs: [retry.attempt], persist_start: true, owner: source }
+  source.reconnect.attempt:       { kind: span,  level: INFO,  attrs: [retry.attempt], persist_start: true, owner: source }
+  signaling.session_request:      { kind: span,  level: INFO,  attrs: [], owner: source }
+  target.session.accept:          { kind: span,  level: INFO,  attrs: [], persist_start: true, owner: target }
+  connection.attempt.started:     { kind: event, level: INFO,  attrs: [transport, retry.attempt], owner: any }
+  connection.established:         { kind: event, level: INFO,  attrs: [transport.selected, setup_ms], owner: any }
+  connection.attempt.failed:      { kind: event, level: WARN,  attrs: [phase, elapsed_ms], owner: any }
+  connection.lost:                { kind: event, level: WARN,  attrs: [reason, connection.age_ms], owner: any }
+  connection.closed:              { kind: event, level: INFO,  attrs: [reason, connection.age_ms], owner: any }
+  connection.accepted:            { kind: event, level: DEBUG, attrs: [network.transport], owner: any }
+  connection.handshake_failed:    { kind: event, level: WARN,  attrs: [network.transport], owner: any }
+  signaling.message.sent:         { kind: event, level: DEBUG, attrs: [message.type], owner: any }
+  signaling.message.received:     { kind: event, level: DEBUG, attrs: [message.type], owner: any }
+  signaling.message.rejected:     { kind: event, level: WARN,  attrs: [message.type], owner: any }
+  signaling.transport.connected:  { kind: event, level: INFO,  attrs: [network.transport, server.address], owner: any }
+  signaling.transport.disconnected: { kind: event, level: WARN, attrs: [network.transport, reason], owner: any }
+  webrtc.ice:                     { kind: span,  level: INFO,  attrs: [], owner: any }
+  webrtc.ice.candidate_gathered:  { kind: event, level: DEBUG, attrs: [candidate.type, candidate.protocol], owner: any }
+  webrtc.ice.state_changed:       { kind: event, level: INFO,  attrs: [from, to], owner: any }
+  webrtc.datachannel.opened:      { kind: event, level: INFO,  attrs: [], owner: any }
+  webrtc.datachannel.closed:      { kind: event, level: INFO,  attrs: [label], owner: any }
+  webrtc.callback_queue.overflow: { kind: event, level: WARN,  attrs: [], owner: any }
+  turn.credentials.issued:        { kind: event, level: INFO,  attrs: [turn.node_id, ttl_s], owner: presence }
+  presence.register:              { kind: span,  level: INFO,  attrs: [], owner: target }
+  presence.target.registered:     { kind: event, level: INFO,  attrs: [target.fqhn, network.transport], owner: presence }
+  presence.target.unregistered:   { kind: event, level: INFO,  attrs: [target.fqhn, reason], owner: presence }
+  presence.session.route:         { kind: span,  level: INFO,  attrs: [], owner: presence }
+  presence.session.routed:        { kind: event, level: INFO,  attrs: [target.fqhn, route], owner: presence }
+  presence.session.route_failed:  { kind: event, level: WARN,  attrs: [], owner: presence }
+
+  # ---- streams / transfers ----
+  stream.opened:                  { kind: event, level: INFO,  attrs: [stream.id, service.name], owner: any }
+  stream.closed:                  { kind: event, level: INFO,  attrs: [stream.id, reason, duration_ms], owner: any }
+  stream.open_failed:             { kind: event, level: WARN,  attrs: [service.name], owner: any }
+  stream.denied:                  { kind: event, level: INFO,  attrs: [service.name], owner: any }
+  transfer.send:                  { kind: span,  level: INFO,  attrs: [], persist_start: true, owner: idr_transfer }
+  transfer.receive:               { kind: span,  level: INFO,  attrs: [], persist_start: true, owner: idr_transfer }
+  transfer.resume:                { kind: span,  level: INFO,  attrs: [], persist_start: true, owner: idr_transfer }
+  transfer.started:               { kind: event, level: INFO,  attrs: [direction, entries, bytes.total], owner: idr_transfer }
+  transfer.progress:              { kind: event, level: DEBUG, attrs: [bytes.done, rate_bps], owner: idr_transfer }
+  transfer.paused:                { kind: event, level: INFO,  attrs: [reason, bytes.done], owner: idr_transfer }
+  transfer.resumed:               { kind: event, level: INFO,  attrs: [resume_points, bytes.done], owner: idr_transfer }
+  transfer.stalled:               { kind: event, level: WARN,  attrs: [no_progress_ms, bytes.done], owner: idr_transfer, flush: true }
+  transfer.completed:             { kind: event, level: INFO,  attrs: [bytes.total, duration_ms], owner: idr_transfer }
+  transfer.failed:                { kind: event, level: ERROR, attrs: [bytes.done], owner: idr_transfer }
+  transfer.integrity.mismatch:    { kind: event, level: ERROR, attrs: [entry.index], owner: idr_transfer }
+
+  # ---- agent process / ipc / ffi ----
+  agent.startup:                  { kind: span,  level: INFO,  attrs: [], persist_start: true, owner: agent }
+  agent.process.started:          { kind: event, level: INFO,  attrs: [agent.kind, process.pid], owner: any }
+  agent.process.exited:           { kind: event, level: INFO,  attrs: [uptime_ms], owner: any }
+  agent.process.restarted:        { kind: event, level: WARN,  attrs: [restart.count, backoff_ms], owner: idr_target }
+  agent.process.crash_budget_exceeded: { kind: event, level: ERROR, attrs: [restart.count], owner: idr_target }
+  agent.ipc.request:              { kind: span,  level: DEBUG, attrs: [ipc.cmd], owner: any }
+  agent.ipc.failed:               { kind: event, level: WARN,  attrs: [ipc.cmd], owner: any }
+  target.agent.start:             { kind: span,  level: INFO,  attrs: [], owner: idr_target }
+  target.agent.start_requested:   { kind: event, level: INFO,  attrs: [target.fqhn], owner: idr_target }
+  target.agent.start_skipped:     { kind: event, level: INFO,  attrs: [reason], owner: idr_target }
+  ffi.handle.bound:               { kind: event, level: INFO,  attrs: [ffi.handle], owner: idr_c_api }
+  ffi.call.failed:                { kind: event, level: WARN,  attrs: [ffi.fn, ffi.code], owner: any }
+  ffi.panic:                      { kind: event, level: FATAL, attrs: [ffi.fn], owner: telemetry }
+  ffi.engine_poisoned:            { kind: event, level: WARN,  attrs: [ffi.fn], owner: idr_c_api }
+
+  # ---- relay ----
+  relay.edge.connection:          { kind: span,  level: INFO,  attrs: [], persist_start: true, owner: relay }
+  relay.target.resolved:          { kind: event, level: DEBUG, attrs: [target.fqhn], owner: relay }
+  relay.target.resolve_failed:    { kind: event, level: WARN,  attrs: [target.fqhn], owner: relay }
+  relay.wake.requested:           { kind: event, level: INFO,  attrs: [relay.command_id], owner: relay }
+  relay.wake.acked:               { kind: event, level: INFO,  attrs: [relay.command_id, wait_ms], owner: relay }
+  relay.wake.timed_out:           { kind: event, level: WARN,  attrs: [relay.command_id, wait_ms], owner: relay, flush: true }
+  relay.tunnel.opened:            { kind: event, level: INFO,  attrs: [kind], owner: any }
+  relay.tunnel.closed:            { kind: event, level: INFO,  attrs: [kind, duration_ms], owner: any }
+  relay.target.connected:         { kind: event, level: INFO,  attrs: [target.fqhn], owner: any }
+  relay.target.disconnected:      { kind: event, level: WARN,  attrs: [target.fqhn, reason], owner: any }
+  relay.target.connect_failed:    { kind: event, level: WARN,  attrs: [server.address], owner: target }
+
+  # ---- servers generic ----
+  usage.report.sent:              { kind: event, level: INFO,  attrs: [http.response.status_code], owner: usage-reporter }
+  usage.report.failed:            { kind: event, level: WARN,  attrs: [], owner: usage-reporter }
+  dns.relayset.updated:           { kind: event, level: INFO,  attrs: [relay.count], owner: dns-updater }
+  dns.relayset.update_failed:     { kind: event, level: ERROR, attrs: [], owner: dns-updater }
+
+  # ---- ffi (P1-21) ----
+  ffi.call:                       { kind: span,  level: INFO,  attrs: [ffi.fn], owner: idr_c_api }
+
+  # ---- connect path details (P1-23) ----
+  webrtc.ice.servers_received:    { kind: event, level: DEBUG, attrs: [turn.used], owner: any }
+  webrtc.ice.config_invalid:      { kind: event, level: WARN,  attrs: [], owner: any }
+  webrtc.ice.config_failed:       { kind: event, level: WARN,  attrs: [], owner: any }
+  signaling.message.send_failed:  { kind: event, level: WARN,  attrs: [message.type], owner: any }
+  session.catalog_unavailable:    { kind: event, level: WARN,  attrs: [], owner: source }
+  stream.frame_invalid:           { kind: event, level: WARN,  attrs: [], owner: any }
+  session.catalog_received:       { kind: event, level: DEBUG, attrs: [count], owner: source }
+  stream.open_degraded:           { kind: event, level: WARN,  attrs: [stream.id], owner: source }
+
+  # ---- source agent / signaling (P1-23) ----
+  session.peer_binding_failed:    { kind: event, level: WARN,  attrs: [target.fqhn], owner: source }
+  session.peer_unverified:        { kind: event, level: WARN,  attrs: [target.fqhn], owner: source }
+  stream.window_overrun:          { kind: event, level: WARN,  attrs: [stream.id], owner: source }
+  presence.discovery_failed:      { kind: event, level: WARN,  attrs: [], owner: signaling }
+  presence.connect_attempt:       { kind: event, level: DEBUG, attrs: [network.transport, presence.id], owner: signaling }
+  presence.connect_failed:        { kind: event, level: WARN,  attrs: [presence.id], owner: signaling }
+  presence.credential_presented:  { kind: event, level: DEBUG, attrs: [device.ski], owner: signaling }
+
+  # ---- transfer / webrtc detail (P1-25) ----
+  transfer.completed_with_errors: { kind: event, level: WARN,  attrs: [entries.failed], owner: idr_transfer }
+  transfer.cancelled:             { kind: event, level: INFO,  attrs: [direction], owner: idr_transfer }
+  transfer.rejected:              { kind: event, level: INFO,  attrs: [direction], owner: idr_transfer }
+  transfer.interrupted:           { kind: event, level: WARN,  attrs: [direction], owner: idr_transfer }
+  transfer.entries_skipped:       { kind: event, level: INFO,  attrs: [count], owner: idr_transfer }
+  transfer.outbox_failed:         { kind: event, level: WARN,  attrs: [], owner: idr_transfer }
+  transfer.destination_unavailable: { kind: event, level: WARN, attrs: [], owner: idr_transfer }
+  transfer.storage_failed:        { kind: event, level: WARN,  attrs: [], owner: idr_transfer }
+  transfer.approved:              { kind: event, level: INFO,  attrs: [reason], owner: idr_transfer }
+  transfer.stream_unexpected:     { kind: event, level: WARN,  attrs: [], owner: idr_transfer }
+  webrtc.sdp.parse_fallback:      { kind: event, level: WARN,  attrs: [sdp.type, sdp.len], owner: any }

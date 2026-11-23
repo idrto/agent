@@ -1,0 +1,37 @@
+{
+  "description": "Conformance vectors for trace context and IDs. Both idr-telemetry (Rust) and idr_telemetry (Dart) must pass all of them.",
+  "traceparent_valid": [
+    {"input": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+     "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7", "sampled": true},
+    {"input": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+     "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7", "sampled": false},
+    {"input": "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-09-future-extension",
+     "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7", "sampled": true,
+     "note": "future version: parse the first four fields, ignore the rest"},
+    {"input": "cc-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+     "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7", "sampled": true}
+  ],
+  "traceparent_invalid": [
+    {"input": "", "why": "empty"},
+    {"input": "00-4BF92F3577B34DA6A3CE929D0E0E4736-00f067aa0ba902b7-01", "why": "uppercase"},
+    {"input": "00-00000000000000000000000000000000-00f067aa0ba902b7-01", "why": "zero trace_id"},
+    {"input": "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01", "why": "zero span_id"},
+    {"input": "ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "why": "version ff"},
+    {"input": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extra", "why": "version 00 must be exactly 55 chars"},
+    {"input": "00-4bf92f3577b34da6a3ce929d0e0e473-00f067aa0ba902b7-01", "why": "short trace_id"},
+    {"input": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-0g", "why": "non-hex flags"},
+    {"input": "00_4bf92f3577b34da6a3ce929d0e0e4736_00f067aa0ba902b7_01", "why": "wrong separator"},
+    {"input": "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01x", "why": "future version: char after flags must be '-'"}
+  ],
+  "traceparent_format": [
+    {"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7", "sampled": true,
+     "output": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"},
+    {"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7", "sampled": false,
+     "output": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"}
+  ],
+  "uuid_pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+  "uuid_v7_rules": [
+    "new_id() returns a lowercase hyphenated UUIDv7 matching uuid_pattern",
+    "10000 ids generated in a tight loop are unique and strictly increasing when compared as strings"
+  ]
+}

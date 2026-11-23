@@ -49,7 +49,7 @@ pub async fn receive<S: Sink, C: Consent>(
         let _ = sink.discard().await;
     }
     consent.finished(&outcome).await;
-    tracing::info!(outcome = ?outcome.code(), "transfer receive finished");
+    crate::events::log_outcome("receive", &header.transfer_id, &outcome);
     let _ = events.send(TransferEvent::Finished(outcome.clone()));
     let _ = control.stream.half_close().await;
     outcome

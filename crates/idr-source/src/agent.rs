@@ -85,7 +85,7 @@ impl Daemon {
             let rx = shutdown.subscribe();
             tokio::spawn(async move {
                 if let Err(e) = ipc::serve(addr, handler, rx).await {
-                    warn!(error = %e, "local IPC unavailable");
+                    warn!(event = "agent.ipc.failed", error.type = "ipc_unavailable", error.message = %e);
                 }
             });
         }
@@ -200,7 +200,7 @@ async fn bind(session: &SourceSession, cfg: &DaemonConfig, fqhn: &str) -> Option
     let stream = match session.opener().open(BIND_SERVICE, StreamPriority::Interactive).await {
         Ok(s) => s,
         Err(e) => {
-            warn!(%fqhn, error = %e, "Target refused peer binding; transfers disabled on this session");
+            warn!(event = "session.peer_binding_failed", target.fqhn = %fqhn, error.type = "peer_binding_refused", error.message = %e, "transfers disabled on this session");
             return None;
         }
     };
@@ -213,7 +213,7 @@ async fn bind(session: &SourceSession, cfg: &DaemonConfig, fqhn: &str) -> Option
     match bind_peer(&mut Framed::new(stream), BindRole::Offerer, session.bind_context(), &cfg.identity, &trust, cfg.limits.step_timeout).await {
         Ok(p) => Some(p),
         Err(code) => {
-            warn!(%fqhn, code = code.as_str(), "Target identity not verified; transfers disabled on this session");
+            warn!(event = "session.peer_unverified", target.fqhn = %fqhn, error.type = code.as_str(), "transfers disabled on this session");
             None
         }
     }
@@ -240,7 +240,7 @@ async fn supervise(
         let mut session = match connected {
             Ok(s) => s,
             Err(e) => {
-                warn!(%fqhn, error = %e, retry_in = ?delay, "connect failed");
+                warn!(event = "connection.attempt.failed", target.fqhn = %fqhn, error.type = "connect_failed", error.message = %e, retry.delay_ms = delay.as_millis() as u64);
                 tokio::select! {
                     _ = tokio::time::sleep(delay) => {}
                     _ = shutdown.changed() => break,
@@ -250,7 +250,7 @@ async fn supervise(
             }
         };
         delay = cfg.reconnect_min;
-        info!(%fqhn, "session up");
+        info!(event = "session.state_changed", target.fqhn = %fqhn, from = "connecting", to = "connected");
         let mut lease: Option<Duration> = None;
         if let Some(peer) = bind(&session, &cfg, &fqhn).await {
             lease = Some(Duration::from_secs((engine.lease_until(&peer) - unix_now()).max(1) as u64));
@@ -294,14 +294,14 @@ async fn supervise(
         tokio::select! {
             _ = closed => info!(%fqhn, "session ended; reconnecting"),
             _ = lease_end => {
-                info!(%fqhn, "authorization lease ended; re-authorizing");
+                info!(event = "session.state_changed", target.fqhn = %fqhn, from = "connected", to = "reauthorizing", reason = "lease_ended");
                 let _ = link.send(None);
                 manager.interrupt(&fqhn, idr_transfer::Command::AuthExpired).await;
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 let _ = idr_core::PeerSession::close(&mut session).await;
             }
             _ = reauth.notified() => {
-                info!(%fqhn, "a transfer needs re-authorization; reconnecting");
+                info!(event = "session.state_changed", target.fqhn = %fqhn, from = "connected", to = "reconnecting", reason = "reauthorization_needed");
                 let _ = link.send(None);
                 let _ = idr_core::PeerSession::close(&mut session).await;
             }

@@ -29,6 +29,8 @@ pub enum IdrErrorKind {
     ProtocolError = 17,
     IncompatibleVersion = 18,
     InternalError = 19,
+    /// A panic was caught at the C ABI; the engine is poisoned and fails fast (P1-12).
+    Panic = 20,
 }
 
 impl IdrErrorKind {
@@ -53,6 +55,7 @@ impl IdrErrorKind {
             Self::ProtocolError => "protocol_error",
             Self::IncompatibleVersion => "incompatible_version",
             Self::InternalError => "internal_error",
+            Self::Panic => "panic",
         }
     }
 }

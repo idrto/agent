@@ -16,6 +16,7 @@ default = []
 webrtc = ["idr-target/webrtc"]
 
 [dependencies]
+idr-telemetry = { workspace = true, features = ["subscriber"] }
 idr-target = { workspace = true }
 idr-dp = { workspace = true }
 idr-transfer = { workspace = true, features = ["native"] }

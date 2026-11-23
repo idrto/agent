@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:idr_core_ffi/idr_core_ffi.dart';
+import 'package:idr_telemetry/idr_telemetry.dart' show currentContextJson;
 
 import 'errors.dart';
 import 'catalog.dart';
@@ -158,6 +159,7 @@ class IdrFfiIsolate {
     final id = _nextId++;
     final c = Completer<Object?>();
     _pending[id] = c;
+    payload = {...payload, 'ctx': currentContextJson()};
     _commands.send({'id': id, ...payload});
     return c.future;
   }
@@ -223,12 +225,18 @@ void _main(SendPort ready) {
           final lib = loadIdrLibrary(path: msg['libraryPath'] as String?);
           bindings = IdrBindings(lib);
           bindings!.ensureAbiCompatible();
+          final telemetry = msg['telemetry'] as String?;
+          if (telemetry != null) {
+            final cfg = telemetry.toNativeUtf8();
+            bindings!.telemetryInit(cfg); // -2 when already initialized: fine
+            malloc.free(cfg);
+          }
           tb = IdrTransferBindings(lib);
           engine = _createEngine(bindings!, msg);
           ok();
           return;
         case 'connect':
-          ok(_connect(bindings!, engine!, msg['fqhn'] as String));
+          ok(_connect(bindings!, engine!, msg['fqhn'] as String, msg['ctx'] as String?));
           return;
         case 'disconnect':
           _rc(bindings!, bindings!.disconnect(engine!, msg['sessionId'] as int));
@@ -256,6 +264,7 @@ void _main(SendPort ready) {
               engine!,
               msg['sessionId'] as int,
               msg['service'] as String,
+              msg['ctx'] as String?,
             ),
           );
           return;
@@ -317,15 +326,15 @@ void _main(SendPort ready) {
           return;
         case 'transferSend':
           ok(_transferSend(bindings!, tb!, engine!, msg['target'] as String,
-              (msg['paths'] as List).cast<String>()));
+              (msg['paths'] as List).cast<String>(), msg['ctx'] as String?));
           return;
         case 'transferSendSelection':
           ok(_transferSendSelection(bindings!, tb!, engine!, msg['target'] as String,
-              msg['folder'] as String, (msg['selected'] as List).cast<String>()));
+              msg['folder'] as String, (msg['selected'] as List).cast<String>(), msg['ctx'] as String?));
           return;
         case 'transferCmd':
           _transferCmd(bindings!, tb!, engine!, msg['cmd'] as String, msg['tid'] as String,
-              msg['outDir'] as String?);
+              msg['outDir'] as String?, msg['ctx'] as String?);
           ok();
           return;
         case 'transferList':
@@ -346,6 +355,7 @@ void _main(SendPort ready) {
           poller = null;
           if (engine != null && bindings != null) {
             bindings!.engineDestroy(engine!);
+            bindings!.telemetryShutdown();
           }
           engine = null;
           bindings = null;
@@ -399,11 +409,13 @@ Pointer<Void> _createEngine(IdrBindings bindings, Map<String, Object?> msg) {
   return engine;
 }
 
-int _connect(IdrBindings bindings, Pointer<Void> engine, String fqhn) {
+int _connect(IdrBindings bindings, Pointer<Void> engine, String fqhn, String? ctx) {
   final fqhnPtr = fqhn.toNativeUtf8();
+  final ctxPtr = ctx == null ? nullptr : ctx.toNativeUtf8();
   final out = calloc<Uint64>();
-  final rc = bindings.connect(engine, fqhnPtr, out);
+  final rc = bindings.connect(engine, fqhnPtr, out, ctxPtr.cast());
   malloc.free(fqhnPtr);
+  if (ctxPtr != nullptr) malloc.free(ctxPtr);
   final sessionId = out.value;
   calloc.free(out);
   if (rc != 0) {
@@ -471,11 +483,14 @@ int _openStream(
   Pointer<Void> engine,
   int sessionId,
   String service,
+  String? ctx,
 ) {
   final svc = service.toNativeUtf8();
+  final ctxPtr = ctx == null ? nullptr : ctx.toNativeUtf8();
   final out = calloc<Uint64>();
-  final rc = bindings.openStream(engine, sessionId, svc, out);
+  final rc = bindings.openStream(engine, sessionId, svc, out, ctxPtr.cast());
   malloc.free(svc);
+  if (ctxPtr != nullptr) malloc.free(ctxPtr);
   final id = out.value;
   calloc.free(out);
   _rc(bindings, rc);
@@ -595,37 +610,40 @@ Pointer<Uint8> _idBuf(Arena arena, String hex) {
 
 T _withId<T>(String hex, T Function(Pointer<Uint8>) f) => using((arena) => f(_idBuf(arena, hex)));
 
+/// Native `ctx_json` (or NULL) for one call (docs/observability/01 §4.2).
+Pointer<Utf8> _ctx(Arena arena, String? ctx) => ctx == null ? nullptr : ctx.toNativeUtf8(allocator: arena);
+
 String _transferSend(IdrBindings bindings, IdrTransferBindings tb, Pointer<Void> engine,
-        String target, List<String> paths) =>
+        String target, List<String> paths, String? ctx) =>
     using((arena) {
       final out = arena<Uint8>(16);
       _trc(
           bindings,
           tb.send(engine, target.toNativeUtf8(allocator: arena), _strings(arena, paths),
-              paths.length, out));
+              paths.length, out, _ctx(arena, ctx)));
       return _hex(out);
     });
 
 String _transferSendSelection(IdrBindings bindings, IdrTransferBindings tb, Pointer<Void> engine,
-        String target, String folder, List<String> selected) =>
+        String target, String folder, List<String> selected, String? ctx) =>
     using((arena) {
       final out = arena<Uint8>(16);
       _trc(
           bindings,
           tb.sendSelection(engine, target.toNativeUtf8(allocator: arena),
-              folder.toNativeUtf8(allocator: arena), _strings(arena, selected), selected.length, out));
+              folder.toNativeUtf8(allocator: arena), _strings(arena, selected), selected.length, out, _ctx(arena, ctx)));
       return _hex(out);
     });
 
 void _transferCmd(IdrBindings bindings, IdrTransferBindings tb, Pointer<Void> engine, String cmd,
-    String id, String? outDir) {
+    String id, String? outDir, String? ctx) {
   using((arena) {
     final p = _idBuf(arena, id);
     final rc = switch (cmd) {
       'accept' => tb.accept(engine, p, outDir == null ? nullptr : outDir.toNativeUtf8(allocator: arena)),
       'reject' => tb.reject(engine, p),
       'pause' => tb.pause(engine, p),
-      'resume' => tb.resume(engine, p),
+      'resume' => tb.resume(engine, p, _ctx(arena, ctx)),
       'cancel' => tb.cancel(engine, p),
       'retryFailed' => tb.retryFailed(engine, p),
       _ => throw IdrException(IdrErrorCode.invalidArgument, 'unknown transfer command'),

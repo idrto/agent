@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{SigningKey, VerifyingKey};
+use idr_telemetry::Secret;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -64,10 +65,11 @@ pub struct EnsureRelayConnectionCommand {
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
     pub command_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub target_fqhn: String,
     pub relay: RelayDescriptor,
-    pub connection_token: String,
+    pub connection_token: Secret<String>,
     pub connection_epoch: u64,
     pub issued_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -87,7 +89,8 @@ pub struct EnsureRelayConnectionAck {
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
     pub command_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub result: CommandResultCode,
     pub detail: Option<String>,
     /// Device selected for this ensure (base64url Ed25519). Set on `Received`.
@@ -199,7 +202,7 @@ impl EnsureRelayConnectionCommand {
             message_type: cmd.message_type,
             message_id: cmd.message_id,
             command_id: cmd.command_id,
-            session_id: cmd.session_id,
+            connection_id: cmd.connection_id,
             target_fqhn: cmd.target_fqhn,
             relay: cmd.relay,
             connection_token: cmd.connection_token,
@@ -228,7 +231,7 @@ impl EnsureRelayConnectionCommand {
             message_type: self.message_type,
             message_id: self.message_id,
             command_id: self.command_id,
-            session_id: self.session_id,
+            connection_id: self.connection_id,
             target_fqhn: self.target_fqhn.clone(),
             relay: self.relay.clone(),
             connection_token: self.connection_token.clone(),
@@ -252,10 +255,11 @@ pub struct EnsureRelayConnectionUnsigned {
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
     pub command_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub target_fqhn: String,
     pub relay: RelayDescriptor,
-    pub connection_token: String,
+    pub connection_token: Secret<String>,
     pub connection_epoch: u64,
     pub issued_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,

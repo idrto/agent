@@ -134,7 +134,7 @@ async fn transfer_cmd(cfg: &SourceConfig, json: bool, cmd: TransferCmd) -> Resul
         .await
         .map_err(anyhow::Error::msg)?;
     if !ok {
-        std::process::exit(1);
+        idr_telemetry::exit(1);
     }
     Ok(())
 }
@@ -145,7 +145,12 @@ async fn main() -> Result<()> {
     // ring are both linked (QUIC, Presence); without it the first connect panics.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let cli = Cli::parse();
-    init_tracing(&cli.log_level);
+    let _telemetry = idr_telemetry::init_binary(
+        "source-agent",
+        env!("CARGO_PKG_VERSION"),
+        idr_telemetry::BinaryDefaults { filter: &cli.log_level, json_stdout: false, files: true },
+    )
+    .context("init telemetry")?;
 
     match cli.command {
         Commands::Version => {
@@ -259,18 +264,6 @@ async fn main() -> Result<()> {
             session.close().await?;
             Ok(())
         }
-    }
-}
-
-/// Logs go to stdout, or to `IDR_LOG_FILE` (truncated at start, no colors) when
-/// set: `idr` starts the agent in the background with no console to read.
-fn init_tracing(level: &str) {
-    let filter = tracing_subscriber::EnvFilter::try_new(level)
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let fmt = tracing_subscriber::fmt().with_env_filter(filter).with_target(false);
-    match std::env::var_os("IDR_LOG_FILE").map(std::fs::File::create) {
-        Some(Ok(file)) => fmt.with_ansi(false).with_writer(std::sync::Mutex::new(file)).init(),
-        _ => fmt.init(),
     }
 }
 

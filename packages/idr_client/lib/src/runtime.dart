@@ -1,7 +1,8 @@
-import 'dart:developer' as developer;
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:idr_core_ffi/idr_core_ffi.dart';
+import 'package:idr_telemetry/idr_telemetry.dart';
 
 import 'errors.dart';
 import 'events.dart';
@@ -10,8 +11,19 @@ import 'session.dart';
 import 'catalog.dart';
 import 'transfer.dart';
 
-void _idrLog(String message) {
-  developer.log(message, name: 'idr_client');
+const _log = IdrLog('idr_client.runtime');
+
+/// Config for `idr_telemetry_init`: the engine writes the same run (host `app_session_id`)
+/// into the host's directory (docs/observability/01 §3). Null without host telemetry.
+String? _engineTelemetry() {
+  final t = Telemetry.instance;
+  if (t == null) return null;
+  return jsonEncode({
+    'service': t.config.service,
+    'log_root': t.logRoot,
+    'app_session_id': t.appSessionId,
+    'filter': t.config.filter,
+  });
 }
 
 /// Embedded Source runtime (owns the native engine on a background isolate).
@@ -39,12 +51,6 @@ class IdrRuntime {
     String? discoveryKey,
     bool insecureDev = false,
   }) async {
-    _idrLog(
-      'create: lib=${libraryPath ?? "(auto)"} mock=$useMock '
-      'sourceId=$sourceId region=$sourceRegion '
-      'discovery=${discoveryUrl ?? "(none)"} insecureDev=$insecureDev '
-      'tokenLen=${authToken.length}',
-    );
     if (authToken.isEmpty) {
       throw IdrException(
         IdrErrorCode.authenticationFailed,
@@ -63,28 +69,27 @@ class IdrRuntime {
         'discoveryUrl': discoveryUrl,
         'discoveryKey': discoveryKey,
         'insecureDev': insecureDev,
+        'telemetry': _engineTelemetry(),
       });
     } catch (e) {
       await ffi.dispose();
       rethrow;
     }
-    _idrLog('engineCreate OK (background isolate)');
     return IdrRuntime._(ffi);
   }
 
+  /// One connection attempt, as the span `source.connect.attempt` (child of the caller's
+  /// `source.connect`); the engine's `ffi.call` and its work nest under it.
   Future<IdrSession> connect(String targetFqhn) async {
     _ensureOpen();
-    _idrLog('connect: fqhn=$targetFqhn');
-    try {
-      final sessionId = await _ffi.connect(targetFqhn);
-      _idrLog('connect OK sessionId=$sessionId');
-      return IdrSession(this, sessionId);
-    } on IdrException catch (e) {
-      _idrLog(
-        'connect FAILED code=${e.code}/${describeErrorCode(e.code)} msg=${e.message}',
-      );
-      rethrow;
-    }
+    return _log.span('source.connect.attempt', (s) async {
+      try {
+        return IdrSession(this, await _ffi.connect(targetFqhn));
+      } on IdrException catch (e) {
+        s.fail(describeErrorCode(e.code), message: e.message);
+        rethrow;
+      }
+    }, attrs: {'target.fqhn': targetFqhn}, persistStart: true);
   }
 
   /// Install the DP device identity (`idr_dp::DeviceIdentityJson`) used for

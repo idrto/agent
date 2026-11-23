@@ -1,3 +1,4 @@
+use idr_telemetry::Secret;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -559,7 +560,7 @@ pub struct WebRtcByorConfig {
 pub struct WebRtcByorServerConfig {
     pub urls: Vec<String>,
     pub username: Option<String>,
-    pub credential: Option<String>,
+    pub credential: Option<Secret<String>>,
     pub region: Option<String>,
 }
 

@@ -1,0 +1,22 @@
+name: idr_diag
+description: >-
+  IDR diagnostics CLI: validate idr.log/1 files, merge and filter logs from several
+  processes, render trace trees, open diagnostic bundles, and the telemetry CI lints.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+executables:
+  idr_diag: idr_diag
+
+dependencies:
+  args: ^2.5.0
+  idr_telemetry:
+    path: ../idr_telemetry
+  yaml: ^3.1.0
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0

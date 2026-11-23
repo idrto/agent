@@ -66,20 +66,22 @@ typedef TransferEnableC = Int32 Function(Pointer<Void>, Pointer<IdrTransferConfi
 typedef TransferEnableDart = int Function(Pointer<Void>, Pointer<IdrTransferConfigNative>);
 
 typedef TransferSendC = Int32 Function(
-    Pointer<Void>, Pointer<Utf8>, Pointer<Pointer<Utf8>>, IntPtr, Pointer<Uint8>);
+    Pointer<Void>, Pointer<Utf8>, Pointer<Pointer<Utf8>>, IntPtr, Pointer<Uint8>, Pointer<Utf8>);
 typedef TransferSendDart = int Function(
-    Pointer<Void>, Pointer<Utf8>, Pointer<Pointer<Utf8>>, int, Pointer<Uint8>);
+    Pointer<Void>, Pointer<Utf8>, Pointer<Pointer<Utf8>>, int, Pointer<Uint8>, Pointer<Utf8>);
 
 typedef TransferSendSelectionC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>,
-    Pointer<Pointer<Utf8>>, IntPtr, Pointer<Uint8>);
+    Pointer<Pointer<Utf8>>, IntPtr, Pointer<Uint8>, Pointer<Utf8>);
 typedef TransferSendSelectionDart = int Function(
-    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>, int, Pointer<Uint8>);
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>, int, Pointer<Uint8>, Pointer<Utf8>);
 
 typedef TransferAcceptC = Int32 Function(Pointer<Void>, Pointer<Uint8>, Pointer<Utf8>);
 typedef TransferAcceptDart = int Function(Pointer<Void>, Pointer<Uint8>, Pointer<Utf8>);
 
 typedef TransferCmdC = Int32 Function(Pointer<Void>, Pointer<Uint8>);
 typedef TransferCmdDart = int Function(Pointer<Void>, Pointer<Uint8>);
+typedef TransferResumeC = Int32 Function(Pointer<Void>, Pointer<Uint8>, Pointer<Utf8>);
+typedef TransferResumeDart = int Function(Pointer<Void>, Pointer<Uint8>, Pointer<Utf8>);
 
 typedef TransferListC = Int32 Function(Pointer<Void>, Pointer<Utf8>, IntPtr);
 typedef TransferListDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
@@ -107,7 +109,7 @@ class IdrTransferBindings {
         accept = lib.lookupFunction<TransferAcceptC, TransferAcceptDart>('idr_transfer_accept'),
         reject = lib.lookupFunction<TransferCmdC, TransferCmdDart>('idr_transfer_reject'),
         pause = lib.lookupFunction<TransferCmdC, TransferCmdDart>('idr_transfer_pause'),
-        resume = lib.lookupFunction<TransferCmdC, TransferCmdDart>('idr_transfer_resume'),
+        resume = lib.lookupFunction<TransferResumeC, TransferResumeDart>('idr_transfer_resume'),
         cancel = lib.lookupFunction<TransferCmdC, TransferCmdDart>('idr_transfer_cancel'),
         retryFailed =
             lib.lookupFunction<TransferCmdC, TransferCmdDart>('idr_transfer_retry_failed'),
@@ -124,7 +126,7 @@ class IdrTransferBindings {
   final TransferAcceptDart accept;
   final TransferCmdDart reject;
   final TransferCmdDart pause;
-  final TransferCmdDart resume;
+  final TransferResumeDart resume;
   final TransferCmdDart cancel;
   final TransferCmdDart retryFailed;
   final TransferListDart list;

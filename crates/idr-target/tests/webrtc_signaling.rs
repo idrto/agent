@@ -72,7 +72,7 @@ fn session_request_and_offer_types_parse() {
         version: PROTOCOL_VERSION,
         message_type: SignalingMessageType::WebRtcSessionRequest,
         message_id: Uuid::new_v4(),
-        session_id: Uuid::new_v4(),
+        connection_id: Uuid::new_v4(),
         target_fqhn: "device.example.idr.to".into(),
         source: SourceAgentIdentity {
             auth_mode: idr_target::protocol::webrtc_signaling::SourceAuthMode::Bearer,
@@ -116,7 +116,7 @@ fn session_request_and_offer_types_parse() {
         version: PROTOCOL_VERSION,
         message_type: SignalingMessageType::WebRtcSessionOffer,
         message_id: Uuid::new_v4(),
-        session_id: req.session_id,
+        connection_id: req.connection_id,
         target_fqhn: req.target_fqhn.clone(),
         source: req.source.clone(),
         sdp: req.sdp.clone(),

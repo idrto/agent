@@ -93,7 +93,7 @@ impl QuicClient {
                 info!(
                     relay_id = %descriptor.relay_id,
                     %addr,
-                    session_id = %h.session_id,
+                    session_id = %h.connection_id,
                     "relay accepted Target QUIC session"
                 );
             }

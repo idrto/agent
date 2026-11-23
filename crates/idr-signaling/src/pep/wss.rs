@@ -45,7 +45,7 @@ pub async fn connect_wss(
     .map_err(|_| IdrError::new(IdrErrorKind::SignalingFailed, "presence WSS timeout"))?
     .map_err(|e| IdrError::new(IdrErrorKind::SignalingFailed, e.to_string()))?;
 
-    debug!(url = %server.wss_url, "presence WSS connected");
+    debug!(event = "signaling.transport.connected", network.transport = "wss", server.address = %server.wss_url);
     let (write, read) = ws.split();
     Ok(PepSession::Wss {
         write: Arc::new(Mutex::new(write)),

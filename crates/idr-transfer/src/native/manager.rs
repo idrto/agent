@@ -268,7 +268,7 @@ impl Manager {
             ],
         );
         if let Err(err) = res {
-            tracing::warn!(error = %err, transfer = %hex(id), "transfer outbox write failed");
+            tracing::warn!(event = "transfer.outbox_failed", transfer_id = %crate::events::transfer_id_text(id), error.type = "outbox_write_failed", error.message = %err);
         }
     }
 
@@ -720,7 +720,7 @@ impl Sink for DeferredSink {
             None => NativeSink::new(&self.default),
         }
         .map_err(|e| {
-            tracing::warn!(id = %hex(id), error = %e, "receive destination unavailable");
+            tracing::warn!(event = "transfer.destination_unavailable", transfer_id = %crate::events::transfer_id_text(id), error.type = "destination_unavailable", error.message = %e);
             TransferErrorKind::StorageFailed
         })?;
         self.inner.insert(sink).prepare(id, digest, manifest).await

@@ -61,11 +61,13 @@ typedef ConnectC = Int32 Function(
   Pointer<Void>,
   Pointer<Utf8>,
   Pointer<Uint64>,
+  Pointer<Utf8>, // ctx_json (nullable)
 );
 typedef ConnectDart = int Function(
   Pointer<Void>,
   Pointer<Utf8>,
   Pointer<Uint64>,
+  Pointer<Utf8>,
 );
 
 typedef DisconnectC = Int32 Function(Pointer<Void>, Uint64);
@@ -89,12 +91,14 @@ typedef OpenStreamC = Int32 Function(
   Uint64,
   Pointer<Utf8>,
   Pointer<Uint64>,
+  Pointer<Utf8>, // ctx_json (nullable)
 );
 typedef OpenStreamDart = int Function(
   Pointer<Void>,
   int,
   Pointer<Utf8>,
   Pointer<Uint64>,
+  Pointer<Utf8>,
 );
 
 typedef StreamWriteC = Int32 Function(
@@ -159,6 +163,11 @@ typedef LastErrorCodeDart = int Function();
 typedef LastErrorMessageC = Int32 Function(Pointer<Utf8>, IntPtr);
 typedef LastErrorMessageDart = int Function(Pointer<Utf8>, int);
 
+typedef TelemetryInitC = Int32 Function(Pointer<Utf8>);
+typedef TelemetryInitDart = int Function(Pointer<Utf8>);
+typedef TelemetryVoidC = Int32 Function();
+typedef TelemetryVoidDart = int Function();
+
 /// Lookup table for `libidr_c_api` symbols.
 class IdrBindings {
   IdrBindings(DynamicLibrary lib)
@@ -185,7 +194,13 @@ class IdrBindings {
         lastErrorCode =
             lib.lookupFunction<LastErrorCodeC, LastErrorCodeDart>('idr_last_error_code'),
         lastErrorMessage =
-            lib.lookupFunction<LastErrorMessageC, LastErrorMessageDart>('idr_last_error_message');
+            lib.lookupFunction<LastErrorMessageC, LastErrorMessageDart>('idr_last_error_message'),
+        telemetryInit =
+            lib.lookupFunction<TelemetryInitC, TelemetryInitDart>('idr_telemetry_init'),
+        telemetryFlush =
+            lib.lookupFunction<TelemetryVoidC, TelemetryVoidDart>('idr_telemetry_flush'),
+        telemetryShutdown =
+            lib.lookupFunction<TelemetryVoidC, TelemetryVoidDart>('idr_telemetry_shutdown');
 
   final AbiVersionDart abiVersion;
   final EngineCreateDart engineCreate;
@@ -203,6 +218,11 @@ class IdrBindings {
   final SetDpIdentityDart setDpIdentity;
   final LastErrorCodeDart lastErrorCode;
   final LastErrorMessageDart lastErrorMessage;
+
+  /// In-process engine telemetry (docs/observability/01 §3): same `app_session_id` as the host.
+  final TelemetryInitDart telemetryInit;
+  final TelemetryVoidDart telemetryFlush;
+  final TelemetryVoidDart telemetryShutdown;
 
   void ensureAbiCompatible() {
     final v = abiVersion();

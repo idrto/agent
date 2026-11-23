@@ -44,7 +44,7 @@ pub const STAGING_PREFIX: &str = ".idr-partial-";
 const MAX_NUMBERED: u32 = 1000;
 
 fn storage(e: impl std::fmt::Display) -> TransferErrorKind {
-    tracing::warn!(error = %e, "transfer storage failure");
+    tracing::warn!(event = "transfer.storage_failed", error.type = "storage_failure", error.message = %e);
     StorageFailed
 }
 

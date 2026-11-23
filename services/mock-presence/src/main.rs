@@ -10,7 +10,6 @@ use futures::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{info, warn};
-use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 use idr_protocol::crypto::KeyPair;
@@ -25,9 +24,11 @@ use idr_protocol::PROTOCOL_VERSION;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse()?))
-        .init();
+    let _telemetry = idr_telemetry::init_binary(
+        "mock-presence",
+        env!("CARGO_PKG_VERSION"),
+        idr_telemetry::BinaryDefaults { filter: "info", json_stdout: true, files: false },
+    )?;
 
     let listen = env::var("MOCK_PRESENCE_LISTEN").unwrap_or_else(|_| "127.0.0.1:8081".into());
     let addr: SocketAddr = listen.parse().context("parse MOCK_PRESENCE_LISTEN")?;
@@ -140,7 +141,7 @@ fn sample_command(relay_key: &KeyPair) -> Result<EnsureRelayConnectionCommand> {
         message_type: SignalingMessageType::EnsureRelayConnection,
         message_id: Uuid::new_v4(),
         command_id: Uuid::new_v4(),
-        session_id: Uuid::new_v4(),
+        connection_id: Uuid::new_v4(),
         target_fqhn: "device-01.example.idr.to".into(),
         relay: RelayDescriptor {
             relay_id: "relay-a".into(),
@@ -167,7 +168,7 @@ fn sample_command(relay_key: &KeyPair) -> Result<EnsureRelayConnectionCommand> {
         message_type: unsigned.message_type,
         message_id: unsigned.message_id,
         command_id: unsigned.command_id,
-        session_id: unsigned.session_id,
+        connection_id: unsigned.connection_id,
         target_fqhn: unsigned.target_fqhn,
         relay: unsigned.relay,
         connection_token: unsigned.connection_token,

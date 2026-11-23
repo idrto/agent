@@ -52,6 +52,8 @@ String describeErrorCode(int code) {
       return 'incompatible_version';
     case IdrErrorCode.internalError:
       return 'internal_error';
+    case IdrErrorCode.panic:
+      return 'panic';
     default:
       return 'error_$code';
   }

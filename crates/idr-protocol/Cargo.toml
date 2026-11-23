@@ -8,6 +8,7 @@ description = "Shared IDR wire protocol types (signaling, QUIC control, WebRTC m
 repository.workspace = true
 
 [dependencies]
+idr-telemetry = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 dns-encoded-format = { workspace = true }

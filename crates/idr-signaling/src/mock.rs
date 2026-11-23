@@ -38,7 +38,7 @@ impl WebRtcSignalingClient for MockSignalingClient {
     ) -> Result<Box<dyn EphemeralSignaling>> {
         let mut inbox = VecDeque::new();
         inbox.push_back(SignalingMessage::Pending(SessionPending {
-            session_id: request.session_id,
+            session_id: request.connection_id,
             ice: Some(SessionIceConfig {
                 relay_mode: IceRelayMode::Platform,
                 stun_policy: StunPolicy::GoogleAndIdr,
@@ -53,7 +53,7 @@ impl WebRtcSignalingClient for MockSignalingClient {
             version: PROTOCOL_VERSION,
             message_type: SignalingMessageType::WebRtcAnswer,
             message_id: Uuid::new_v4(),
-            session_id: request.session_id,
+            connection_id: request.connection_id,
             sdp: SessionDescription {
                 sdp_type: "answer".into(),
                 sdp: self.answer_sdp.clone(),
@@ -61,7 +61,7 @@ impl WebRtcSignalingClient for MockSignalingClient {
             signature: String::new(),
         }));
         inbox.push_back(SignalingMessage::SessionAck {
-            session_id: request.session_id,
+            session_id: request.connection_id,
             result: WebRtcSessionResultCode::Active,
             detail: None,
         });

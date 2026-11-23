@@ -1,5 +1,6 @@
 //! ICE server configuration, STUN policy, and rtc ice_servers merge rules.
 
+use idr_telemetry::Secret;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -44,7 +45,7 @@ pub struct IceServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential: Option<String>,
+    pub credential: Option<Secret<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -78,13 +79,13 @@ impl SessionIceConfig {
         let platform = self.turn.as_ref().is_some_and(|t| {
             t.servers.iter().any(|s| {
                 s.username.as_deref().is_some_and(|u| !u.is_empty())
-                    && s.credential.as_deref().is_some_and(|c| !c.is_empty())
+                    && s.credential.as_ref().map(Secret::expose_str).is_some_and(|c| !c.is_empty())
             })
         });
         let byor = self.byor.as_ref().is_some_and(|b| {
             b.turn_servers.iter().any(|s| {
                 s.username.as_deref().is_some_and(|u| !u.is_empty())
-                    && s.credential.as_deref().is_some_and(|c| !c.is_empty())
+                    && s.credential.as_ref().map(Secret::expose_str).is_some_and(|c| !c.is_empty())
             })
         });
         platform || byor
@@ -243,7 +244,7 @@ fn validate_turn_servers(
     }
     for turn in servers {
         if turn.username.as_deref().unwrap_or("").is_empty()
-            || turn.credential.as_deref().unwrap_or("").is_empty()
+            || turn.credential.as_ref().map(Secret::expose_str).unwrap_or("").is_empty()
         {
             return Err(IceBuildError::IncompleteTurnCredentials);
         }
@@ -275,7 +276,7 @@ fn canonical_ice_server_key(server: &IceServer) -> String {
         "{:?}|{}|{}",
         urls,
         server.username.as_deref().unwrap_or(""),
-        server.credential.as_deref().unwrap_or("")
+        server.credential.as_ref().map(Secret::expose_str).unwrap_or("")
     )
 }
 

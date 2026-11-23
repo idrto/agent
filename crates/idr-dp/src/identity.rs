@@ -1,6 +1,7 @@
 //! JSON load/save for [`DeviceIdentity`] (in-memory only after load).
 
 use dp_rust_mtls::DeviceIdentity;
+use idr_telemetry::Secret;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -18,7 +19,7 @@ pub enum DpIdentityError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceIdentityJson {
     pub ski: String,
-    pub private_jwk: serde_json::Value,
+    pub private_jwk: Secret<serde_json::Value>,
     pub credential: dp_rust::CapabilityCredential,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_jwk: Option<serde_json::Value>,
@@ -34,7 +35,7 @@ impl From<&DeviceIdentity> for DeviceIdentityJson {
     fn from(id: &DeviceIdentity) -> Self {
         Self {
             ski: id.ski.clone(),
-            private_jwk: id.private_jwk.clone(),
+            private_jwk: id.private_jwk.clone().into(),
             credential: id.credential.clone(),
             public_jwk: id.private_jwk.get("x").map(|x| {
                 serde_json::json!({
@@ -60,6 +61,7 @@ impl TryFrom<DeviceIdentityJson> for DeviceIdentity {
         }
         if value
             .private_jwk
+            .expose()
             .get("d")
             .and_then(|v| v.as_str())
             .is_none()
@@ -68,7 +70,7 @@ impl TryFrom<DeviceIdentityJson> for DeviceIdentity {
         }
         Ok(DeviceIdentity {
             ski: value.ski,
-            private_jwk: value.private_jwk,
+            private_jwk: value.private_jwk.into_inner(),
             credential: value.credential,
             cert_pem: value.cert_pem,
             chain_pem: value.chain_pem,

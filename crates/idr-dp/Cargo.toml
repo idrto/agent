@@ -8,6 +8,7 @@ description = "Delegate Permissions (dp-sdk) integration for IDR agents"
 repository.workspace = true
 
 [dependencies]
+idr-telemetry = { workspace = true }
 dp-rust = { workspace = true }
 dp-rust-mtls = { workspace = true }
 serde = { workspace = true }

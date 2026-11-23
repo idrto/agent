@@ -39,7 +39,7 @@ mod ice_servers {
                 out.push(embed_credentials(
                     url,
                     server.username.as_deref(),
-                    server.credential.as_deref(),
+                    server.credential.as_ref().map(|c| c.expose().as_str()),
                 ));
             }
         }
@@ -224,8 +224,10 @@ impl PeerConnectionHandler for ConnectionHandler {
             return;
         }
         tracing::warn!(
-            sdp_type,
-            sdp_len = sdp.len(),
+            event = "webrtc.sdp.parse_fallback",
+            sdp.type = sdp_type,
+            sdp.len = sdp.len() as u64,
+            error.type = "sdp_parse_failed",
             "using raw local SDP (webrtc-sdp parse failed in datachannel-rs)"
         );
         self.sink.public(InternalEvent::LocalDescription {
@@ -490,8 +492,11 @@ impl PeerTransport for NativePeer {
         };
         if let Err(e) = datachannel::sdp::parse_sdp(sdp, false) {
             tracing::warn!(
-                error = %e,
-                sdp_len = sdp.len(),
+                event = "webrtc.sdp.parse_fallback",
+                sdp.type = "remote",
+                sdp.len = sdp.len() as u64,
+                error.type = "sdp_parse_failed",
+                error.message = %e,
                 "remote SDP webrtc-sdp parse failed; applying raw to libdatachannel"
             );
         }
@@ -591,7 +596,7 @@ impl PeerTransport for NativePeer {
         loop {
             let dropped = self.dropped.swap(0, Ordering::AcqRel);
             if dropped != 0 {
-                warn!(dropped, "WebRTC callback queue overflow");
+                warn!(event = "webrtc.callback_queue.overflow", count = dropped as u64, error.type = "callback_queue_overflow");
                 return Ok(PeerEvent::ConnectionFailed);
             }
             match self.receiver.recv().await {

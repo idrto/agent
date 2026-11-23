@@ -71,13 +71,13 @@ impl WebRtcSignalingHandler {
         outbox: &PresenceSignalingOutbox,
     ) -> anyhow::Result<()> {
         tracing::info!(
-            session_id = %offer.session_id,
+            session_id = %offer.connection_id,
             fqhn = %offer.target_fqhn,
             sdp_len = offer.sdp.sdp.len(),
             "auto-accepting webrtc_session_offer"
         );
         let fail = |code: WebRtcSessionResultCode, detail: Option<String>| {
-            let session_id = offer.session_id;
+            let session_id = offer.connection_id;
             async move { self.send_offer_ack(outbox, session_id, code, detail).await }
         };
 
@@ -109,7 +109,7 @@ impl WebRtcSignalingHandler {
             .await?;
             return Ok(());
         }
-        if offer.session_token.is_empty() {
+        if offer.session_token.expose().is_empty() {
             fail(
                 WebRtcSessionResultCode::Failed,
                 Some("missing session_token".into()),
@@ -122,7 +122,7 @@ impl WebRtcSignalingHandler {
             if self.insecure_dev {
                 warn!(
                     error = %e,
-                    session_id = %offer.session_id,
+                    session_id = %offer.connection_id,
                     "insecure_dev: accepting offer despite presence signature failure"
                 );
             } else {
@@ -144,12 +144,12 @@ impl WebRtcSignalingHandler {
         }
         if offer.ice.has_turn_credentials() {
             tracing::info!(
-                session_id = %offer.session_id,
+                session_id = %offer.connection_id,
                 "received TURN credentials"
             );
         }
 
-        let guard = match self.sessions.try_acquire(offer.session_id) {
+        let guard = match self.sessions.try_acquire(offer.connection_id) {
             Ok(g) => g,
             Err(SessionError::Busy) => {
                 fail(WebRtcSessionResultCode::Busy, None).await?;
@@ -171,13 +171,13 @@ impl WebRtcSignalingHandler {
 
         self.send_offer_ack(
             outbox,
-            offer.session_id,
+            offer.connection_id,
             WebRtcSessionResultCode::Received,
             None,
         )
         .await?;
         tracing::info!(
-            session_id = %offer.session_id,
+            session_id = %offer.connection_id,
             "offer_ack Received sent; starting WebRTC responder"
         );
 
@@ -205,7 +205,7 @@ impl WebRtcSignalingHandler {
             }
         };
         debug!(
-            session_id = %offer.session_id,
+            session_id = %offer.connection_id,
             ice_count = ice_servers.len(),
             "merged ICE servers for WebRTC session"
         );
@@ -262,12 +262,12 @@ impl WebRtcSignalingHandler {
         if msg.candidate.len() > MAX_ICE_CANDIDATE_BYTES {
             anyhow::bail!("ICE candidate too large");
         }
-        if !self.sessions.contains(msg.session_id) {
-            debug!(session_id = %msg.session_id, "ICE for unknown session");
+        if !self.sessions.contains(msg.connection_id) {
+            debug!(session_id = %msg.connection_id, "ICE for unknown session");
             return Ok(());
         }
-        self.sessions.touch(msg.session_id);
-        if let Some(inbox) = self.sessions.ice_inbox(msg.session_id) {
+        self.sessions.touch(msg.connection_id);
+        if let Some(inbox) = self.sessions.ice_inbox(msg.connection_id) {
             inbox.add_candidate(msg.candidate, msg.mid).await?;
         }
         Ok(())
@@ -283,7 +283,7 @@ impl WebRtcSignalingHandler {
             version: PROTOCOL_VERSION,
             message_type: SignalingMessageType::WebRtcSessionAck,
             message_id: Uuid::new_v4(),
-            session_id,
+            connection_id: session_id,
             result: WebRtcSessionResultCode::Failed,
             detail: Some("ended".into()),
         };
@@ -301,7 +301,7 @@ impl WebRtcSignalingHandler {
             version: PROTOCOL_VERSION,
             message_type: SignalingMessageType::WebRtcSessionOfferAck,
             message_id: Uuid::new_v4(),
-            session_id,
+            connection_id: session_id,
             result,
             detail,
         };

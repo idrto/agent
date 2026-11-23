@@ -55,7 +55,7 @@ fn nonce() -> [u8; 32] {
 }
 
 fn refusal(e: BindError) -> TransferErrorKind {
-    tracing::warn!(reason = ?e, "peer binding refused");
+    tracing::warn!(event = "session.peer_binding_failed", error.type = "peer_binding_refused", error.message = ?e);
     match e {
         BindError::Expired => TransferErrorKind::AuthorizationExpired,
         _ => TransferErrorKind::Unauthorized,

@@ -16,7 +16,7 @@ fn sample_command(signing: &SigningKey, command_id: Uuid) -> EnsureRelayConnecti
         message_type: SignalingMessageType::EnsureRelayConnection,
         message_id: Uuid::new_v4(),
         command_id,
-        session_id: Uuid::new_v4(),
+        connection_id: Uuid::new_v4(),
         target_fqhn: "device-01.example.idr.to".into(),
         relay: RelayDescriptor {
             relay_id: "relay-a".into(),

@@ -1,3 +1,4 @@
+use idr_telemetry::Secret;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -22,10 +23,11 @@ pub enum QuicControlMessageType {
 pub struct ClientHello {
     pub protocol_version: u32,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub target_fqhn: String,
     pub target_identity: String,
-    pub connection_token: String,
+    pub connection_token: Secret<String>,
     pub connection_epoch: u64,
     pub relay_id: String,
 }
@@ -34,7 +36,8 @@ pub struct ClientHello {
 pub struct ServerHello {
     pub protocol_version: u32,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub relay_id: String,
     pub connection_epoch: u64,
     pub accepted: bool,

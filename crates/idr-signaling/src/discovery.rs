@@ -66,7 +66,7 @@ impl DiscoveryClient {
                 Ok(doc)
             }
             Err(err) => {
-                warn!(error = %err, "discovery fetch failed");
+                warn!(event = "presence.discovery_failed", error.type = "discovery_fetch_failed", error.message = %err);
                 if let Some(doc) = &self.cached {
                     return Ok(doc.clone());
                 }

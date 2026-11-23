@@ -111,7 +111,7 @@ impl WebRtcSignalingClient for PresenceQuicSignalingClient {
             connection,
             send,
             recv,
-            session_id: request.session_id,
+            session_id: request.connection_id,
             closed: false,
         }))
     }

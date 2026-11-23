@@ -252,7 +252,7 @@ async fn enrolled_source_sends_a_proof_bound_to_the_session() {
     assert_eq!(proof.chain_pem, "LEAF\nZONE\nROOT");
     let vk = key.verifying_key();
     assert!(proof
-        .verify_signature(&vk, request.session_id, "t.idr.to")
+        .verify_signature(&vk, request.connection_id, "t.idr.to")
         .is_ok());
     assert!(proof
         .verify_signature(&vk, uuid::Uuid::new_v4(), "t.idr.to")

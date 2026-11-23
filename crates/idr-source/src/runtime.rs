@@ -165,7 +165,7 @@ impl SourceRuntime {
             auth_mode,
             source_id: Some(self.source_id.clone()),
             sdk_version: Some(env!("CARGO_PKG_VERSION").into()),
-            auth_token,
+            auth_token: auth_token.map(Into::into),
             policy: None,
         }
     }
@@ -175,6 +175,7 @@ impl SourceRuntime {
     /// Uses `{host}--{entity}.idr.to` on the wire (`.idr.to` appended if missing).
     /// DEF-encode is applied only inside Presence placement (index selection).
     pub async fn connect(&mut self, target_fqhn: &str) -> Result<SourceSession> {
+        let started = crate::time::Instant::now();
         let target_fqhn = idr_protocol::fqhn::canonicalize(target_fqhn)
             .map_err(|e| IdrError::new(IdrErrorKind::InvalidArgument, e.to_string()))?;
         let auth_token = {
@@ -278,7 +279,7 @@ impl SourceRuntime {
             version: PROTOCOL_VERSION,
             message_type: SignalingMessageType::WebRtcSessionRequest,
             message_id: Uuid::new_v4(),
-            session_id,
+            connection_id: session_id,
             target_fqhn: target_fqhn.to_string(),
             source: self.source_agent_identity(auth_token),
             source_region: self.source_region.clone(),
@@ -299,7 +300,7 @@ impl SourceRuntime {
                 version: PROTOCOL_VERSION,
                 message_type: SignalingMessageType::WebRtcIceCandidate,
                 message_id: Uuid::new_v4(),
-                session_id,
+                connection_id: session_id,
                 candidate,
                 mid,
                 signature: None,
@@ -311,7 +312,7 @@ impl SourceRuntime {
                 version: PROTOCOL_VERSION,
                 message_type: SignalingMessageType::WebRtcIceComplete,
                 message_id: Uuid::new_v4(),
-                session_id,
+                connection_id: session_id,
             };
             let _ = channel
                 .send_json(&serde_json::to_string(&complete).map_err(|e| {
@@ -337,10 +338,7 @@ impl SourceRuntime {
                                 .as_ref()
                                 .map(|ice| {
                                     if ice.has_turn_credentials() {
-                                        tracing::info!(
-                                            %session_id,
-                                            "received TURN credentials"
-                                        );
+                                        tracing::debug!(event = "webrtc.ice.servers_received", connection_id = %session_id, turn.used = true);
                                     }
                                     match build_rtc_ice_servers(ice, &[]) {
                                         Ok(servers) if !servers.is_empty() => {
@@ -349,7 +347,10 @@ impl SourceRuntime {
                                         Ok(_) => Some("[]".into()),
                                         Err(e) => {
                                             tracing::warn!(
-                                                error = %e,
+                                                event = "webrtc.ice.config_invalid",
+                                                connection_id = %session_id,
+                                                error.type = "invalid_ice_config",
+                                                error.message = %e,
                                                 "invalid Presence session ICE; gathering without extra servers"
                                             );
                                             Some("[]".into())
@@ -360,7 +361,10 @@ impl SourceRuntime {
                                 .unwrap_or_else(|| "[]".into());
                             if let Err(e) = peer.set_ice_servers_json(&ice_json) {
                                 tracing::warn!(
-                                    error = %e,
+                                    event = "webrtc.ice.config_failed",
+                                    connection_id = %session_id,
+                                    error.type = "ice_servers_rejected",
+                                    error.message = %e,
                                     "failed to apply Presence ICE servers"
                                 );
                             }
@@ -372,7 +376,7 @@ impl SourceRuntime {
                             for (candidate, mid) in remote_ice_before_answer.drain(..) {
                                 peer.add_remote_candidate(&candidate, &mid)?;
                             }
-                            tracing::info!(%session_id, "remote answer applied");
+                            tracing::debug!(event = "signaling.message.received", connection_id = %session_id, message.type = "webrtc_answer");
                         }
                         SignalingMessage::IceCandidate(c) => {
                             if answer_applied {
@@ -407,7 +411,7 @@ impl SourceRuntime {
                 event = peer.next_event() => {
                     match event? {
                         PeerEvent::DataChannelOpen => {
-                            tracing::info!(%session_id, "datachannel open");
+                            tracing::info!(event = "webrtc.datachannel.opened", connection_id = %session_id);
                             break;
                         }
                         PeerEvent::LocalCandidate { candidate, mid } => {
@@ -415,13 +419,13 @@ impl SourceRuntime {
                                 version: PROTOCOL_VERSION,
                                 message_type: SignalingMessageType::WebRtcIceCandidate,
                                 message_id: Uuid::new_v4(),
-                                session_id,
+                                connection_id: session_id,
                                 candidate,
                                 mid,
                                 signature: None,
                             };
                             if let Err(e) = channel.send_ice(msg).await {
-                                tracing::warn!(error = %e, "failed to send local ICE candidate");
+                                tracing::warn!(event = "signaling.message.send_failed", connection_id = %session_id, message.type = "webrtc_ice_candidate", error.type = "signaling_send_failed", error.message = %e);
                             }
                         }
                         PeerEvent::GatheringComplete => {
@@ -429,7 +433,7 @@ impl SourceRuntime {
                                 version: PROTOCOL_VERSION,
                                 message_type: SignalingMessageType::WebRtcIceComplete,
                                 message_id: Uuid::new_v4(),
-                                session_id,
+                                connection_id: session_id,
                             };
                             if let Ok(json) = serde_json::to_string(&complete) {
                                 let _ = channel.send_json(&json).await;
@@ -476,7 +480,12 @@ impl SourceRuntime {
         let path = peer
             .selected_candidate_pair()
             .and_then(|(l, r)| idr_protocol::webrtc_ice::IcePath::of_pair(&l, &r));
-        tracing::info!(%session_id, path = path.map_or("unknown", |p| p.as_str()), "selected ICE path");
+        tracing::info!(
+            event = "connection.established",
+            connection_id = %session_id,
+            transport.selected = path.map_or("unknown", |p| p.as_str()),
+            setup_ms = started.elapsed().as_millis() as u64,
+        );
         let mut session = SourceSession::start(target_fqhn.to_string(), peer);
         session.bind_ctx = idr_protocol::peer_bind::BindContext {
             session_id: session_id.to_string(),
@@ -503,7 +512,7 @@ impl SourceRuntime {
             .await?;
         // Catalog rides the DataChannel (or future relay pipe), not Presence.
         if let Err(e) = session.refresh_named_services().await {
-            tracing::warn!(error = %e, "Target services catalog unavailable after connect");
+            tracing::warn!(event = "session.catalog_unavailable", connection_id = %session_id, error.type = "catalog_unavailable", error.message = %e);
         }
         Ok(session)
     }
@@ -529,7 +538,7 @@ async fn drive(
                     let frame = match StreamFrame::decode(&bytes) {
                         Ok(f) => f,
                         Err(e) => {
-                            tracing::warn!(error = %e, "undecodable mux frame");
+                            tracing::warn!(event = "stream.frame_invalid", error.type = "mux_frame_undecodable", error.message = %e);
                             continue;
                         }
                     };
@@ -557,7 +566,7 @@ async fn drive(
     peer.close();
     demux.lock().await.close_all();
     let _ = closed.send(true);
-    tracing::info!("source session driver stopped");
+    tracing::info!(event = "connection.closed", reason = "driver_stopped");
 }
 
 pub struct SourceSession {
@@ -578,6 +587,11 @@ pub struct SourceSession {
 }
 
 impl SourceSession {
+    /// Wire `session_id` of this negotiation, logged as `connection_id` (docs/observability/02).
+    pub fn connection_id(&self) -> &str {
+        &self.bind_ctx.session_id
+    }
+
     /// Hand the open DataChannel to a background driver task.
     fn start(target_fqhn: String, peer: Box<dyn PeerTransport>) -> Self {
         let (control_tx, control_rx) = tokio::sync::mpsc::channel(64);
@@ -678,10 +692,7 @@ impl SourceSession {
                 Some(crate::mux_session::DemuxEvent::ServicesCatalogDetailed { entries }) => {
                     self.named_services = entries.iter().map(|e| e.name.clone()).collect();
                     self.catalog_entries = entries;
-                    tracing::info!(
-                        count = self.catalog_entries.len(),
-                        "received Target services catalog (detailed)"
-                    );
+                    tracing::debug!(event = "session.catalog_received", count = self.catalog_entries.len() as u64);
                     return Ok(());
                 }
                 Some(crate::mux_session::DemuxEvent::ServicesCatalog { services }) => {
@@ -695,10 +706,7 @@ impl SourceSession {
                     got_names = true;
                     // Target may also send ServicesCatalogDetailed; wait briefly.
                     deadline = crate::time::Instant::now() + std::time::Duration::from_millis(50);
-                    tracing::info!(
-                        count = self.named_services.len(),
-                        "received Target services catalog (names)"
-                    );
+                    tracing::debug!(event = "session.catalog_received", count = self.named_services.len() as u64);
                 }
                 Some(_) => {}
                 None if got_names => return Ok(()),
@@ -824,7 +832,6 @@ impl SessionOpener {
         if !self.out.control(open.encode()?).await {
             return Err(IdrError::new(IdrErrorKind::TransportClosed, "session closed"));
         }
-        tracing::info!(stream_id = stream_id.0, "sent StreamFrame::Open");
         let profile = match crate::time::timeout(std::time::Duration::from_secs(10), answer).await {
             Ok(Ok(Ok(()))) => MuxProfile::FlowControlV1,
             Ok(Ok(Err(message))) => {
@@ -835,10 +842,11 @@ impl SessionOpener {
             }
             Err(_) => {
                 self.demux.lock().await.forget_open(stream_id.0);
-                tracing::warn!(stream_id = stream_id.0, "OpenOk not received in time; continuing with legacy mux");
+                tracing::warn!(event = "stream.open_degraded", stream.id = stream_id.0 as u64, error.type = "open_ok_timeout", "OpenOk not received in time; continuing with legacy mux");
                 MuxProfile::Legacy
             }
         };
+        tracing::info!(event = "stream.opened", stream.id = stream_id.0 as u64);
         let credit = match profile {
             MuxProfile::FlowControlV1 => self.demux.lock().await.credit_for(stream_id.0),
             MuxProfile::Legacy => None,

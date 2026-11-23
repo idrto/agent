@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{SigningKey, VerifyingKey};
+use idr_telemetry::Secret;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -77,7 +78,7 @@ pub struct ByorIceServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential: Option<String>,
+    pub credential: Option<Secret<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
 }
@@ -104,7 +105,7 @@ pub struct SourceAgentIdentity {
     pub sdk_version: Option<String>,
     /// Session or device bearer presented to Presence / api entitlement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auth_token: Option<String>,
+    pub auth_token: Option<Secret<String>>,
     /// Set by Presence (never the Source) after verifying a `source_proof`
     /// against billing: the Target enforces it per stream.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,12 +212,13 @@ pub struct WebRtcSessionOffer {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub target_fqhn: String,
     pub source: SourceAgentIdentity,
     pub sdp: SessionDescription,
     pub ice: SessionIceConfig,
-    pub session_token: String,
+    pub session_token: Secret<String>,
     pub issued_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub presence_generation: u64,
@@ -248,12 +250,12 @@ impl WebRtcSessionOffer {
             version: self.version,
             message_type: self.message_type,
             message_id: self.message_id,
-            session_id: self.session_id,
+            session_id: self.connection_id, // JSON key stays `session_id` (signed body)
             target_fqhn: &self.target_fqhn,
             source: &self.source,
             sdp: &self.sdp,
             ice: &self.ice,
-            session_token: &self.session_token,
+            session_token: self.session_token.expose(),
             issued_at: self.issued_at,
             expires_at: self.expires_at,
             presence_generation: self.presence_generation,
@@ -270,7 +272,8 @@ pub struct WebRtcSessionOfferAck {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub result: WebRtcSessionResultCode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -292,7 +295,8 @@ pub struct WebRtcAnswer {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub sdp: SessionDescription,
     pub signature: String,
 }
@@ -302,7 +306,8 @@ pub struct WebRtcIceCandidate {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub candidate: String,
     pub mid: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -314,7 +319,8 @@ pub struct WebRtcIceComplete {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -322,7 +328,8 @@ pub struct WebRtcSessionEnd {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -332,7 +339,8 @@ pub struct WebRtcSessionAck {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub result: WebRtcSessionResultCode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -343,7 +351,8 @@ pub struct WebRtcSessionRequest {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub target_fqhn: String,
     pub source: SourceAgentIdentity,
     pub source_region: String,
@@ -487,7 +496,7 @@ impl WebRtcAnswer {
             version: answer.version,
             message_type: answer.message_type,
             message_id: answer.message_id,
-            session_id: answer.session_id,
+            connection_id: answer.connection_id,
             sdp: answer.sdp,
             signature: sig,
         })
@@ -499,7 +508,7 @@ impl WebRtcAnswer {
             version: self.version,
             message_type: self.message_type,
             message_id: self.message_id,
-            session_id: self.session_id,
+            connection_id: self.connection_id,
             sdp: self.sdp.clone(),
             signature: String::new(),
         };
@@ -514,7 +523,8 @@ pub struct WebRtcAnswerUnsigned {
     pub version: u32,
     pub message_type: SignalingMessageType,
     pub message_id: Uuid,
-    pub session_id: Uuid,
+    #[serde(rename = "session_id")]
+    pub connection_id: Uuid,
     pub sdp: SessionDescription,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub signature: String,
@@ -726,7 +736,7 @@ mod source_proof_tests {
             version: PROTOCOL_VERSION,
             message_type: SignalingMessageType::WebRtcSessionOffer,
             message_id: Uuid::new_v4(),
-            session_id: Uuid::new_v4(),
+            connection_id: Uuid::new_v4(),
             target_fqhn: "t--a@acme.test.idr.to".into(),
             source: SourceAgentIdentity {
                 auth_mode: SourceAuthMode::Mtls,

@@ -12,7 +12,7 @@ pub fn ensure_relay_ack(
         message_type: SignalingMessageType::EnsureRelayConnectionAck,
         message_id: Uuid::new_v4(),
         command_id,
-        session_id,
+        connection_id: session_id,
         result,
         detail,
         selected_target_identity: None,
