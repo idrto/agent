@@ -112,7 +112,20 @@ async fn serve_conn<S: AsyncRead + AsyncWrite + Unpin>(stream: S, handler: Arc<d
         }
         reader.get_mut().set_limit(MAX_LINE as u64);
         let resp = match serde_json::from_str::<Request>(&buf) {
-            Ok(req) => handler.handle(req).await,
+            Ok(req) => {
+                // Optional caller context (`"ctx":{"traceparent",...}`, docs/observability/02 §4):
+                // the request runs as a child of the GUI's trace; absent or invalid means a new root.
+                let ctx = request_ctx(&buf);
+                let span = tracing::debug_span!(
+                    "agent.ipc.request",
+                    "ipc.cmd" = request_name(&req),
+                    traceparent = %ctx.traceparent,
+                    session_id = %ctx.session_id,
+                    operation_id = %ctx.operation_id,
+                    transfer_id = %ctx.transfer_id
+                );
+                tracing::Instrument::instrument(handler.handle(req), span).await
+            }
             Err(_) => Response::err("invalid_argument"),
         };
         let mut out = serde_json::to_vec(&resp).unwrap_or_default();
@@ -423,5 +436,51 @@ mod tests {
         let r = Request::Accept { id: "01".into(), out: Some("C:/in".into()) };
         assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"cmd":"accept","id":"01","out":"C:/in"}"#);
         assert_eq!(serde_json::to_string(&Request::RetryFailed { id: "x".into() }).unwrap(), r#"{"cmd":"retry_failed","id":"x"}"#);
+    }
+}
+
+#[derive(Default)]
+struct ReqCtx {
+    traceparent: String,
+    session_id: String,
+    operation_id: String,
+    transfer_id: String,
+}
+
+/// Reads the optional `ctx` object of a request line; the telemetry layer validates every
+/// value, so wrong ones are simply ignored.
+fn request_ctx(line: &str) -> ReqCtx {
+    let v: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
+    let s = |k: &str| v["ctx"][k].as_str().unwrap_or_default().to_string();
+    ReqCtx { traceparent: s("traceparent"), session_id: s("session_id"), operation_id: s("operation_id"), transfer_id: s("transfer_id") }
+}
+
+fn request_name(r: &Request) -> &'static str {
+    match r {
+        Request::Send { .. } => "send",
+        Request::List => "list",
+        Request::Status { .. } => "status",
+        Request::Pause { .. } => "pause",
+        Request::Resume { .. } => "resume",
+        Request::Cancel { .. } => "cancel",
+        Request::RetryFailed { .. } => "retry_failed",
+        Request::Accept { .. } => "accept",
+        Request::Reject { .. } => "reject",
+        Request::Peers => "peers",
+    }
+}
+
+#[cfg(test)]
+mod ctx_tests {
+    use super::*;
+
+    #[test]
+    fn ctx_is_optional_and_never_breaks_a_request() {
+        let c = request_ctx(r#"{"cmd":"list","ctx":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}}"#);
+        assert!(c.traceparent.starts_with("00-0af765"));
+        assert!(request_ctx(r#"{"cmd":"list"}"#).traceparent.is_empty());
+        assert!(request_ctx("not json").traceparent.is_empty());
+        // The request type ignores the extra field.
+        assert!(serde_json::from_str::<Request>(r#"{"cmd":"list","ctx":{}}"#).is_ok());
     }
 }

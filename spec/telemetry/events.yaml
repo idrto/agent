@@ -112,7 +112,7 @@ events:
   # ---- agent process / ipc / ffi ----
   agent.startup:                  { kind: span,  level: INFO,  attrs: [], persist_start: true, owner: agent }
   agent.process.started:          { kind: event, level: INFO,  attrs: [agent.kind, process.pid], owner: any }
-  agent.process.exited:           { kind: event, level: INFO,  attrs: [uptime_ms], owner: any }
+  agent.process.exited:           { kind: event, level: INFO,  attrs: [exit_code, stderr_tail, uptime_ms], owner: any }
   agent.process.restarted:        { kind: event, level: WARN,  attrs: [restart.count, backoff_ms], owner: idr_target }
   agent.process.crash_budget_exceeded: { kind: event, level: ERROR, attrs: [restart.count], owner: idr_target }
   agent.ipc.request:              { kind: span,  level: DEBUG, attrs: [ipc.cmd], owner: any }
@@ -324,3 +324,15 @@ events:
   diag.report.mail_opened:        { kind: event, level: INFO, attrs: [], owner: idr_target_app }
   diag.report.mail_launch_failed: { kind: event, level: WARN, attrs: [reason], owner: idr_target_app }
   diag.report.deleted:            { kind: event, level: INFO, attrs: [], owner: idr_target_app }
+
+  # idr_target SDK named events (P1-32)
+  target.start.begun:              { kind: event, level: INFO,  attrs: [mode, insecure_dev], owner: idr_target }
+  target.start.registration_ready: { kind: event, level: INFO,  attrs: [], owner: idr_target }
+  target.start.completed:          { kind: event, level: INFO,  attrs: [status, agent_status, attention], owner: idr_target }
+  target.start.failed:             { kind: event, level: WARN,  attrs: [], owner: idr_target }
+  entitlement.agent_token.failed:  { kind: event, level: WARN,  attrs: [], owner: idr_target }
+  agent.binary.missing:            { kind: event, level: WARN,  attrs: [], owner: idr_target }
+  agent.process.reaped:            { kind: event, level: INFO,  attrs: [process.pid], owner: idr_target }
+  agent.restart.scheduled:         { kind: event, level: INFO,  attrs: [attempt, delay_ms, exit_code], owner: idr_target }
+  agent.restart.budget_exceeded:   { kind: event, level: WARN,  attrs: [restarts, exit_code], owner: idr_target }
+  target.sdk.agent_output:         { kind: event, level: DEBUG, attrs: [source], owner: idr_target }

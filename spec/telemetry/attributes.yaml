@@ -203,3 +203,11 @@ attributes:
   local_type: { type: string, class: public }
   remote_type: { type: string, class: public }
   files: { type: int, class: public }
+  mode: { type: string, class: public }
+  status: { type: string, class: public }
+  agent_status: { type: string, class: public }
+  attention: { type: string, class: public }
+  insecure_dev: { type: bool, class: public }
+  restarts: { type: int, class: public }
+  attempt: { type: int, class: public }
+  delay_ms: { type: int, class: public }
