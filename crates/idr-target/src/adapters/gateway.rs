@@ -133,7 +133,7 @@ impl Connector for ServiceGatewayConnector {
         match self.cfg.service_type {
             GatewayServiceType::Tcp => {
                 let addr = self.tcp_addr()?;
-                debug!(service = %self.cfg.name, %addr, "gateway tcp connect");
+                debug!(event = "target.gateway_tcp_connect", service = %self.cfg.name, addr = %addr);
                 TcpStream::connect(&addr).await.map_err(|e| {
                     IdrError::new(
                         IdrErrorKind::ConnectionRefused,
@@ -168,14 +168,14 @@ impl ServiceGatewayConnector {
             match listener.accept().await {
                 Ok((peer, _)) => {
                     if let Err(e) = http_proxy_connection(peer, cfg, http, inject).await {
-                        warn!(error = %e, "gateway http proxy failed");
+                        warn!(event = "target.gateway_http_proxy_failed", error.message = %e);
                     }
                 }
-                Err(e) => warn!(error = %e, "gateway http accept failed"),
+                Err(e) => warn!(event = "target.gateway_http_accept_failed", error.message = %e),
             }
         });
 
-        debug!(service = %self.cfg.name, %addr, "gateway http loopback proxy");
+        debug!(event = "target.gateway_http_loopback_proxy", service = %self.cfg.name, addr = %addr);
         TcpStream::connect(addr).await.map_err(|e| {
             IdrError::new(
                 IdrErrorKind::ConnectionRefused,
@@ -243,7 +243,7 @@ async fn http_proxy_connection(
         builder = builder.body(req.body);
     }
 
-    debug!(service = %cfg.name, %url, "gateway forwarding http");
+    debug!(event = "target.gateway_forwarding_http", service = %cfg.name, url = %url);
     let mut resp = builder.send().await?;
     let status = resp.status().as_u16();
     let content_length = resp.content_length();

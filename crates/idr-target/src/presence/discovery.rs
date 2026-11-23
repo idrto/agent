@@ -49,7 +49,7 @@ impl DiscoveryService {
     pub fn discovery_key_from_config(cfg: &PresenceConfig) -> Result<Option<VerifyingKey>> {
         if cfg.discovery_key.is_empty() {
             if cfg.insecure_dev {
-                warn!("discovery_key empty + insecure_dev: skipping discovery signature verify");
+                warn!(event = "presence.discovery_key_empty_insecure_dev_skipping");
                 return Ok(None);
             }
             anyhow::bail!(
@@ -69,7 +69,7 @@ impl DiscoveryService {
                         *self.cached.write() = Some(doc);
                     }
                 }
-                Err(err) => warn!(error = %err, "discovery cache unusable"),
+                Err(err) => warn!(event = "presence.discovery_cache_unusable", error.message = %err),
             }
         }
     }
@@ -81,7 +81,7 @@ impl DiscoveryService {
                 Ok(doc)
             }
             Err(err) => {
-                warn!(error = %err, "discovery fetch failed, using cache if valid");
+                warn!(event = "presence.discovery_fetch_failed_using_cache_if", error.message = %err);
                 if let Some(doc) = self.cached.read().clone() {
                     if Utc::now() <= doc.valid_until {
                         return Ok(doc);
@@ -109,7 +109,7 @@ impl DiscoveryService {
             if let Err(err) = verify_discovery_signature(&bytes, key) {
                 if self.cfg.insecure_dev {
                     // Live CDN doc can diverge from the pinned example key while IPs stay valid.
-                    warn!(error = %err, "discovery signature verify failed; insecure_dev continuing");
+                    warn!(event = "presence.discovery_signature_verify_failed_insecure_dev", error.message = %err);
                 } else {
                     return Err(err).context("discovery verify failed");
                 }
@@ -133,11 +133,7 @@ impl DiscoveryService {
             .send(StorageCommand::UpsertDiscoveryCache(row))
             .await;
 
-        info!(
-            generation = doc.generation,
-            servers = doc.presence_servers.len(),
-            "discovery document fetched"
-        );
+        info!(event = "presence.discovery_document_fetched", generation = doc.generation, servers = doc.presence_servers.len());
         Ok(doc)
     }
 

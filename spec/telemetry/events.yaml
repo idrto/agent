@@ -178,3 +178,142 @@ events:
   transfer.approved:              { kind: event, level: INFO,  attrs: [reason], owner: idr_transfer }
   transfer.stream_unexpected:     { kind: event, level: WARN,  attrs: [], owner: idr_transfer }
   webrtc.sdp.parse_fallback:      { kind: event, level: WARN,  attrs: [sdp.type, sdp.len], owner: any }
+
+  # idr-target (P1-24)
+  target.acme_email_looks_like_a_placeholder: { kind: event, level: WARN, attrs: [email], owner: idr-target }
+  target.acme_disabled: { kind: event, level: INFO, attrs: [], owner: idr-target }
+  target.acme_enabled_but_no_custom_domains: { kind: event, level: WARN, attrs: [], owner: idr-target }
+  target.acme_manager_starting_custom_domains_only: { kind: event, level: INFO, attrs: [domains], owner: idr-target }
+  target.acme_manager_exited: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  target.acme_attempt_failed: { kind: event, level: WARN, attrs: [domain, error.message], owner: idr-target }
+  target.acme_sleeping_until_renew_window: { kind: event, level: INFO, attrs: [sleep_for], owner: idr-target }
+  target.acme_certificate_still_valid_skip_renew: { kind: event, level: INFO, attrs: [domain], owner: idr-target }
+  target.acme_requesting_certificate_for_custom_domain: { kind: event, level: INFO, attrs: [domain], owner: idr-target }
+  target.acme_token_ready_le_validates_via: { kind: event, level: INFO, attrs: [token, domain], owner: idr-target }
+  target.acme_certificate_installed: { kind: event, level: INFO, attrs: [path, domain], owner: idr-target }
+  target.acme_restored_account_credentials: { kind: event, level: INFO, attrs: [path], owner: idr-target }
+  target.acme_stored_credentials_unusable_creating_new: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  target.acme_created_and_persisted_account: { kind: event, level: INFO, attrs: [path], owner: idr-target }
+  target.acme_could_not_write_status_file: { kind: event, level: WARN, attrs: [domain, error.message], owner: idr-target }
+  target.reloading_nginx: { kind: event, level: INFO, attrs: [command], owner: idr-target }
+  target.gateway_tcp_connect: { kind: event, level: DEBUG, attrs: [service, addr], owner: idr-target }
+  target.gateway_http_proxy_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  target.gateway_http_accept_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  target.gateway_http_loopback_proxy: { kind: event, level: DEBUG, attrs: [service, addr], owner: idr-target }
+  target.gateway_forwarding_http: { kind: event, level: DEBUG, attrs: [service, url], owner: idr-target }
+  target.detected_network_capabilities: { kind: event, level: DEBUG, attrs: [ipv4, ipv6], owner: idr-target }
+  target.skipping_invalid_services_entry: { kind: event, level: WARN, attrs: [error.message, name], owner: idr-target }
+  presence.command_dedup_initialized: { kind: event, level: DEBUG, attrs: [], owner: idr-target }
+  presence.command_dedup_cache_pruned: { kind: event, level: WARN, attrs: [excess], owner: idr-target }
+  presence.discovery_key_empty_insecure_dev_skipping: { kind: event, level: WARN, attrs: [], owner: idr-target }
+  presence.discovery_cache_unusable: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.discovery_fetch_failed_using_cache_if: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.discovery_signature_verify_failed_insecure_dev: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.discovery_document_fetched: { kind: event, level: INFO, attrs: [generation, servers], owner: idr-target }
+  presence.presence_quic_registered: { kind: event, level: DEBUG, attrs: [addr], owner: idr-target }
+  presence.network_change_turn_reprobe_request_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.presence_session_error: { kind: event, level: WARN, attrs: [role, error.message], owner: idr-target }
+  presence.attempting_presence_connect: { kind: event, level: DEBUG, attrs: [transport, role], owner: idr-target }
+  presence.presence_transport_failed: { kind: event, level: WARN, attrs: [transport, error.message], owner: idr-target }
+  presence.presence_connected: { kind: event, level: INFO, attrs: [role, presence_id, transport], owner: idr-target }
+  presence.quic_push_read_failed: { kind: event, level: ERROR, attrs: [error.message], owner: idr-target }
+  presence.presence_quic_accept_uni_ended: { kind: event, level: DEBUG, attrs: [error.message], owner: idr-target }
+  presence.presence_quic_closed: { kind: event, level: DEBUG, attrs: [reason], owner: idr-target }
+  presence.entitlement_jwt_rotated_re_registering_with: { kind: event, level: INFO, attrs: [], owner: idr-target }
+  presence.handle_presence_message_failed: { kind: event, level: ERROR, attrs: [error.message], owner: idr-target }
+  presence.skip_unregister_target_presence_connection_already: { kind: event, level: DEBUG, attrs: [], owner: idr-target }
+  presence.build_unregister_target_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.serialize_unregister_target_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.sent_unregister_target: { kind: event, level: INFO, attrs: [fqhn], owner: idr-target }
+  presence.skip_unregister_target_presence_not_writable: { kind: event, level: DEBUG, attrs: [error.message], owner: idr-target }
+  presence.presence_quic_push_received: { kind: event, level: INFO, attrs: [bytes], owner: idr-target }
+  presence.received_ensure_relay_connection: { kind: event, level: INFO, attrs: [target_fqhn, command_id, relay_id, relay_ipv4, relay_port, server_name], owner: idr-target }
+  presence.insecure_dev_accepting_ensure_command_despite: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.ensure_ignored_duplicate_cached: { kind: event, level: INFO, attrs: [command_id], owner: idr-target }
+  presence.ensure_waiting_on_in_flight_connect: { kind: event, level: INFO, attrs: [command_id], owner: idr-target }
+  presence.ensure_connect_finished: { kind: event, level: INFO, attrs: [command_id, result, detail], owner: idr-target }
+  presence.ensure_processing_failed: { kind: event, level: ERROR, attrs: [command_id, error.message], owner: idr-target }
+  presence.turn_probe_candidates_signature_rejected: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.webrtc_offer_handling_failed: { kind: event, level: ERROR, attrs: [error.message], owner: idr-target }
+  presence.webrtc_session_offer_received_but_webrtc: { kind: event, level: WARN, attrs: [], owner: idr-target }
+  presence.failed_to_parse_webrtc_session_offer: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.received_turn_probe_ack: { kind: event, level: DEBUG, attrs: [], owner: idr-target }
+  presence.register_target_ack_platform_turn_available: { kind: event, level: INFO, attrs: [target_fqhn, fallback], owner: idr-target }
+  presence.register_target_ack_no_turn_mint: { kind: event, level: WARN, attrs: [target_fqhn, fallback, reason], owner: idr-target }
+  presence.register_target_ack_turn_unavailable_and: { kind: event, level: WARN, attrs: [target_fqhn, reason], owner: idr-target }
+  presence.invalid_register_target_ack: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  presence.ensure_dialing_relay_quic: { kind: event, level: INFO, attrs: [relay_id, relay_ipv4, relay_port], owner: idr-target }
+  presence.ensure_relay_quic_session_active: { kind: event, level: INFO, attrs: [relay_id], owner: idr-target }
+  presence.relay_connect_after_ensure_failed: { kind: event, level: ERROR, attrs: [error.message, relay_id], owner: idr-target }
+  target.dialing_relay_quic: { kind: event, level: INFO, attrs: [relay_id, addr], owner: idr-target }
+  target.quic_handshake_ok_sending_clienthello: { kind: event, level: INFO, attrs: [relay_id, addr], owner: idr-target }
+  target.relay_accepted_target_quic_session: { kind: event, level: INFO, attrs: [relay_id, addr, session_id], owner: idr-target }
+  target.relay_quic_endpoint_rebound_for_migration: { kind: event, level: DEBUG, attrs: [bind_addr], owner: idr-target }
+  target.path_probe_uni_stream_failed: { kind: event, level: DEBUG, attrs: [error.message], owner: idr-target }
+  relay.relay_table_hash_collision_mismatch: { kind: event, level: WARN, attrs: [relay_id], owner: idr-target }
+  relay.attempting_relay_quic_connect: { kind: event, level: DEBUG, attrs: [relay_id, addr, family], owner: idr-target }
+  relay.relay_connect_failed: { kind: event, level: WARN, attrs: [relay_id, addr, error.message, family], owner: idr-target }
+  relay.relay_connect_timeout: { kind: event, level: WARN, attrs: [relay_id, addr, family], owner: idr-target }
+  relay.relay_quic_rebind_after_network_change: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  relay.nudged_active_relay_quic_connections_for: { kind: event, level: DEBUG, attrs: [count], owner: idr-target }
+  relay.skipping_warm_relay_reconnect_cached_token: { kind: event, level: DEBUG, attrs: [], owner: idr-target }
+  relay.mobility_warm_relay_reconnect: { kind: event, level: DEBUG, attrs: [relay_id], owner: idr-target }
+  relay.mobility_warm_relay_reconnect_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  relay.relay_quic_closed_clearing_active_entry: { kind: event, level: WARN, attrs: [relay_id, reason], owner: idr-target }
+  relay.closed_idle_relay_connection: { kind: event, level: DEBUG, attrs: [relay_id], owner: idr-target }
+  relay.evicting_lru_idle_relay_connection: { kind: event, level: INFO, attrs: [relay_id], owner: idr-target }
+  target.sqlite_final_flush_failed: { kind: event, level: ERROR, attrs: [error.message], owner: idr-target }
+  target.sqlite_batch_flush_failed: { kind: event, level: ERROR, attrs: [error.message], owner: idr-target }
+  target.sqlite_timed_flush_failed: { kind: event, level: ERROR, attrs: [error.message], owner: idr-target }
+  target.pruned_expired_processed_commands: { kind: event, level: DEBUG, attrs: [pruned], owner: idr-target }
+  target.sqlite_batch_flushed: { kind: event, level: DEBUG, attrs: [count], owner: idr-target }
+  target.tunnel_stream_ended: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  target.tunnel_accept_error_closing_quic_so: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  target.tunnel_answered_acme_http_01_challenge: { kind: event, level: INFO, attrs: [], owner: idr-target }
+  webrtc.webrtc_stream_bridge_connected: { kind: event, level: DEBUG, attrs: [stream_id, kind], owner: idr-target }
+  webrtc.source_identity_bound_to_session: { kind: event, level: INFO, attrs: [session_id], owner: idr-target }
+  webrtc.source_binding_failed: { kind: event, level: WARN, attrs: [session_id, code], owner: idr-target }
+  webrtc.receive_directory_unavailable: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  webrtc.source_authorization_lease_ended_stopping_its: { kind: event, level: INFO, attrs: [session_id], owner: idr-target }
+  webrtc.source_overran_stream_window_resetting_stream: { kind: event, level: WARN, attrs: [stream_id], owner: idr-target }
+  webrtc.upstream_write_failed: { kind: event, level: WARN, attrs: [error.message, stream_id], owner: idr-target }
+  webrtc.upstream_read_failed: { kind: event, level: WARN, attrs: [error.message, stream_id], owner: idr-target }
+  webrtc.encode_frame_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  webrtc.using_raw_local_sdp_webrtc_sdp: { kind: event, level: WARN, attrs: [sdp_type, sdp_len], owner: idr-target }
+  webrtc.webrtc_peer_ice_urls: { kind: event, level: DEBUG, attrs: [urls], owner: idr-target }
+  webrtc.remote_offer_webrtc_sdp_parse_failed: { kind: event, level: WARN, attrs: [error.message, sdp_len], owner: idr-target }
+  webrtc.webrtc_callback_queue_overflow: { kind: event, level: WARN, attrs: [dropped], owner: idr-target }
+  webrtc.skipping_stale_probe_generation: { kind: event, level: DEBUG, attrs: [generation], owner: idr-target }
+  webrtc.sent_turn_probe_report: { kind: event, level: DEBUG, attrs: [generation], owner: idr-target }
+  webrtc.turn_probe_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  webrtc.webrtc_responder_starting: { kind: event, level: INFO, attrs: [session_id, sdp_len, ice_servers], owner: idr-target }
+  webrtc.webrtc_peer_setup_ok_waiting_for: { kind: event, level: INFO, attrs: [session_id], owner: idr-target }
+  webrtc.local_answer_sdp_ready_sending_to: { kind: event, level: INFO, attrs: [session_id, sdp_type, sdp_len], owner: idr-target }
+  webrtc.webrtc_connected_selected_ice_pair_not: { kind: event, level: INFO, attrs: [session_id, ice_path], owner: idr-target }
+  webrtc.dc_send_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  webrtc.encode_reply_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  webrtc.mux_frame_handling_failed: { kind: event, level: WARN, attrs: [error.message, session_id], owner: idr-target }
+  webrtc.webrtc_data_channel_closed: { kind: event, level: INFO, attrs: [session_id], owner: idr-target }
+  webrtc.peer_error: { kind: event, level: WARN, attrs: [error.message, session_id], owner: idr-target }
+  webrtc.add_remote_ice_failed: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  webrtc.open_refused: { kind: event, level: WARN, attrs: [session_id, stream_id, code, message], owner: idr-target }
+  webrtc.webrtc_mux_stream_opened: { kind: event, level: DEBUG, attrs: [session_id, stream_id, kind, service], owner: idr-target }
+  webrtc.open_failed_detail_stays_on_target: { kind: event, level: WARN, attrs: [session_id, stream_id, code, error.message], owner: idr-target }
+  webrtc.peer_sent_goaway: { kind: event, level: DEBUG, attrs: [session_id], owner: idr-target }
+  webrtc.stream_refused_by_source_policy: { kind: event, level: WARN, attrs: [session_id, service, zone, ski], owner: idr-target }
+  webrtc.auto_accepting_webrtc_session_offer: { kind: event, level: INFO, attrs: [session_id, fqhn, sdp_len], owner: idr-target }
+  webrtc.insecure_dev_accepting_offer_despite_presence: { kind: event, level: WARN, attrs: [error.message, session_id], owner: idr-target }
+  webrtc.received_turn_credentials: { kind: event, level: INFO, attrs: [session_id], owner: idr-target }
+  webrtc.offer_ack_received_sent_starting_webrtc: { kind: event, level: INFO, attrs: [session_id], owner: idr-target }
+  webrtc.merged_ice_servers_for_webrtc_session: { kind: event, level: DEBUG, attrs: [session_id, ice_count], owner: idr-target }
+  webrtc.webrtc_responder_session_ended_with_error: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  webrtc.webrtc_feature_disabled_cannot_complete_sdp: { kind: event, level: WARN, attrs: [session_id], owner: idr-target }
+  webrtc.ice_for_unknown_session: { kind: event, level: DEBUG, attrs: [session_id], owner: idr-target }
+
+  # idr-target (P1-24)
+  target.tunnel_bridge_to_nginx: { kind: event, level: DEBUG, attrs: [kind, upstream], owner: idr-target }
+  target.tunnel_bridged_to_upstream: { kind: event, level: INFO, attrs: [kind, upstream], owner: idr-target }
+  webrtc.connected: { kind: event, level: INFO, attrs: [session_id, ice_path, local_type, remote_type], owner: idr-target }
+
+  target.sdk.note: { kind: event, level: INFO, attrs: [], owner: idr_target, note: "free-text SDK diagnostic (msg is redacted); migrate sites to named events over time" }
+  target.phase.completed: { kind: event, level: INFO, attrs: [phase, duration_ms, outcome], owner: idr_target }

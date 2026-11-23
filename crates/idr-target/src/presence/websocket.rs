@@ -133,7 +133,7 @@ impl PresenceWebSocketClient {
                     if let Err(e) =
                         send_probe_request(&outbox, &identity, &fqhn, role, "network_change").await
                     {
-                        warn!(error = %e, "network-change TURN reprobe request failed");
+                        warn!(event = "presence.network_change_turn_reprobe_request_failed", error.message = %e);
                     }
                 }
             }
@@ -152,7 +152,7 @@ impl PresenceWebSocketClient {
                     }
                 }
                 Err(err) => {
-                    warn!(role = role_label, error = %err, "presence session error");
+                    warn!(event = "presence.presence_session_error", role = role_label, error.message = %err);
                 }
             }
             self.metrics
@@ -196,11 +196,7 @@ impl PresenceWebSocketClient {
                 sleep(self.cfg.transport_fallback_delay()).await;
             }
             let label = transport_label(choice);
-            debug!(
-                transport = label,
-                role = role_label,
-                "attempting presence connect"
-            );
+            debug!(event = "presence.attempting_presence_connect", transport = label, role = role_label);
             let result = match choice {
                 PresenceTransportChoice::Quic(addr) => {
                     self.connect_quic_and_serve(role_label, addr, &reg_json, jwt)
@@ -213,7 +209,7 @@ impl PresenceWebSocketClient {
             match result {
                 Ok(rotated) => return Ok(rotated),
                 Err(e) => {
-                    warn!(transport = label, error = %e, "presence transport failed");
+                    warn!(event = "presence.presence_transport_failed", transport = label, error.message = %e);
                     last_err = Some(e);
                 }
             }
@@ -236,12 +232,7 @@ impl PresenceWebSocketClient {
             .presence_connected
             .with_label_values(&[role_label])
             .set(1);
-        info!(
-            role = role_label,
-            presence_id = %self.server.presence_id,
-            transport = "quic",
-            "presence connected"
-        );
+        info!(event = "presence.presence_connected", role = role_label, presence_id = %self.server.presence_id, transport = "quic");
         self.on_presence_registered(role_label);
 
         let outbox = PresenceSignalingOutbox::from_quic(connection.clone());
@@ -258,18 +249,18 @@ impl PresenceWebSocketClient {
                             let client = client.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = client.read_quic_push(recv).await {
-                                    error!(error = %e, "QUIC push read failed");
+                                    error!(event = "presence.quic_push_read_failed", error.message = %e);
                                 }
                             });
                         }
                         Err(e) => {
-                            debug!(?e, "presence QUIC accept_uni ended");
+                            debug!(event = "presence.presence_quic_accept_uni_ended", error.message = ?e);
                             break;
                         }
                     }
                 }
                 reason = connection.closed() => {
-                    debug!(?reason, "presence QUIC closed");
+                    debug!(event = "presence.presence_quic_closed", reason = ?reason);
                     break;
                 }
                 _ = self.entitlement_rotated(jwt) => {
@@ -293,7 +284,7 @@ impl PresenceWebSocketClient {
             sleep(Duration::from_secs(10)).await;
             if let Ok(current) = self.reg_cfg.resolve_entitlement_jwt() {
                 if current.as_deref() != registered {
-                    info!("entitlement JWT rotated; re-registering with Presence");
+                    info!(event = "presence.entitlement_jwt_rotated_re_registering_with");
                     return;
                 }
             }
@@ -325,12 +316,7 @@ impl PresenceWebSocketClient {
             .presence_connected
             .with_label_values(&[role_label])
             .set(1);
-        info!(
-            role = role_label,
-            presence_id = %self.server.presence_id,
-            transport = "wss",
-            "presence connected"
-        );
+        info!(event = "presence.presence_connected", role = role_label, presence_id = %self.server.presence_id, transport = "wss");
         self.on_presence_registered(role_label);
 
         let (write, mut read) = ws.split();
@@ -357,7 +343,7 @@ impl PresenceWebSocketClient {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Err(e) = self.clone_for_task(outbox.clone()).handle_message(&text).await {
-                                error!(error = %e, "handle presence message failed");
+                                error!(event = "presence.handle_presence_message_failed", error.message = %e);
                             }
                         }
                         Some(Ok(Message::Close(_))) | None => break,
@@ -384,7 +370,7 @@ impl PresenceWebSocketClient {
             return;
         };
         if !outbox.is_connected() {
-            debug!("skip unregister_target: presence connection already closed");
+            debug!(event = "presence.skip_unregister_target_presence_connection_already");
             return;
         }
         let msg = match build_unregistration(
@@ -395,20 +381,20 @@ impl PresenceWebSocketClient {
         ) {
             Ok(m) => m,
             Err(e) => {
-                warn!(error = %e, "build unregister_target failed");
+                warn!(event = "presence.build_unregister_target_failed", error.message = %e);
                 return;
             }
         };
         let json = match serde_json::to_string(&msg) {
             Ok(j) => j,
             Err(e) => {
-                warn!(error = %e, "serialize unregister_target failed");
+                warn!(event = "presence.serialize_unregister_target_failed", error.message = %e);
                 return;
             }
         };
         match outbox.send_json(&json).await {
-            Ok(()) => info!(fqhn = %self.fqhn, "sent unregister_target"),
-            Err(e) => debug!(error = %e, "skip unregister_target: presence not writable"),
+            Ok(()) => info!(event = "presence.sent_unregister_target", fqhn = %self.fqhn),
+            Err(e) => debug!(event = "presence.skip_unregister_target_presence_not_writable", error.message = %e),
         }
         outbox.close();
     }
@@ -503,7 +489,7 @@ impl PresenceClientTask {
         let json_bytes = signaling_json::decode_json_frame_auto(&buf)
             .map_err(|e| anyhow::anyhow!("decode push frame: {e}"))?;
         let text = std::str::from_utf8(&json_bytes).context("push utf8")?;
-        info!(bytes = json_bytes.len(), "presence QUIC push received");
+        info!(event = "presence.presence_quic_push_received", bytes = json_bytes.len());
         self.handle_message(text).await
     }
 
@@ -520,22 +506,11 @@ impl PresenceClientTask {
             return Ok(());
         }
 
-        info!(
-            target_fqhn = %cmd.target_fqhn,
-            command_id = %cmd.command_id,
-            relay_id = %cmd.relay.relay_id,
-            relay_ipv4 = ?cmd.relay.ipv4,
-            relay_port = cmd.relay.port,
-            server_name = %cmd.relay.server_name,
-            "received ensure_relay_connection"
-        );
+        info!(event = "presence.received_ensure_relay_connection", target_fqhn = %cmd.target_fqhn, command_id = %cmd.command_id, relay_id = %cmd.relay.relay_id, relay_ipv4 = ?cmd.relay.ipv4, relay_port = cmd.relay.port, server_name = %cmd.relay.server_name);
 
         cmd.verify(&self.relay_verify_key).or_else(|e| {
             if self.reg_cfg.presence.insecure_dev {
-                warn!(
-                    error = %e,
-                    "insecure_dev: accepting ensure command despite signature verify failure"
-                );
+                warn!(event = "presence.insecure_dev_accepting_ensure_command_despite", error.message = %e);
                 Ok(())
             } else {
                 Err(anyhow::anyhow!("command verify failed: {e}"))
@@ -552,12 +527,12 @@ impl PresenceClientTask {
             .map_err(|e| anyhow::anyhow!("{e}"))?
         {
             DedupAction::Cached(_result) => {
-                info!(command_id = %command_id, "ensure ignored: duplicate (cached)");
+                info!(event = "presence.ensure_ignored_duplicate_cached", command_id = %command_id);
                 self.metrics.signaling_duplicates_total.inc();
                 self.metrics.inc_signaling_result("duplicate");
             }
             DedupAction::Wait(in_flight) => {
-                info!(command_id = %command_id, "ensure waiting on in-flight connect");
+                info!(event = "presence.ensure_waiting_on_in_flight_connect", command_id = %command_id);
                 self.metrics.signaling_duplicates_total.inc();
                 let _ = in_flight.wait().await;
             }
@@ -566,17 +541,12 @@ impl PresenceClientTask {
                 let result = self.process_command(cmd).await;
                 match result {
                     Ok(r) => {
-                        info!(
-                            command_id = %command_id,
-                            result = ?r.result,
-                            detail = ?r.detail,
-                            "ensure connect finished"
-                        );
+                        info!(event = "presence.ensure_connect_finished", command_id = %command_id, result = ?r.result, detail = ?r.detail);
                         self.dedup.complete(command_id, digest, r.clone()).await;
                         self.metrics.inc_signaling_result(result_label(r.result));
                     }
                     Err(e) => {
-                        error!(command_id = %command_id, error = %e, "ensure processing failed");
+                        error!(event = "presence.ensure_processing_failed", command_id = %command_id, error.message = %e);
                         self.dedup.fail(command_id, e.to_string()).await;
                         self.metrics.inc_signaling_result("failed");
                     }
@@ -594,7 +564,7 @@ impl PresenceClientTask {
                     serde_json::from_str::<TurnProbeCandidates>(text),
                 ) {
                     if let Err(e) = msg.verify(&self.relay_verify_key) {
-                        warn!(error = %e, "turn_probe_candidates signature rejected");
+                        warn!(event = "presence.turn_probe_candidates_signature_rejected", error.message = %e);
                     } else {
                         spawn_probe_on_push(probe.clone(), self.outbox.clone(), msg);
                     }
@@ -610,15 +580,15 @@ impl PresenceClientTask {
                         let handler = handler.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handler.handle_offer(offer, &outbox).await {
-                                error!(error = %e, "WebRTC offer handling failed");
+                                error!(event = "presence.webrtc_offer_handling_failed", error.message = %e);
                             }
                         });
                     }
                     (None, _) => {
-                        warn!("webrtc_session_offer received but WebRTC handler not configured");
+                        warn!(event = "presence.webrtc_session_offer_received_but_webrtc");
                     }
                     (Some(_), Err(e)) => {
-                        warn!(error = %e, "failed to parse webrtc_session_offer");
+                        warn!(event = "presence.failed_to_parse_webrtc_session_offer", error.message = %e);
                     }
                 }
             }
@@ -653,33 +623,20 @@ impl PresenceClientTask {
                 }
             }
             "turn_probe_ack" => {
-                debug!("received turn_probe_ack");
+                debug!(event = "presence.received_turn_probe_ack");
             }
             "register_target_ack" => {
                 match serde_json::from_str::<RegisterTargetAck>(text) {
                     Ok(ack) => {
                         if ack.turn_mint_allowed {
-                            info!(
-                                target_fqhn = %ack.target_fqhn,
-                                fallback = %ack.webrtc_fallback,
-                                "register_target_ack: platform TURN available"
-                            );
+                            info!(event = "presence.register_target_ack_platform_turn_available", target_fqhn = %ack.target_fqhn, fallback = %ack.webrtc_fallback);
                         } else if ack.target_allows_p2p {
-                            warn!(
-                                target_fqhn = %ack.target_fqhn,
-                                fallback = %ack.webrtc_fallback,
-                                reason = ack.reason.as_deref().unwrap_or("data_transfer_exhausted"),
-                                "register_target_ack: no TURN mint; WebRTC sessions will be P2P-only"
-                            );
+                            warn!(event = "presence.register_target_ack_no_turn_mint", target_fqhn = %ack.target_fqhn, fallback = %ack.webrtc_fallback, reason = ack.reason.as_deref().unwrap_or("data_transfer_exhausted"));
                         } else {
-                            warn!(
-                                target_fqhn = %ack.target_fqhn,
-                                reason = ack.reason.as_deref().unwrap_or("payment_required"),
-                                "register_target_ack: TURN unavailable and Target forbids P2P"
-                            );
+                            warn!(event = "presence.register_target_ack_turn_unavailable_and", target_fqhn = %ack.target_fqhn, reason = ack.reason.as_deref().unwrap_or("payment_required"));
                         }
                     }
-                    Err(e) => warn!(error = %e, "invalid register_target_ack"),
+                    Err(e) => warn!(event = "presence.invalid_register_target_ack", error.message = %e),
                 }
             }
             _ => {}
@@ -702,22 +659,17 @@ impl PresenceClientTask {
             expires_at: Some(cmd.expires_at),
         };
 
-        info!(
-            relay_id = %cmd.relay.relay_id,
-            relay_ipv4 = ?cmd.relay.ipv4,
-            relay_port = cmd.relay.port,
-            "ensure: dialing relay QUIC"
-        );
+        info!(event = "presence.ensure_dialing_relay_quic", relay_id = %cmd.relay.relay_id, relay_ipv4 = ?cmd.relay.ipv4, relay_port = cmd.relay.port);
         match self.relay_manager.get_or_connect(descriptor, auth).await {
             Ok(_conn) => {
-                info!(relay_id = %cmd.relay.relay_id, "ensure: relay QUIC session active");
+                info!(event = "presence.ensure_relay_quic_session_active", relay_id = %cmd.relay.relay_id);
                 Ok(CachedCommandResult {
                     result: CommandResultCode::Active,
                     detail: None,
                 })
             }
             Err(e) => {
-                error!(error = %e, relay_id = %cmd.relay.relay_id, "relay connect after ensure failed");
+                error!(event = "presence.relay_connect_after_ensure_failed", error.message = %e, relay_id = %cmd.relay.relay_id);
                 Ok(CachedCommandResult {
                     result: CommandResultCode::Failed,
                     detail: Some(e.to_string()),

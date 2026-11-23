@@ -58,13 +58,13 @@ impl QuicClient {
         addr: SocketAddr,
         auth: &ConnectionAuthorization,
     ) -> Result<Arc<RelayQuicConnection>> {
-        info!(relay_id = %descriptor.relay_id, %addr, "dialing relay QUIC");
+        info!(event = "target.dialing_relay_quic", relay_id = %descriptor.relay_id, addr = %addr);
         let connecting = self
             .endpoint
             .connect(addr, descriptor.server_name.as_str())
             .context("start QUIC connect")?;
         let connection = connecting.await.context("QUIC handshake")?;
-        info!(relay_id = %descriptor.relay_id, %addr, "QUIC handshake ok — sending ClientHello");
+        info!(event = "target.quic_handshake_ok_sending_clienthello", relay_id = %descriptor.relay_id, addr = %addr);
 
         let hello = build_client_hello(descriptor, auth, &self.target_identity);
         let frame = hello.encode().context("encode client hello")?;
@@ -90,12 +90,7 @@ impl QuicClient {
         let msg = QuicControlMessage::decode(&reply).context("decode ServerHello")?;
         match msg {
             QuicControlMessage::ServerHello(h) if h.accepted => {
-                info!(
-                    relay_id = %descriptor.relay_id,
-                    %addr,
-                    session_id = %h.connection_id,
-                    "relay accepted Target QUIC session"
-                );
+                info!(event = "target.relay_accepted_target_quic_session", relay_id = %descriptor.relay_id, addr = %addr, session_id = %h.connection_id);
             }
             QuicControlMessage::ServerHello(h) => {
                 anyhow::bail!(
@@ -116,7 +111,7 @@ impl QuicClient {
         self.endpoint
             .rebind(socket)
             .context("rebind relay QUIC endpoint")?;
-        debug!(%bind_addr, "relay QUIC endpoint rebound for migration");
+        debug!(event = "target.relay_quic_endpoint_rebound_for_migration", bind_addr = %bind_addr);
         Ok(())
     }
 

@@ -230,12 +230,12 @@ impl TransferEndpoint {
                 let mut framed = Framed::new(Box::new(stream));
                 match bind_peer(&mut framed, BindRole::Answerer, &ctx, &self.cfg.identity, &trust, self.cfg.bind_timeout).await {
                     Ok(peer) => {
-                        tracing::info!(%session_id, "Source identity bound to session");
+                        tracing::info!(event = "webrtc.source_identity_bound_to_session", session_id = %session_id);
                         let _ = peer_tx.send(Some(peer.clone()));
                         published = self.publish(session_id, &peer);
                         lease_timer = Some(self.clone().expire_lease(session_id, peer, peer_tx.clone(), running.clone()));
                     }
-                    Err(code) => tracing::warn!(%session_id, code = code.as_str(), "Source binding failed"),
+                    Err(code) => tracing::warn!(event = "webrtc.source_binding_failed", session_id = %session_id, code = code.as_str()),
                 }
                 continue;
             }
@@ -260,7 +260,7 @@ impl TransferEndpoint {
                     let mut sink = match NativeSink::new(&this.cfg.receive_dir) {
                         Ok(s) => s,
                         Err(e) => {
-                            tracing::warn!(error = %e, "receive directory unavailable");
+                            tracing::warn!(event = "webrtc.receive_directory_unavailable", error.message = %e);
                             return;
                         }
                     };
@@ -314,7 +314,7 @@ impl TransferEndpoint {
         let secs = (self.cfg.policy.lease_until(&peer) - unix_now()).max(0) as u64;
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(secs)).await;
-            tracing::info!(%session_id, "Source authorization lease ended; stopping its transfers");
+            tracing::info!(event = "webrtc.source_authorization_lease_ended_stopping_its", session_id = %session_id);
             let _ = peer_tx.send(None);
             if let Some((tx, _)) = self.links.lock().unwrap().get(&peer.ski) {
                 let _ = tx.send(None);

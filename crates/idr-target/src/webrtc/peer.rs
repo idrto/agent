@@ -177,11 +177,7 @@ impl PeerConnectionHandler for ConnectionHandler {
                 .public(PeerEvent::Error("local SDP exceeds limit".into()));
             return;
         }
-        tracing::warn!(
-            sdp_type,
-            sdp_len = sdp.len(),
-            "using raw local SDP (webrtc-sdp parse failed in datachannel-rs)"
-        );
+        tracing::warn!(event = "webrtc.using_raw_local_sdp_webrtc_sdp", sdp_type = sdp_type, sdp_len = sdp.len());
         self.sink
             .public(PeerEvent::LocalDescription(LocalDescription {
                 sdp_type: sdp_type.into(),
@@ -283,7 +279,7 @@ impl NativePeerSession {
             dropped: Arc::clone(&dropped),
         };
 
-        tracing::debug!(?urls, "webrtc peer ICE urls");
+        tracing::debug!(event = "webrtc.webrtc_peer_ice_urls", urls = ?urls);
 
         let mut rtc_config = RtcConfig::new(&urls);
         rtc_config.ice_transport_policy = match config.ice_transport_policy {
@@ -323,11 +319,7 @@ impl NativePeerSession {
         // Apply raw SDP: Source may forward libdatachannel SDP that webrtc-sdp
         // cannot parse; requiring parse first silently killed the session.
         if let Err(e) = datachannel::sdp::parse_sdp(sdp, false) {
-            tracing::warn!(
-                error = %e,
-                sdp_len = sdp.len(),
-                "remote offer webrtc-sdp parse failed; applying raw SDP to libdatachannel"
-            );
+            tracing::warn!(event = "webrtc.remote_offer_webrtc_sdp_parse_failed", error.message = %e, sdp_len = sdp.len());
         }
         self.peer_mut()?
             .set_remote_description_raw(sdp, datachannel::SdpType::Offer)
@@ -380,7 +372,7 @@ impl NativePeerSession {
             if dropped != 0 {
                 // A dropped message is lost stream data: end the session. With
                 // flow_credit_v1 a compliant peer can't get here (queue sizing).
-                warn!(dropped, "WebRTC callback queue overflow");
+                warn!(event = "webrtc.webrtc_callback_queue_overflow", dropped = dropped);
                 return Ok(PeerEvent::ConnectionFailed(format!(
                     "callback queue overflow dropped={dropped}"
                 )));

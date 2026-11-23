@@ -152,3 +152,53 @@ attributes:
   context:                    { type: string, class: public }
   run:                        { type: string, class: public }
   ring:                       { type: "string[]", class: public }
+
+  # idr-target (P1-24)
+  email: { type: string, class: public }
+  domains: { type: string, class: public }
+  error.message: { type: string, class: public }
+  domain: { type: string, class: pseudonymous }
+  sleep_for: { type: string, class: public }
+  token: { type: string, class: public }
+  path: { type: string, class: public }
+  service: { type: string, class: public }
+  addr: { type: string, class: network }
+  url: { type: string, class: network }
+  ipv4: { type: string, class: network }
+  ipv6: { type: string, class: network }
+  name: { type: string, class: public }
+  excess: { type: string, class: public }
+  generation: { type: string, class: public }
+  servers: { type: string, class: public }
+  role: { type: string, class: public }
+  presence_id: { type: string, class: pseudonymous }
+  fqhn: { type: string, class: pseudonymous }
+  target_fqhn: { type: string, class: pseudonymous }
+  command_id: { type: string, class: pseudonymous }
+  relay_id: { type: string, class: pseudonymous }
+  relay_ipv4: { type: string, class: network }
+  relay_port: { type: string, class: public }
+  server_name: { type: string, class: public }
+  result: { type: string, class: public }
+  detail: { type: string, class: public }
+  fallback: { type: string, class: public }
+  session_id: { type: string, class: pseudonymous }
+  bind_addr: { type: string, class: network }
+  family: { type: string, class: public }
+  pruned: { type: string, class: public }
+  stream_id: { type: string, class: pseudonymous }
+  code: { type: string, class: public }
+  sdp_type: { type: string, class: public }
+  sdp_len: { type: string, class: public }
+  urls: { type: string, class: network }
+  dropped: { type: string, class: public }
+  ice_servers: { type: string, class: public }
+  ice_path: { type: string, class: public }
+  message: { type: string, class: public }
+  zone: { type: string, class: public }
+  ski: { type: string, class: pseudonymous }
+  ice_count: { type: string, class: public }
+  upstream: { type: string, class: network }
+  via: { type: string, class: public }
+  local_type: { type: string, class: public }
+  remote_type: { type: string, class: public }

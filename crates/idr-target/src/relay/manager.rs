@@ -80,7 +80,7 @@ impl RelayConnectionManager {
         let mgr = Arc::clone(self);
         tokio::spawn(async move {
             if let Err(err) = mgr.connector.rebind_for_network_change() {
-                warn!(error = %err, "relay QUIC rebind after network change failed");
+                warn!(event = "relay.relay_quic_rebind_after_network_change", error.message = %err);
                 return;
             }
             mgr.nudge_active_relay_connections().await;
@@ -104,10 +104,7 @@ impl RelayConnectionManager {
             quic.nudge_path_probe();
         }
         if count > 0 {
-            debug!(
-                count,
-                "nudged active relay QUIC connections for path migration"
-            );
+            debug!(event = "relay.nudged_active_relay_quic_connections_for", count = count);
         }
     }
 
@@ -121,14 +118,14 @@ impl RelayConnectionManager {
             return;
         };
         if Utc::now() >= cached.expires_at {
-            debug!("skipping warm relay reconnect — cached token expired");
+            debug!(event = "relay.skipping_warm_relay_reconnect_cached_token");
             return;
         }
         let mgr = Arc::clone(self);
         tokio::spawn(async move {
-            debug!(relay_id = %cached.descriptor.relay_id, "mobility warm relay reconnect");
+            debug!(event = "relay.mobility_warm_relay_reconnect", relay_id = %cached.descriptor.relay_id);
             if let Err(err) = mgr.get_or_connect(cached.descriptor, cached.auth).await {
-                warn!(error = %err, "mobility warm relay reconnect failed");
+                warn!(event = "relay.mobility_warm_relay_reconnect_failed", error.message = %err);
             }
         });
     }
@@ -290,7 +287,7 @@ impl RelayConnectionManager {
         let mgr = Arc::clone(self);
         tokio::spawn(async move {
             let reason = quic.connection().closed().await;
-            warn!(%relay_id, ?reason, "relay QUIC closed — clearing Active entry");
+            warn!(event = "relay.relay_quic_closed_clearing_active_entry", relay_id = %relay_id, reason = ?reason);
             mgr.mark_connection_dead(&relay_id).await;
         });
     }
@@ -346,7 +343,7 @@ impl RelayConnectionManager {
             store.remove(&relay_id);
         }
         self.idle.on_closed();
-        debug!(relay_id, "closed idle relay connection");
+        debug!(event = "relay.closed_idle_relay_connection", relay_id = relay_id);
     }
 
     pub fn spawn_idle_worker(self: &Arc<Self>) {
@@ -378,7 +375,7 @@ impl RelayConnectionManager {
             .collect();
         candidates.sort_by_key(|(t, _)| *t);
         if let Some((_, relay_id)) = candidates.first() {
-            info!(relay_id, "evicting LRU idle relay connection");
+            info!(event = "relay.evicting_lru_idle_relay_connection", relay_id = relay_id);
             if let Some(quic) = store
                 .lookup(relay_id)
                 .and_then(|(_, c)| c.entry.read().quic.clone())

@@ -325,7 +325,7 @@ impl MuxStreams {
         match self.streams.get(&stream_id) {
             Some(slot) if slot.send_credit.is_some() => {
                 if let Err(mpsc::error::TrySendError::Full(_)) = slot.inbound.try_send(bytes) {
-                    warn!(stream_id, "Source overran stream window; resetting stream");
+                    warn!(event = "webrtc.source_overran_stream_window_resetting_stream", stream_id = stream_id);
                     self.on_reset(stream_id);
                     replies.push(StreamFrame::Reset {
                         stream_id,
@@ -419,7 +419,7 @@ impl Pipe {
                     continue;
                 }
                 if let Err(e) = write_half.write_all(&bytes).await {
-                    warn!(error = %e, stream_id, "upstream write failed");
+                    warn!(event = "webrtc.upstream_write_failed", error.message = %e, stream_id = stream_id);
                     dead.store(true, Ordering::Release);
                     send_control(&out, &StreamFrame::Reset { stream_id, reason: 1 }).await;
                     continue;
@@ -462,7 +462,7 @@ impl Pipe {
                     }
                 }
                 Err(e) => {
-                    warn!(error = %e, stream_id, "upstream read failed");
+                    warn!(event = "webrtc.upstream_read_failed", error.message = %e, stream_id = stream_id);
                     self.control(&StreamFrame::Reset { stream_id, reason: 1 }).await;
                     break;
                 }
@@ -477,7 +477,7 @@ impl Pipe {
 
 fn encode(frame: &StreamFrame) -> Option<Vec<u8>> {
     encode_datachannel_message(frame)
-        .map_err(|e| warn!(error = %e, "encode frame failed"))
+        .map_err(|e| warn!(event = "webrtc.encode_frame_failed", error.message = %e))
         .ok()
 }
 

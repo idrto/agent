@@ -10,7 +10,7 @@
 
 | OS | Log root |
 |---|---|
-| Windows | `%LOCALAPPDATA%\IDR\logs\` |
+| Windows | `%LOCALAPPDATA%\idr.to\logs\` |
 | macOS | `~/Library/Logs/IDR/` |
 | Linux | `$XDG_STATE_HOME/idr/logs/` (fallback `~/.local/state/idr/logs/`) |
 | Android / iOS | `<app support dir>/logs/` (`path_provider`) |

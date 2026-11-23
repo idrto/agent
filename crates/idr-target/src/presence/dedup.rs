@@ -136,7 +136,7 @@ impl CommandDedup {
 
     pub fn load_persisted(&self) {
         // Best-effort warm cache from SQLite on startup is optional for v1.
-        debug!("command dedup initialized");
+        debug!(event = "presence.command_dedup_initialized");
     }
 
     fn prune_locked(
@@ -151,7 +151,7 @@ impl CommandDedup {
             for k in keys {
                 map.remove(&k);
             }
-            warn!(excess, "command dedup cache pruned");
+            warn!(event = "presence.command_dedup_cache_pruned", excess = excess);
         }
     }
 }

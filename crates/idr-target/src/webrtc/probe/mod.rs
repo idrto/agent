@@ -71,10 +71,7 @@ impl ProbeScheduler {
             .last_generation
             .load(std::sync::atomic::Ordering::SeqCst);
         if msg.probe_generation <= prev {
-            debug!(
-                generation = msg.probe_generation,
-                "skipping stale probe generation"
-            );
+            debug!(event = "webrtc.skipping_stale_probe_generation", generation = msg.probe_generation);
             return Ok(());
         }
         self.last_generation
@@ -140,7 +137,7 @@ impl ProbeScheduler {
         let report = TurnProbeReport::sign(unsigned, self.identity.signing_key())?;
         let json = serde_json::to_string(&report)?;
         outbox.send_json(&json).await?;
-        debug!(generation = msg.probe_generation, "sent turn probe report");
+        debug!(event = "webrtc.sent_turn_probe_report", generation = msg.probe_generation);
         Ok(())
     }
 
@@ -178,7 +175,7 @@ pub fn spawn_probe_on_push(
 ) {
     tokio::spawn(async move {
         if let Err(e) = scheduler.handle_candidates(msg, &outbox).await {
-            warn!(error = %e, "TURN probe failed");
+            warn!(event = "webrtc.turn_probe_failed", error.message = %e);
         }
     });
 }

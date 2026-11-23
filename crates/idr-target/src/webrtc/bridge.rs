@@ -21,7 +21,7 @@ pub async fn handle_stream_open(
         anyhow::bail!("expected StreamFrame::Open");
     };
     let tcp = open_upstream(kind, meta, nginx, policy, expected_fqhn).await?;
-    debug!(stream_id, ?kind, "webrtc stream bridge connected");
+    debug!(event = "webrtc.webrtc_stream_bridge_connected", stream_id = stream_id, kind = ?kind);
     Ok(tcp)
 }
 

@@ -111,7 +111,7 @@ impl RelayConnector {
                 EndpointChoice::Ipv6(a) => a,
             };
             let family = family_label(choice);
-            debug!(relay_id = %descriptor.relay_id, %addr, family, "attempting relay QUIC connect");
+            debug!(event = "relay.attempting_relay_quic_connect", relay_id = %descriptor.relay_id, addr = %addr, family = family);
             match timeout(
                 self.cfg.connect_timeout(),
                 self.quic.connect(descriptor, addr, auth),
@@ -124,12 +124,12 @@ impl RelayConnector {
                     return Ok((conn, addr, fam));
                 }
                 Ok(Err(e)) => {
-                    warn!(relay_id = %descriptor.relay_id, %addr, error = %e, family, "relay connect failed");
+                    warn!(event = "relay.relay_connect_failed", relay_id = %descriptor.relay_id, addr = %addr, error.message = %e, family = family);
                     self.metrics.inc_connection_attempt("failed", family);
                     last_err = Some(e);
                 }
                 Err(_) => {
-                    warn!(relay_id = %descriptor.relay_id, %addr, family, "relay connect timeout");
+                    warn!(event = "relay.relay_connect_timeout", relay_id = %descriptor.relay_id, addr = %addr, family = family);
                     self.metrics.inc_connection_attempt("timeout", family);
                     last_err = Some(anyhow::anyhow!("connect timeout"));
                 }

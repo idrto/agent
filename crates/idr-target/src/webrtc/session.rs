@@ -45,12 +45,7 @@ pub struct SessionRuntime {
 pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
     let rt = Arc::new(rt);
     let session_id = rt.offer.connection_id;
-    tracing::info!(
-        %session_id,
-        sdp_len = rt.offer.sdp.sdp.len(),
-        ice_servers = rt.ice_servers.len(),
-        "webrtc responder starting"
-    );
+    tracing::info!(event = "webrtc.webrtc_responder_starting", session_id = %session_id, sdp_len = rt.offer.sdp.sdp.len(), ice_servers = rt.ice_servers.len());
     let (inbox, mut ice_rx) = PeerIceInbox::channel(64);
     rt.sessions.register_ice_inbox(session_id, inbox);
 
@@ -71,7 +66,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
     });
     let mut peer = match tokio::time::timeout(std::time::Duration::from_secs(20), setup).await {
         Ok(Ok(Ok(peer))) => {
-            tracing::info!(%session_id, "webrtc peer setup OK; waiting for local SDP");
+            tracing::info!(event = "webrtc.webrtc_peer_setup_ok_waiting_for", session_id = %session_id);
             peer
         }
         Ok(Ok(Err(e))) => {
@@ -135,12 +130,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                         }
                         answered = true;
                         answer_sdp = desc.sdp.clone();
-                        tracing::info!(
-                            %session_id,
-                            sdp_type = %desc.sdp_type,
-                            sdp_len = desc.sdp.len(),
-                            "local answer SDP ready; sending to Presence"
-                        );
+                        tracing::info!(event = "webrtc.local_answer_sdp_ready_sending_to", session_id = %session_id, sdp_type = %desc.sdp_type, sdp_len = desc.sdp.len());
                         let answer = WebRtcAnswer::sign(
                             WebRtcAnswerUnsigned {
                                 version: PROTOCOL_VERSION,
@@ -202,18 +192,14 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                                 other => other,
                             };
                             tracing::info!(
+                                event = "webrtc.connected",
                                 %session_id,
                                 ice_path = %path,
                                 local_type = %local_type,
                                 remote_type = %remote_type,
-                                "WebRTC connected via {via}"
                             );
                         } else {
-                            tracing::info!(
-                                %session_id,
-                                ice_path = "unknown",
-                                "WebRTC connected (selected ICE pair not available yet)"
-                            );
+                            tracing::info!(event = "webrtc.webrtc_connected_selected_ice_pair_not", session_id = %session_id, ice_path = "unknown");
                         }
                         send_session_ack(
                             &rt.outbox,
@@ -231,22 +217,22 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                                     match encode_datachannel_message(&frame) {
                                         Ok(b) => {
                                             if let Err(e) = peer.send_binary(&b) {
-                                                warn!(error = %e, "dc send failed");
+                                                warn!(event = "webrtc.dc_send_failed", error.message = %e);
                                             }
                                         }
-                                        Err(e) => warn!(error = %e, "encode reply failed"),
+                                        Err(e) => warn!(event = "webrtc.encode_reply_failed", error.message = %e),
                                     }
                                 }
                             }
                             Err(e) => {
-                                warn!(error = %e, %session_id, "mux frame handling failed");
+                                warn!(event = "webrtc.mux_frame_handling_failed", error.message = %e, session_id = %session_id);
                             }
                         }
                     }
                     PeerEvent::BufferedAmountLow => {}
                     PeerEvent::DataChannelClosed => {
                         if dc_open {
-                            tracing::info!(%session_id, "WebRTC data channel closed");
+                            tracing::info!(event = "webrtc.webrtc_data_channel_closed", session_id = %session_id);
                             break Ok(());
                         }
                         break Err(anyhow::anyhow!("data channel closed"));
@@ -255,7 +241,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                         break Err(anyhow::anyhow!("connection failed: {reason}"));
                     }
                     PeerEvent::Error(err) => {
-                        warn!(%err, %session_id, "peer error");
+                        warn!(event = "webrtc.peer_error", error.message = %err, session_id = %session_id);
                         if !dc_open {
                             break Err(anyhow::anyhow!(err));
                         }
@@ -289,7 +275,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                 match ice {
                     Some(RemoteIceMsg::Candidate { candidate, mid }) => {
                         if let Err(e) = peer.add_remote_candidate(&candidate, &mid) {
-                            warn!(error = %e, "add remote ICE failed");
+                            warn!(event = "webrtc.add_remote_ice_failed", error.message = %e);
                         }
                     }
                     Some(RemoteIceMsg::End) | None => {}
@@ -299,7 +285,7 @@ pub async fn run_responder_session(rt: SessionRuntime) -> anyhow::Result<()> {
                 match outbound {
                     Some(bytes) => {
                         if let Err(e) = peer.send_binary(&bytes) {
-                            warn!(error = %e, "dc send failed");
+                            warn!(event = "webrtc.dc_send_failed", error.message = %e);
                         } else {
                             rt.sessions.touch(session_id);
                         }
@@ -371,7 +357,7 @@ async fn handle_mux_message(
             meta,
         } => {
             if let Err((code, message)) = streams.admit_open(stream_id) {
-                warn!(%session_id, stream_id, ?code, %message, "OPEN refused");
+                warn!(event = "webrtc.open_refused", session_id = %session_id, stream_id = stream_id, code = ?code, message = %message);
                 return Ok(vec![StreamFrame::OpenError {
                     stream_id,
                     code: code as u16,
@@ -388,18 +374,12 @@ async fn handle_mux_message(
                     Ok(tcp) => {
                         rt2.sessions.stream_opened(session_id);
                         rt2.sessions.set_state(session_id, SessionState::Active);
-                        debug!(%session_id, stream_id, ?kind, service = ?meta.service_name, "webrtc mux stream opened");
+                        debug!(event = "webrtc.webrtc_mux_stream_opened", session_id = %session_id, stream_id = stream_id, kind = ?kind, service = ?meta.service_name);
                         Ok(tcp)
                     }
                     Err((code, message)) => {
                         // Log full detail on Target only; Source must not see secrets.
-                        warn!(
-                            %session_id,
-                            stream_id,
-                            ?code,
-                            error = %message,
-                            "OPEN failed (detail stays on Target)"
-                        );
+                        warn!(event = "webrtc.open_failed_detail_stays_on_target", session_id = %session_id, stream_id = stream_id, code = ?code, error.message = %message);
                         Err((code, sanitize_open_error_for_source(code, &message)))
                     }
                 }
@@ -431,7 +411,7 @@ async fn handle_mux_message(
             rt.sessions.touch(session_id);
         }
         StreamFrame::GoAway { .. } => {
-            debug!(%session_id, "peer sent GoAway");
+            debug!(event = "webrtc.peer_sent_goaway", session_id = %session_id);
         }
         // Replies to Target-initiated opens.
         StreamFrame::OpenOk {
@@ -560,13 +540,7 @@ async fn open_via_registry(
         rt.policy.require_source_policy,
         service_name,
     ) {
-        warn!(
-            session_id = %rt.offer.connection_id,
-            service = service_name,
-            zone = ?source_policy.and_then(|p| p.zone.as_deref()),
-            ski = ?source_policy.map(|p| p.ski.as_str()),
-            "stream refused by Source policy"
-        );
+        warn!(event = "webrtc.stream_refused_by_source_policy", session_id = %rt.offer.connection_id, service = service_name, zone = ?source_policy.and_then(|p| p.zone.as_deref()), ski = ?source_policy.map(|p| p.ski.as_str()));
         return Err((OpenErrorCode::Unauthorized, reason.into()));
     }
 

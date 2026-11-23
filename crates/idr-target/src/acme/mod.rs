@@ -87,7 +87,7 @@ impl AcmeManager {
                         cfg.email
                     );
                 }
-                warn!(email = %cfg.email, "ACME email looks like a placeholder — use staging only");
+                warn!(event = "target.acme_email_looks_like_a_placeholder", email = %cfg.email);
             }
         }
         Ok(Self { cfg, domains })
@@ -95,17 +95,17 @@ impl AcmeManager {
 
     pub fn spawn(self) {
         if !self.cfg.enabled {
-            info!("ACME disabled");
+            info!(event = "target.acme_disabled");
             return;
         }
         if self.domains.is_empty() {
-            warn!("ACME enabled but no custom domains configured — manager not started");
+            warn!(event = "target.acme_enabled_but_no_custom_domains");
             return;
         }
-        info!(domains = ?self.domains, "ACME manager starting (custom domains only)");
+        info!(event = "target.acme_manager_starting_custom_domains_only", domains = ?self.domains);
         tokio::spawn(async move {
             if let Err(e) = self.run_loop().await {
-                warn!(error = %e, "ACME manager exited");
+                warn!(event = "target.acme_manager_exited", error.message = %e);
             }
         });
     }
@@ -127,7 +127,7 @@ impl AcmeManager {
                     Ok(EnsureOutcome::Issued) => any_issued = true,
                     Ok(EnsureOutcome::NotDue) => {}
                     Err(e) => {
-                        warn!(domain = %domain, error = %format!("{e:#}"), "ACME attempt failed");
+                        warn!(event = "target.acme_attempt_failed", domain = %domain, error.message = %format!("{e:#}"));
                         self.write_status(domain, "failed", Some(format!("{e:#}")))
                             .await;
                         any_err = Some(e);
@@ -143,19 +143,19 @@ impl AcmeManager {
 
             backoff = Duration::from_secs(3600);
             let sleep_for = self.sleep_until_renew_window().await;
-            info!(?sleep_for, "ACME sleeping until renew window");
+            info!(event = "target.acme_sleeping_until_renew_window", sleep_for = ?sleep_for);
             tokio::time::sleep(sleep_for).await;
         }
     }
 
     pub async fn ensure_certificate(&self, domain: &str) -> Result<EnsureOutcome> {
         if !self.certificate_needs_renewal(domain).await? {
-            info!(%domain, "ACME: certificate still valid — skip renew");
+            info!(event = "target.acme_certificate_still_valid_skip_renew", domain = %domain);
             self.write_status(domain, "valid", None).await;
             return Ok(EnsureOutcome::NotDue);
         }
 
-        info!(%domain, "ACME: requesting certificate for custom domain");
+        info!(event = "target.acme_requesting_certificate_for_custom_domain", domain = %domain);
         self.write_status(domain, "issuing", None).await;
         let directory = if self.cfg.staging {
             LetsEncrypt::Staging.url()
@@ -192,11 +192,7 @@ impl AcmeManager {
                 .await
                 .context("write http-01 token")?;
             challenge_tokens.0.push(challenge.token.clone());
-            info!(
-                token = %challenge.token,
-                %domain,
-                "ACME token ready — LE validates via Relay:80 → tunnel (custom domain Host)"
-            );
+            info!(event = "target.acme_token_ready_le_validates_via", token = %challenge.token, domain = %domain);
             order
                 .set_challenge_ready(&challenge.url)
                 .await
@@ -270,11 +266,7 @@ impl AcmeManager {
 
         self.install_certificate_pair(domain, &cert_pem, key_pair.serialize_pem().as_bytes())
             .await?;
-        info!(
-            path = %self.domain_cert_dir(domain).join("fullchain.pem").display(),
-            %domain,
-            "ACME certificate installed"
-        );
+        info!(event = "target.acme_certificate_installed", path = %self.domain_cert_dir(domain).join("fullchain.pem").display(), domain = %domain);
         self.reload_nginx().await?;
         self.write_status(domain, "issued", None).await;
         Ok(EnsureOutcome::Issued)
@@ -294,11 +286,11 @@ impl AcmeManager {
                 serde_json::from_str(&raw).context("parse ACME account credentials")?;
             match Account::from_credentials(creds).await {
                 Ok(account) => {
-                    info!(path = %path.display(), "ACME: restored account credentials");
+                    info!(event = "target.acme_restored_account_credentials", path = %path.display());
                     return Ok(account);
                 }
                 Err(e) => {
-                    warn!(error = %e, "ACME: stored credentials unusable — creating new account");
+                    warn!(event = "target.acme_stored_credentials_unusable_creating_new", error.message = %e);
                 }
             }
         }
@@ -317,7 +309,7 @@ impl AcmeManager {
         .context("create ACME account")?;
         let json = serde_json::to_string_pretty(&creds).context("serialize ACME credentials")?;
         atomic_write(&path, json.as_bytes()).await?;
-        info!(path = %path.display(), "ACME: created and persisted account");
+        info!(event = "target.acme_created_and_persisted_account", path = %path.display());
         Ok(account)
     }
 
@@ -434,13 +426,13 @@ impl AcmeManager {
         }
         .await;
         if let Err(e) = result {
-            warn!(%domain, error = %e, "ACME: could not write status file");
+            warn!(event = "target.acme_could_not_write_status_file", domain = %domain, error.message = %e);
         }
     }
 
     async fn reload_nginx(&self) -> Result<()> {
         if let Some(cmd) = &self.cfg.nginx_reload_command {
-            info!(command = %cmd, "reloading nginx");
+            info!(event = "target.reloading_nginx", command = %cmd);
             let parts: Vec<_> = cmd.split_whitespace().collect();
             if parts.is_empty() {
                 return Ok(());

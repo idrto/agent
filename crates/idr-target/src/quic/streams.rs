@@ -34,7 +34,7 @@ impl RelayQuicConnection {
                     let _ = send.finish();
                 }
                 Err(err) => {
-                    debug!(error = %err, "path probe uni stream failed");
+                    debug!(event = "target.path_probe_uni_stream_failed", error.message = %err);
                 }
             }
         });

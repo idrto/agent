@@ -14,7 +14,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:idr_telemetry/idr_telemetry.dart';
+import 'package:idr_telemetry/idr_telemetry.dart' hide defaultLogRoot;
+import 'package:idr_telemetry/idr_telemetry.dart' as idr show defaultLogRoot;
 import 'package:path_provider/path_provider.dart';
 
 const _log = IdrLog('idr_telemetry_flutter');
@@ -36,6 +37,7 @@ class TelemetryFlutter {
     required String serviceVersion,
     String? filter,
     String? logRoot,
+    Level? stderrLevel,
   }) async {
     final root = logRoot ?? Platform.environment['IDR_LOG_DIR'] ?? await defaultLogRoot();
     final t = await Telemetry.init(TelemetryConfig(
@@ -43,16 +45,20 @@ class TelemetryFlutter {
       serviceVersion: serviceVersion,
       logRoot: root,
       filter: filter ?? Platform.environment['IDR_LOG'] ?? 'info',
+      // Debug runs also print to the `flutter run` console; release builds write files only.
+      stderrLevel: stderrLevel ?? (kDebugMode ? Level.info : null),
     ));
     install();
     return t;
   }
 
-  /// `<application support>/logs` (Windows: %APPDATA%, macOS: ~/Library/Application Support,
-  /// Android/iOS: app support dir).
+  /// The shared per-OS log root (Windows `%LOCALAPPDATA%\idr.to\logs`), so app, CLIs and agent
+  /// write side by side; the application-support dir is only the fallback.
   static Future<String> defaultLogRoot() async {
+    final shared = idr.defaultLogRoot();
+    if (shared != null) return shared;
     final dir = await getApplicationSupportDirectory();
-    return '${dir.path}${Platform.pathSeparator}logs';
+    return "${dir.path}${Platform.pathSeparator}logs";
   }
 
   /// Wires framework errors, uncaught platform errors and app lifecycle into telemetry.

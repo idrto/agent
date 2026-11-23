@@ -26,7 +26,7 @@ pub fn build_connector_registry(cfg: &Config, fqhn: &str) -> ConnectorRegistry {
             continue;
         }
         if let Err(e) = svc_cfg.validate() {
-            tracing::warn!(error = %e, name = %svc_cfg.name, "skipping invalid [[services]] entry");
+            tracing::warn!(event = "target.skipping_invalid_services_entry", error.message = %e, name = %svc_cfg.name);
             continue;
         }
         svc_cfg.target_fqhn = Some(fqhn.to_string());

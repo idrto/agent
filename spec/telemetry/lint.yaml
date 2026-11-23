@@ -8,6 +8,7 @@ event_names:
   - crates/idr-signaling/src
   - crates/idr-webrtc/src
   - crates/idr-transfer/src
+  - crates/idr-target/src
   - crates/idr-c-api/src
   - packages/idr_telemetry/lib
   - packages/idr_telemetry_flutter/lib

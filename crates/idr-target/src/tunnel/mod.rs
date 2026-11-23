@@ -39,14 +39,14 @@ pub fn spawn_acceptor(
                         let result = handle_tunnel_stream(send, recv, &nginx, &expected_fqhn).await;
                         relay_conn.stream_closed();
                         if let Err(e) = result {
-                            warn!(error = %e, "tunnel stream ended");
+                            warn!(event = "target.tunnel_stream_ended", error.message = %e);
                         }
                     });
                 }
                 Err(quinn::ConnectionError::ApplicationClosed(_))
                 | Err(quinn::ConnectionError::LocallyClosed) => break,
                 Err(e) => {
-                    warn!(error = %e, "tunnel accept error — closing QUIC so supervisor can reconnect");
+                    warn!(event = "target.tunnel_accept_error_closing_quic_so", error.message = %e);
                     conn.close(0u32.into(), b"tunnel accept failure");
                     break;
                 }
@@ -73,18 +73,18 @@ async fn handle_tunnel_stream(
             // ACME HTTP-01 for our own orders is answered here (no nginx needed).
             let head = read_request_line(&mut recv).await?;
             if let Some(body) = acme_token(&head).and_then(crate::acme::http01_key_authorization) {
-                info!("tunnel answered ACME HTTP-01 challenge");
+                info!(event = "target.tunnel_answered_acme_http_01_challenge");
                 return write_http01(send, &body).await;
             }
             (nginx.http_upstream, head)
         }
     };
-    debug!(?open.kind, %upstream, "tunnel bridge to nginx");
+    debug!(event = "target.tunnel_bridge_to_nginx", kind = ?open.kind, upstream = %upstream);
     let mut tcp = TcpStream::connect(upstream)
         .await
         .with_context(|| format!("connect nginx upstream {upstream}"))?;
     tcp.write_all(&head).await?;
-    info!(?open.kind, %upstream, "tunnel bridged to upstream");
+    info!(event = "target.tunnel_bridged_to_upstream", kind = ?open.kind, upstream = %upstream);
     pipe_quic_tcp(recv, send, tcp).await
 }
 

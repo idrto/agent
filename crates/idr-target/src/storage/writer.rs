@@ -50,7 +50,7 @@ impl StorageWriter {
                             Some(StorageCommand::Shutdown) => {
                                 if !batch.is_empty() {
                                     if let Err(e) = flush_batch(&storage, &mut batch) {
-                                        error!(error = %e, "sqlite final flush failed");
+                                        error!(event = "target.sqlite_final_flush_failed", error.message = %e);
                                     }
                                 }
                                 break;
@@ -59,7 +59,7 @@ impl StorageWriter {
                                 batch.push(cmd);
                                 if batch.len() >= BATCH_MAX {
                                     if let Err(e) = flush_batch(&storage, &mut batch) {
-                                        error!(error = %e, "sqlite batch flush failed");
+                                        error!(event = "target.sqlite_batch_flush_failed", error.message = %e);
                                     }
                                     metrics.sqlite_batch_size.set(batch.len() as f64);
                                     next_flush = Instant::now() + FLUSH_INTERVAL;
@@ -71,7 +71,7 @@ impl StorageWriter {
                     _ = sleep_until_deadline(next_flush) => {
                         if !batch.is_empty() {
                             if let Err(e) = flush_batch(&storage, &mut batch) {
-                                error!(error = %e, "sqlite timed flush failed");
+                                error!(event = "target.sqlite_timed_flush_failed", error.message = %e);
                             }
                             metrics.sqlite_batch_size.set(batch.len() as f64);
                         }
@@ -113,12 +113,12 @@ fn flush_batch(storage: &Storage, batch: &mut Vec<StorageCommand>) -> Result<()>
             }
             StorageCommand::PruneExpiredCommands { not_after } => {
                 let n = storage.prune_expired_commands(not_after)?;
-                debug!(pruned = n, "pruned expired processed commands");
+                debug!(event = "target.pruned_expired_processed_commands", pruned = n);
             }
             StorageCommand::Flush => {}
             StorageCommand::Shutdown => {}
         }
     }
-    debug!(count, "sqlite batch flushed");
+    debug!(event = "target.sqlite_batch_flushed", count = count);
     Ok(())
 }

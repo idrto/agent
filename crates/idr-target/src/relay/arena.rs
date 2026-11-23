@@ -230,7 +230,7 @@ impl RelayConnectionStore {
         let (_slot, handle) = found?;
         let conn = self.arena.get(handle)?;
         if conn.entry.read().relay_id != relay_id {
-            warn!(relay_id, "relay table hash collision mismatch");
+            warn!(event = "relay.relay_table_hash_collision_mismatch", relay_id = relay_id);
             return None;
         }
         Some((handle, conn))

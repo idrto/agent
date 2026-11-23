@@ -114,7 +114,7 @@ impl Config {
     }
 }
 
-/// Per-OS default log root (04 §1.1): Windows `%LOCALAPPDATA%\IDR\logs`, macOS
+/// Per-OS default log root (04 §1.1): Windows `%LOCALAPPDATA%\idr.to\logs`, macOS
 /// `~/Library/Logs/IDR`, Linux `$XDG_STATE_HOME/idr/logs` (or `~/.local/state/idr/logs`).
 pub fn default_log_root() -> Option<PathBuf> {
     let env = |k: &str| {
@@ -123,7 +123,7 @@ pub fn default_log_root() -> Option<PathBuf> {
             .map(PathBuf::from)
     };
     if cfg!(windows) {
-        env("LOCALAPPDATA").map(|p| p.join("IDR").join("logs"))
+        env("LOCALAPPDATA").map(|p| p.join("idr.to").join("logs"))
     } else if cfg!(target_os = "macos") {
         env("HOME").map(|h| h.join("Library").join("Logs").join("IDR"))
     } else {

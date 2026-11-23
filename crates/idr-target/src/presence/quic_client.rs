@@ -98,7 +98,7 @@ impl PresenceQuicClient {
         send.finish().context("finish register stream")?;
         drop(recv);
 
-        debug!(%addr, "presence QUIC registered");
+        debug!(event = "presence.presence_quic_registered", addr = %addr);
         Ok(connection)
     }
 

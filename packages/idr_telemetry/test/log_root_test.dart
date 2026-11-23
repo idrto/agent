@@ -13,7 +13,7 @@ void main() {
         ? {'LOCALAPPDATA': r'C:\Users\u\AppData\Local'}
         : {'HOME': '/home/u'};
     final root = defaultLogRoot(env)!;
-    expect(root, contains(Platform.isWindows ? 'IDR' : (Platform.isMacOS ? 'IDR' : 'idr')));
+    expect(root, contains(Platform.isWindows ? 'idr.to' : (Platform.isMacOS ? 'IDR' : 'idr')));
     expect(root, anyOf(startsWith(r'C:\Users\u'), startsWith('/home/u')));
   });
 

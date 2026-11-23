@@ -70,12 +70,7 @@ impl WebRtcSignalingHandler {
         offer: WebRtcSessionOffer,
         outbox: &PresenceSignalingOutbox,
     ) -> anyhow::Result<()> {
-        tracing::info!(
-            session_id = %offer.connection_id,
-            fqhn = %offer.target_fqhn,
-            sdp_len = offer.sdp.sdp.len(),
-            "auto-accepting webrtc_session_offer"
-        );
+        tracing::info!(event = "webrtc.auto_accepting_webrtc_session_offer", session_id = %offer.connection_id, fqhn = %offer.target_fqhn, sdp_len = offer.sdp.sdp.len());
         let fail = |code: WebRtcSessionResultCode, detail: Option<String>| {
             let session_id = offer.connection_id;
             async move { self.send_offer_ack(outbox, session_id, code, detail).await }
@@ -120,11 +115,7 @@ impl WebRtcSignalingHandler {
 
         if let Err(e) = offer.verify_presence_signature(&self.presence_key) {
             if self.insecure_dev {
-                warn!(
-                    error = %e,
-                    session_id = %offer.connection_id,
-                    "insecure_dev: accepting offer despite presence signature failure"
-                );
+                warn!(event = "webrtc.insecure_dev_accepting_offer_despite_presence", error.message = %e, session_id = %offer.connection_id);
             } else {
                 fail(
                     WebRtcSessionResultCode::Failed,
@@ -143,10 +134,7 @@ impl WebRtcSignalingHandler {
             return Ok(());
         }
         if offer.ice.has_turn_credentials() {
-            tracing::info!(
-                session_id = %offer.connection_id,
-                "received TURN credentials"
-            );
+            tracing::info!(event = "webrtc.received_turn_credentials", session_id = %offer.connection_id);
         }
 
         let guard = match self.sessions.try_acquire(offer.connection_id) {
@@ -176,10 +164,7 @@ impl WebRtcSignalingHandler {
             None,
         )
         .await?;
-        tracing::info!(
-            session_id = %offer.connection_id,
-            "offer_ack Received sent; starting WebRTC responder"
-        );
+        tracing::info!(event = "webrtc.offer_ack_received_sent_starting_webrtc", session_id = %offer.connection_id);
 
         let stun_override = self
             .cfg
@@ -204,11 +189,7 @@ impl WebRtcSignalingHandler {
                 return Ok(());
             }
         };
-        debug!(
-            session_id = %offer.connection_id,
-            ice_count = ice_servers.len(),
-            "merged ICE servers for WebRTC session"
-        );
+        debug!(event = "webrtc.merged_ice_servers_for_webrtc_session", session_id = %offer.connection_id, ice_count = ice_servers.len());
 
         #[cfg(feature = "webrtc")]
         {
@@ -229,7 +210,7 @@ impl WebRtcSignalingHandler {
             guard.keep_alive();
             tokio::spawn(async move {
                 if let Err(e) = run_responder_session(runtime).await {
-                    warn!(error = %e, "WebRTC responder session ended with error");
+                    warn!(event = "webrtc.webrtc_responder_session_ended_with_error", error.message = %e);
                 }
             });
         }
@@ -237,13 +218,10 @@ impl WebRtcSignalingHandler {
         #[cfg(not(feature = "webrtc"))]
         {
             let _ = ice_servers;
-            warn!(
-                session_id = %offer.session_id,
-                "webrtc feature disabled; cannot complete SDP answer"
-            );
+            warn!(event = "webrtc.webrtc_feature_disabled_cannot_complete_sdp", session_id = %offer.connection_id);
             self.send_offer_ack(
                 outbox,
-                offer.session_id,
+                offer.connection_id,
                 WebRtcSessionResultCode::Failed,
                 Some("webrtc feature not enabled".into()),
             )
@@ -263,7 +241,7 @@ impl WebRtcSignalingHandler {
             anyhow::bail!("ICE candidate too large");
         }
         if !self.sessions.contains(msg.connection_id) {
-            debug!(session_id = %msg.connection_id, "ICE for unknown session");
+            debug!(event = "webrtc.ice_for_unknown_session", session_id = %msg.connection_id);
             return Ok(());
         }
         self.sessions.touch(msg.connection_id);
