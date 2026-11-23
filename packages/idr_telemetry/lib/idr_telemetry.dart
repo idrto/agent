@@ -9,6 +9,7 @@ export 'src/bundle.dart' show DiagnosticBundle;
 export 'src/ctx.dart' show LocalContext;
 export 'src/files.dart' show cleanupRuns, recoverRuns, runState, FileSink, RunKey, RunState, Exit, Recovered;
 export 'src/ids.dart' show newId, isUuid, TraceContext;
+export 'src/issue_report.dart' show reportRecipient, maxLinkChars, maxDescriptionChars, reportSubject, reportDetails, reportBody, mailtoLink;
 export 'src/log_root.dart' show defaultLogRoot;
 export 'src/pipeline.dart' show Limits, Directives;
 export 'src/record.dart' show Level, Kind, Record, ErrorInfo, maxRecordBytes, schema, withTail, formatTs;

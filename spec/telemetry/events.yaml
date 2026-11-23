@@ -349,3 +349,5 @@ events:
   agent.status.changed:    { kind: event, level: INFO, attrs: [from, to], owner: idr_target }
   target.phase.slow:       { kind: event, level: WARN, attrs: [phase, duration_ms, outcome, threshold_ms], owner: idr_target }
   target.start.billing_unreachable: { kind: event, level: INFO, attrs: [], owner: idr_target, note: "start-up skipped the subscription call" }
+  ui.command.warning:             { kind: event, level: WARN, attrs: [], owner: idr_cli_core, note: "a CLI warning shown to the user (msg is redacted)" }
+  ui.command.error:               { kind: event, level: WARN, attrs: [exit_code], owner: idr_cli_core, note: "a CLI error shown to the user; error.type is its stable code" }
