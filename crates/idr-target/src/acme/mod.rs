@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -31,10 +31,13 @@ use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
 use crate::config::AcmeConfig;
+use crate::relay::RelayReadiness;
 use idr_protocol::fqhn;
 
 /// Suffix reserved for IDR native Host-Identity FQHNs (Relay wildcard / edge terminate).
 const NATIVE_FQHN_SUFFIX: &str = ".idr.to";
+/// How long an attempt waits for a Relay session before trying anyway.
+const RELAY_WAIT: Duration = Duration::from_secs(120);
 
 /// Pending HTTP-01 challenges: token → key authorization.
 // ponytail: process-global map (one ACME manager per agent); pass it through the relay manager if that ever changes.
@@ -93,7 +96,9 @@ impl AcmeManager {
         Ok(Self { cfg, domains })
     }
 
-    pub fn spawn(self) {
+    /// `relay_ready` gates each attempt: Let's Encrypt validates through Relay :80 and the tunnel,
+    /// so requesting before a Relay session is Active fails the challenge.
+    pub fn spawn(self, relay_ready: Arc<RelayReadiness>) {
         if !self.cfg.enabled {
             info!(event = "target.acme_disabled");
             return;
@@ -104,13 +109,13 @@ impl AcmeManager {
         }
         info!(event = "target.acme_manager_starting_custom_domains_only", domains = ?self.domains);
         tokio::spawn(async move {
-            if let Err(e) = self.run_loop().await {
+            if let Err(e) = self.run_loop(relay_ready).await {
                 warn!(event = "target.acme_manager_exited", error.message = %e);
             }
         });
     }
 
-    async fn run_loop(self) -> Result<()> {
+    async fn run_loop(self, relay_ready: Arc<RelayReadiness>) -> Result<()> {
         fs::create_dir_all(&self.cfg.webroot)
             .await
             .with_context(|| format!("create ACME webroot {}", self.cfg.webroot.display()))?;
@@ -122,6 +127,15 @@ impl AcmeManager {
         loop {
             let mut any_issued = false;
             let mut any_err = None;
+            if !relay_ready.is_ready() {
+                info!(event = "target.acme_waiting_for_relay", domains = ?self.domains);
+                if !relay_ready.wait_ready(RELAY_WAIT).await {
+                    warn!(
+                        event = "target.acme_relay_not_ready",
+                        waited_ms = RELAY_WAIT.as_millis() as u64
+                    );
+                }
+            }
             for domain in &self.domains {
                 match self.ensure_certificate(domain).await {
                     Ok(EnsureOutcome::Issued) => any_issued = true,
@@ -210,8 +224,25 @@ impl AcmeManager {
                 .iter()
                 .any(|a| a.status == AuthorizationStatus::Invalid)
             {
+                // Let's Encrypt says why on the failed challenge (e.g. "Timeout during connect",
+                // "404"); without it the cause is a guess.
+                let why = auths
+                    .iter()
+                    .flat_map(|a| &a.challenges)
+                    .find_map(|c| c.error.as_ref())
+                    .map(|p| {
+                        warn!(
+                            event = "target.acme_challenge_failed",
+                            domain = %domain,
+                            error.type = p.r#type.as_deref().unwrap_or(""),
+                            http.response.status_code = p.status.unwrap_or(0) as i64,
+                            detail = p.detail.as_deref().unwrap_or("")
+                        );
+                        format!(": {}", p.detail.as_deref().unwrap_or("no detail"))
+                    })
+                    .unwrap_or_default();
                 anyhow::bail!(
-                    "ACME authorization invalid for {domain} (CNAME + Presence alias + Relay :80 required)"
+                    "ACME authorization invalid for {domain}{why} (CNAME + Presence alias + Relay :80 required)"
                 );
             }
             if tokio::time::Instant::now() > deadline {

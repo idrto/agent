@@ -437,7 +437,7 @@ async fn run_service(config_path: PathBuf, identity_override: Option<PathBuf>) -
     );
 
     match AcmeManager::new(cfg.acme.clone()) {
-        Ok(acme) => acme.spawn(),
+        Ok(acme) => acme.spawn(relay_manager.readiness()),
         Err(e) => error!(error = %e, "ACME manager not started"),
     }
 

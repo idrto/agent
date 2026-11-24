@@ -185,6 +185,9 @@ events:
   target.acme_enabled_but_no_custom_domains: { kind: event, level: WARN, attrs: [], owner: idr-target }
   target.acme_manager_starting_custom_domains_only: { kind: event, level: INFO, attrs: [domains], owner: idr-target }
   target.acme_manager_exited: { kind: event, level: WARN, attrs: [error.message], owner: idr-target }
+  target.acme_waiting_for_relay: { kind: event, level: INFO, attrs: [domains], owner: idr-target }
+  target.acme_relay_not_ready: { kind: event, level: WARN, attrs: [waited_ms], owner: idr-target }
+  target.acme_challenge_failed: { kind: event, level: WARN, attrs: [domain, error.type, http.response.status_code, detail], owner: idr-target }
   target.acme_attempt_failed: { kind: event, level: WARN, attrs: [domain, error.message], owner: idr-target }
   target.acme_sleeping_until_renew_window: { kind: event, level: INFO, attrs: [sleep_for], owner: idr-target }
   target.acme_certificate_still_valid_skip_renew: { kind: event, level: INFO, attrs: [domain], owner: idr-target }

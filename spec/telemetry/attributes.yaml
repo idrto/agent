@@ -156,6 +156,7 @@ attributes:
   # idr-target (P1-24)
   email: { type: string, class: public }
   domains: { type: string, class: public }
+  waited_ms: { type: int, class: public }
   error.message: { type: string, class: public }
   domain: { type: string, class: pseudonymous }
   sleep_for: { type: string, class: public }
