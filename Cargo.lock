@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "dp-rust"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -747,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "dp-rust-mtls"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "base64",
  "dp-rust",
@@ -1665,8 +1665,6 @@ dependencies = [
 [[package]]
 name = "instant-acme"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37221e690dcc5d0ea7c1f70decda6ae3495e72e8af06bca15e982193ffdf4fc4"
 dependencies = [
  "async-trait",
  "base64",
@@ -3032,7 +3030,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

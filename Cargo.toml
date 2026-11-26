@@ -114,3 +114,8 @@ inherits = "release"
 [patch."https://github.com/2keyapp/dp-sdk.git"]
 dp-rust = { path = "../dp-sdk/packages/dp-rust" }
 dp-rust-mtls = { path = "../dp-sdk/packages/dp-rust-mtls" }
+
+# Let's Encrypt staging now serves challenges without `token` (e.g. dns-account-01); 0.7.2 requires it.
+# Vendored copy only adds #[serde(default)] on Challenge.token. Drop when upgrading instant-acme.
+[patch.crates-io]
+instant-acme = { path = "vendor/instant-acme" }
