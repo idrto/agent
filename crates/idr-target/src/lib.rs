@@ -15,4 +15,5 @@ pub mod shutdown;
 pub mod storage;
 pub mod telemetry;
 pub mod tunnel;
+pub mod web;
 pub mod webrtc;

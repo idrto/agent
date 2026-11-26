@@ -87,7 +87,7 @@ impl ServiceGatewayConnector {
     }
 }
 
-fn resolve_inject_value(inj: &InjectHeaderConfig) -> Result<String> {
+pub(crate) fn resolve_inject_value(inj: &InjectHeaderConfig) -> Result<String> {
     let raw = if let Some(_env) = &inj.from_env {
         std::env::var(_env).map_err(|_| {
             // Never include the env var name or value — Source sees OpenError text.

@@ -18,6 +18,8 @@ fn gateway_registers_named_http_service() {
         inject_headers: vec![],
         credential_mode: GatewayCredentialMode::Target,
         require_upstream_tls: None,
+        web_path: None,
+        web_access: Default::default(),
         target_fqhn: Some("host.idr.to".into()),
     };
     let (svc, c) = ServiceGatewayConnector::named_service(cfg);
@@ -40,6 +42,8 @@ fn gateway_registers_tcp_service() {
         inject_headers: vec![],
         credential_mode: GatewayCredentialMode::Source,
         require_upstream_tls: Some(false),
+        web_path: None,
+        web_access: Default::default(),
         target_fqhn: Some("host.idr.to".into()),
     };
     cfg.validate().unwrap();
@@ -61,6 +65,8 @@ fn postgres_catalog_defaults_source_and_tls() {
         inject_headers: vec![],
         credential_mode: GatewayCredentialMode::Source,
         require_upstream_tls: None, // derive default → true for postgres
+        web_path: None,
+        web_access: Default::default(),
         target_fqhn: Some("host.idr.to".into()),
     };
     let (svc, c) = ServiceGatewayConnector::named_service(cfg);
@@ -86,6 +92,8 @@ fn postgres_explicit_tls_false_respected() {
         inject_headers: vec![],
         credential_mode: GatewayCredentialMode::Source,
         require_upstream_tls: Some(false),
+        web_path: None,
+        web_access: Default::default(),
         target_fqhn: None,
     };
     assert!(!cfg.effective_require_upstream_tls());

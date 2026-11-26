@@ -68,13 +68,23 @@ async fn handle_tunnel_stream(
         anyhow::bail!("TunnelOpen FQHN mismatch: claimed={claimed} expected={expected_fqhn}");
     }
     let (upstream, head) = match open.kind {
-        TunnelStreamKind::TlsPassthrough => (nginx.tls_upstream, Vec::new()),
+        TunnelStreamKind::TlsPassthrough => {
+            // Browser gateway: terminate custom-domain TLS here (crate::web).
+            if let Some(web) = &nginx.web {
+                return web.clone().serve_tls(tokio::io::join(recv, send)).await;
+            }
+            (nginx.tls_upstream, Vec::new())
+        }
         TunnelStreamKind::HttpPassthrough => {
             // ACME HTTP-01 for our own orders is answered here (no nginx needed).
             let head = read_request_line(&mut recv).await?;
             if let Some(body) = acme_token(&head).and_then(crate::acme::http01_key_authorization) {
                 info!(event = "target.tunnel_answered_acme_http_01_challenge");
                 return write_http01(send, &body).await;
+            }
+            if let Some(web) = &nginx.web {
+                let replay = std::io::Cursor::new(head).chain(recv);
+                return web.clone().serve_http(tokio::io::join(replay, send)).await;
             }
             (nginx.http_upstream, head)
         }

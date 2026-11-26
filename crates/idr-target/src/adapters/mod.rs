@@ -1,6 +1,6 @@
 //! Target adapters implementing idr-core connector traits over existing bridges.
 
-mod gateway;
+pub(crate) mod gateway;
 
 pub use gateway::ServiceGatewayConnector;
 

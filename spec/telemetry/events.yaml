@@ -316,6 +316,12 @@ events:
   # idr-target (P1-24)
   target.tunnel_bridge_to_nginx: { kind: event, level: DEBUG, attrs: [kind, upstream], owner: idr-target }
   target.tunnel_bridged_to_upstream: { kind: event, level: INFO, attrs: [kind, upstream], owner: idr-target }
+  target.web_gateway_enabled: { kind: event, level: INFO, attrs: [count], owner: idr-target }
+  target.web_route_skipped: { kind: event, level: WARN, attrs: [route, error.message], owner: idr-target }
+  target.web_access_key_missing: { kind: event, level: WARN, attrs: [], owner: idr-target }
+  target.web_request_denied: { kind: event, level: INFO, attrs: [route, reason], owner: idr-target }
+  target.web_upstream_failed: { kind: event, level: WARN, attrs: [route, error.message], owner: idr-target }
+  target.web_request_routed: { kind: event, level: DEBUG, attrs: [route], owner: idr-target }
   webrtc.connected: { kind: event, level: INFO, attrs: [session_id, ice_path, local_type, remote_type], owner: idr-target }
 
   target.sdk.note: { kind: event, level: INFO, attrs: [], owner: idr_target, note: "free-text SDK diagnostic (msg is redacted); migrate sites to named events over time" }

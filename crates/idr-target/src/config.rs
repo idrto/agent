@@ -36,6 +36,8 @@ pub struct Config {
     /// Generic named services (HTTP/TCP gateway). Replaces app-specific plugins.
     #[serde(default)]
     pub services: Vec<GatewayServiceConfig>,
+    #[serde(default)]
+    pub web: WebConfig,
     /// File transfer with verified Sources. Off unless enabled.
     #[serde(default)]
     pub file_transfer: FileTransferConfig,
@@ -171,9 +173,35 @@ pub struct GatewayServiceConfig {
     /// When omitted, Target derives a default for common DB services in source mode.
     #[serde(default)]
     pub require_upstream_tls: Option<bool>,
+    /// Serve this HTTP service to browsers under this path (`/` or `/name`)
+    /// on the Target's custom domains and native name. Unset: not on the web.
+    #[serde(default)]
+    pub web_path: Option<String>,
+    /// Who may open `web_path` in a browser. Default: `private`.
+    #[serde(default)]
+    pub web_access: WebAccess,
     /// Filled at registry build time from Target FQHN (not required in TOML).
     #[serde(skip)]
     pub target_fqhn: Option<String>,
+}
+
+/// Browser access to a `web_path` service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WebAccess {
+    /// Needs `[web].access_key` (cookie, Bearer, or `?idr_key=` link).
+    #[default]
+    Private,
+    /// Anyone with the URL.
+    Public,
+}
+
+/// `[web]`: browser gateway settings shared by all `web_path` services.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct WebConfig {
+    /// Key for `private` services (at least 16 characters).
+    #[serde(default)]
+    pub access_key: Option<Secret<String>>,
 }
 
 impl GatewayServiceConfig {
@@ -370,6 +398,9 @@ pub struct NginxConfig {
     pub http_upstream: std::net::SocketAddr,
     #[serde(default = "default_tunnel_enabled")]
     pub tunnel_enabled: bool,
+    /// Built from `[[services]].web_path` at load; `None` keeps the upstream bridge.
+    #[serde(skip)]
+    pub web: Option<std::sync::Arc<crate::web::WebGateway>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -400,6 +431,7 @@ impl Default for NginxConfig {
             tls_upstream: default_nginx_tls_upstream(),
             http_upstream: default_nginx_http_upstream(),
             tunnel_enabled: default_tunnel_enabled(),
+            web: None,
         }
     }
 }
@@ -749,6 +781,7 @@ impl Config {
             .with_context(|| format!("read config {}", path.display()))?;
         let mut cfg: Config = toml::from_str(&raw).context("parse config TOML")?;
         cfg.apply_env_overrides();
+        cfg.nginx.web = crate::web::WebGateway::from_config(&cfg);
         Ok(cfg)
     }
 

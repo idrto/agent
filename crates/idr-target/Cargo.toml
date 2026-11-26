@@ -48,6 +48,10 @@ uuid = { workspace = true }
 instant-acme = { workspace = true }
 rustls-pemfile = { workspace = true }
 webpki-roots = { workspace = true }
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+tokio-rustls = { version = "0.26", default-features = false }
 
 [dependencies.datachannel]
 git = "https://github.com/idrto/datachannel-rs.git"
