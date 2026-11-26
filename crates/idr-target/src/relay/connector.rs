@@ -124,7 +124,8 @@ impl RelayConnector {
                     return Ok((conn, addr, fam));
                 }
                 Ok(Err(e)) => {
-                    warn!(event = "relay.relay_connect_failed", relay_id = %descriptor.relay_id, addr = %addr, error.message = %e, family = family);
+                    // `{:#}` keeps the cause chain (e.g. "QUIC handshake: ... UnknownIssuer").
+                    warn!(event = "relay.relay_connect_failed", relay_id = %descriptor.relay_id, addr = %addr, error.message = %format_args!("{e:#}"), family = family);
                     self.metrics.inc_connection_attempt("failed", family);
                     last_err = Some(e);
                 }

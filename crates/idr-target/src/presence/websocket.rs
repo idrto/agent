@@ -641,6 +641,7 @@ impl PresenceClientTask {
             }
             "register_target_ack" => match serde_json::from_str::<RegisterTargetAck>(text) {
                 Ok(ack) => {
+                    self.relay_manager.readiness().on_presence_registered();
                     if ack.turn_mint_allowed {
                         info!(event = "presence.register_target_ack_platform_turn_available", target_fqhn = %ack.target_fqhn, fallback = %ack.webrtc_fallback);
                     } else if ack.target_allows_p2p {

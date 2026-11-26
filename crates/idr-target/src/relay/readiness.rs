@@ -1,6 +1,6 @@
 //! Signals when at least one Relay QUIC session is Active (needed before ACME http-01).
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,6 +9,7 @@ use tokio::sync::Notify;
 #[derive(Debug, Default)]
 pub struct RelayReadiness {
     active: AtomicUsize,
+    presence: AtomicBool,
     notify: Notify,
 }
 
@@ -35,8 +36,15 @@ impl RelayReadiness {
         }
     }
 
+    /// Presence accepted this Target's registration, so Relay's on-demand `ensure` can reach it.
+    /// Relay sessions are dialed on demand, so none exist before the first ACME challenge.
+    pub fn on_presence_registered(&self) {
+        self.presence.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
     pub fn is_ready(&self) -> bool {
-        self.active.load(Ordering::SeqCst) > 0
+        self.presence.load(Ordering::SeqCst) || self.active.load(Ordering::SeqCst) > 0
     }
 
     /// Wait until at least one Relay QUIC is Active, or `timeout` elapses.
